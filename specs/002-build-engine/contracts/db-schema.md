@@ -34,7 +34,7 @@ CREATE TABLE nodes (
   line_end    INTEGER,            -- 1-based, inclusive
   signature   TEXT,               -- NULL when type != "function"
   docstring   TEXT,               -- NULL if no docstring present
-  hash        TEXT                -- SHA-256 of source lines line_start..line_end
+  hash        TEXT                -- SHA-256 of f"{name}:{line_start}:{line_end}" (UTF-8) — a deterministic identity fingerprint; NOT a hash of raw source bytes
 );
 
 CREATE INDEX idx_nodes_file ON nodes(file);
