@@ -58,11 +58,11 @@ Confirm it completes in < 2s, the index reflects the change, and a second run is
 
 - [ ] T014 [P] [US1] Write `_is_git_repo(repo_root: Path) -> bool` in `change_detector.py` — checks whether `.git/` directory exists under `repo_root`
 - [ ] T015 [P] [US1] Write `_has_commits(repo_root: Path) -> bool` in `change_detector.py` — runs `["git", "rev-parse", "--verify", "HEAD"]` via `subprocess.run`; returns True only if exit code is 0
-- [ ] T016 [US1] Write `_run_git_cmd(args: list[str], cwd: Path) -> tuple[int, str]` in `change_detector.py` — runs `subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, check=False)`; returns `(returncode, stdout)`; never uses `shell=True`
+- [ ] T016 [P] [US1] Write `_run_git_cmd(args: list[str], cwd: Path) -> tuple[int, str]` in `change_detector.py` — runs `subprocess.run(args, cwd=str(cwd), capture_output=True, text=True, check=False)`; returns `(returncode, stdout)`; never uses `shell=True`
 - [ ] T017 [US1] Write `_parse_name_status(output: str) -> list[FileChange]` in `change_detector.py` — splits output on newlines; for each non-empty line splits on tab; handles M/A/D prefix (2 fields) and R prefix (3 fields: old→deleted, new→added); returns list of `FileChange` objects
 - [ ] T018 [US1] Write `_detect_via_git(repo_root: Path) -> ChangeSet` in `change_detector.py` — calls `_has_commits`; if True calls `git diff --name-status HEAD` and `git diff --name-status`; always calls `git ls-files --others --exclude-standard`; deduplicates results; returns `ChangeSet(detected_via="git")`
 - [ ] T019 [US1] Write `_detect_via_hash(repo_root: Path, conn: sqlite3.Connection, config: CerebrофyConfig) -> ChangeSet` in `change_detector.py` — walks all tracked files using `IgnoreRuleSet`; computes `SHA-256` of each file's content; compares against `file_hashes` table rows; classifies M/A/D; returns `ChangeSet(detected_via="hash_comparison")`
-- [ ] T020 [US1] Write `detect_changes(repo_root: Path, conn: sqlite3.Connection, config: CerebrофyConfig, explicit_files: list[str] | None) -> ChangeSet` in `change_detector.py` — if `explicit_files` is not None wraps them as `ChangeSet`; elif `_is_git_repo(repo_root)` calls `_detect_via_git`; else calls `_detect_via_hash`
+- [ ] T020 [US1] Write `detect_changes(repo_root: Path, conn: sqlite3.Connection, config: CerebrофyConfig, explicit_files: list[str] | None) -> ChangeSet` in `change_detector.py` — if `explicit_files` is not None: classify each path as `"D"` if the file does not exist on disk, or `"M"` if it does (also verify it passes ignore rules); wrap as `ChangeSet(detected_via="explicit")`; elif `_is_git_repo(repo_root)` calls `_detect_via_git`; else calls `_detect_via_hash`
 
 ### Implementation: Scope Resolver (`src/cerebrofy/update/scope_resolver.py`)
 
@@ -81,10 +81,10 @@ Confirm it completes in < 2s, the index reflects the change, and a second run is
 ### Implementation: Update Orchestrator (`src/cerebrofy/commands/update.py`)
 
 - [ ] T029 [US1] Write `_check_index_exists(repo_root: Path) -> Path` in `commands/update.py` — returns path to `.cerebrofy/db/cerebrofy.db`; prints `Error: No index found. Run 'cerebrofy build' first.` to stderr and raises `SystemExit(1)` if missing
-- [ ] T030 [US1] Write `_compute_new_state_hash(conn: sqlite3.Connection) -> str` in `commands/update.py` — `SELECT file, hash FROM file_hashes ORDER BY file`; computes `SHA-256` over joined `file:hash` lines; returns 64-char hex string
-- [ ] T031 [US1] Write `_run_update_transaction(conn, scope, new_neurons, new_edges, file_hash_map, embedder, new_state_hash) -> tuple[int, int]` in `commands/update.py` — executes `BEGIN IMMEDIATE`; calls delete functions (T025–T028) for affected files; inserts new nodes, edges, vec_neurons, file_hashes; updates `meta` state_hash and last_build; `COMMIT`; returns `(nodes_reindexed, nodes_deleted)`
+- [ ] T030 [US1] Write `_compute_new_state_hash(conn: sqlite3.Connection) -> str` in `commands/update.py` — `SELECT file, hash FROM file_hashes ORDER BY file`; computes `SHA-256` over joined `file:hash` lines (one `"file:hash\n"` entry per row); returns 64-char hex string. **Must use the identical formula as Phase 2's `build_step6_commit` so that `state_hash` values produced by `cerebrofy build` and `cerebrofy update` are always comparable. Verify against Phase 2 implementation before writing.**
+- [ ] T031 [US1] Write `_run_update_transaction(conn, scope, new_neurons, new_edges, file_hash_map, new_vectors: dict[str, list[float]], new_state_hash) -> tuple[int, int]` in `commands/update.py` — `new_vectors` are pre-computed BEFORE calling this function (embedding must NOT happen inside the write lock); executes `BEGIN IMMEDIATE`; calls delete functions (T025–T028) for `scope.changed_files ∪ scope.deleted_files` only (NOT `scope.affected_files` — depth-2 BFS neighbors are re-resolved but their rows are not deleted unless they appear in changed/deleted files); inserts new nodes, edges, vec_neurons (from `new_vectors`), file_hashes; updates `meta` state_hash and last_build; `COMMIT`; on any exception calls `conn.rollback()` explicitly before re-raising (never swallow the exception); returns `(nodes_reindexed, nodes_deleted)`
 - [ ] T032 [US1] Write `_rewrite_markdown_after_update(scope, conn, config, repo_root) -> None` in `commands/update.py` — rewrites affected lobe `.md` files using `write_lobe_md` from Phase 2; rewrites `cerebrofy_map.md` with new `state_hash`
-- [ ] T033 [US1] Write the `@click.command("update")` handler in `commands/update.py` — acquires `BuildLock`; calls detect → resolve_scope → parse changed files → resolve edges → embed → `_run_update_transaction` → `_rewrite_markdown_after_update`; prints progress messages per contract; prints `Nothing to update.` if `ChangeSet.changes` is empty
+- [ ] T033 [US1] Write the `@click.command("update")` handler in `commands/update.py` — use `@click.argument("files", nargs=-1, type=click.Path())` for the variadic `FILES...` argument (matches CLI contract signature); acquires `BuildLock`; calls detect → resolve_scope → parse changed files → resolve edges → pre-compute embedding vectors (BEFORE `_run_update_transaction`, so the SQLite write lock is not held during slow embedding) → `_run_update_transaction` → `_rewrite_markdown_after_update`; prints progress messages per contract; if `ChangeSet.changes` is empty prints `"Cerebrofy: Nothing to update. Index is current."` and exits 0 (exact string from cli-update.md:L55)
 - [ ] T034 [US1] Register `from cerebrofy.commands.update import update` and `cli.add_command(update)` in `src/cerebrofy/cli.py`
 
 ### Unit Tests for User Story 1
@@ -94,7 +94,7 @@ Confirm it completes in < 2s, the index reflects the change, and a second run is
 
 ### Integration Test for User Story 1
 
-- [ ] T037 [US1] Write integration test for `cerebrofy update` in `tests/integration/test_update_command.py` — create `tmp_path` git repo; run `cerebrofy build`; edit one file; run `cerebrofy update`; assert exit 0 and state_hash changed; assert second run is no-op
+- [ ] T037 [US1] Write integration test for `cerebrofy update` in `tests/integration/test_update_command.py` — create `tmp_path` git repo; run `cerebrofy build`; edit one file; run `cerebrofy update`; assert exit 0 and state_hash changed in DB meta; assert second run is no-op (`"Cerebrofy: Nothing to update. Index is current."`); then run `cerebrofy validate` and assert exit 0 with zero structural drift records (SC-002 verification: index must fully reflect current source after update)
 
 **Checkpoint**: `cerebrofy update` fully functional. Verify SC-001 (< 2s single-file change).
 
@@ -117,12 +117,12 @@ Confirm exit 1 listing the new function. Run after a comment-only change — con
 
 ### Implementation: Hook Upgrade (`src/cerebrofy/hooks/installer.py` additions)
 
-- [ ] T042 [US2] Add `upgrade_to_hard_block(hook_path: Path) -> None` to `src/cerebrofy/hooks/installer.py` — reads hook file; checks for `# BEGIN cerebrofy` / `# END cerebrofy` sentinels; replaces `# cerebrofy-hook-version: 1` with `# cerebrofy-hook-version: 2` and updates exit logic to honor `cerebrofy validate` exit code; emits warning if sentinels absent
+- [ ] T042 [US2] Add `upgrade_to_hard_block(hook_path: Path) -> None` to `src/cerebrofy/hooks/installer.py` — reads hook file; checks for `# BEGIN cerebrofy` / `# END cerebrofy` sentinels; replaces `# cerebrofy-hook-version: 1` with `# cerebrofy-hook-version: 2` and changes the exit handling so that `cerebrofy validate`'s exit code propagates to block the push (the Phase 1 hook already shells out to `cerebrofy validate` — this upgrade changes what happens when validate exits 1: WARN-only in v1, hard exit 1 in v2); emits `"Warning: Git hook not managed by Cerebrofy — manual upgrade to hard-block required."` if sentinels absent (per cli-update.md stderr contract)
 - [ ] T043 [US2] Add `downgrade_to_warn_only(hook_path: Path) -> None` to `src/cerebrofy/hooks/installer.py` — inverse of `upgrade_to_hard_block`; replaces version 2 marker with version 1; restores WARN-only exit behavior inside sentinels
 
 ### Implementation: Validate Command (`src/cerebrofy/commands/validate.py`)
 
-- [ ] T044 [US2] Write the `@click.command("validate")` handler in `commands/validate.py` — opens `cerebrofy.db` read-only; if missing prints WARN and exits 0; calls `classify_drift`; prints output per contract (no-drift / minor warning / structural block message with neuron list); exits 0 or 1
+- [ ] T044 [US2] Write the `@click.command("validate")` handler in `commands/validate.py` — opens `cerebrofy.db` using `sqlite3.connect("file:path?mode=ro", uri=True)` to enforce read-only access at the driver level (FR-008 invariant: validate MUST NOT write to the DB); if DB file missing, prints WARN and exits 0; calls `classify_drift`; prints output per contract (no-drift / minor warning / structural block message with neuron names and files); exits 0 or 1
 - [ ] T045 [US2] Register `from cerebrofy.commands.validate import validate` and `cli.add_command(validate)` in `src/cerebrofy/cli.py`
 
 ### Unit Tests for User Story 2
@@ -147,12 +147,12 @@ Confirm exit 1 listing the new function. Run after a comment-only change — con
 
 ### Implementation
 
-- [ ] T048 [P] [US3] Write `_generate_post_merge_script() -> str` in `src/cerebrofy/hooks/installer.py` — returns the shell script body for the post-merge hook; script reads `state_hash` from `docs/cerebrofy/cerebrofy_map.md`; queries local `cerebrofy.db` meta table; prints warning if hashes differ; always exits 0
-- [ ] T049 [US3] Update `install_hooks(repo_root: Path, config: CerebrофyConfig) -> None` in `src/cerebrofy/hooks/installer.py` — in addition to pre-push hook, also writes `post-merge` hook using `_generate_post_merge_script()`; uses same idempotency logic (sentinel append/skip)
+- [ ] T048 [P] [US3] Write `_generate_post_merge_script(map_md_path: str, db_path: str) -> str` in `src/cerebrofy/hooks/installer.py` — returns the shell script body for the post-merge hook; `map_md_path` and `db_path` are injected as shell variables at generation time (resolved from `config` by the caller — the shell script cannot read `config.yaml` directly); script reads `state_hash` from `map_md_path`; queries `db_path` meta table via sqlite3 shell or embedded Python one-liner; prints warning if hashes differ; always exits 0
+- [ ] T049 [US3] Update `install_hooks(repo_root: Path, config: CerebrофyConfig) -> None` in `src/cerebrofy/hooks/installer.py` — in addition to pre-push hook, also writes `post-merge` hook by calling `_generate_post_merge_script(map_md_path=str(resolved_map_path), db_path=str(resolved_db_path))`; derives both paths from `config` and `repo_root` at install time; uses same idempotency logic (sentinel append/skip)
 
 ### Integration Test for User Story 3
 
-- [ ] T050 [US3] Write integration test for post-merge hook in `tests/integration/test_update_command.py` — create `tmp_path` git repo with cerebrofy index; modify `cerebrofy_map.md` state_hash; trigger post-merge hook script directly; assert warning printed and exit code 0
+- [ ] T050 [US3] Write integration test for post-merge hook in `tests/integration/test_update_command.py` (filed here per plan.md — covers both US1 and US3 since both are update-adjacent) — create `tmp_path` git repo with cerebrofy index; modify `cerebrofy_map.md` to contain a different `state_hash`; trigger post-merge hook shell script directly (not via `git merge`); assert warning message printed to stderr; assert script exits 0 (WARN-only, never blocks)
 
 **Checkpoint**: Post-merge hook installed and warn-only behavior verified.
 
@@ -169,7 +169,7 @@ schema updated and data intact. Confirm missing script produces clear error.
 ### Implementation
 
 - [ ] T051 [US4] Write `_load_migration_plan(conn: sqlite3.Connection, migrations_dir: Path, target_version: int) -> MigrationPlan` in `commands/migrate.py` — reads `schema_version` from `meta` table; scans `migrations_dir` for files named `v{N}_to_v{N+1}.py`; builds ordered `tuple[MigrationStep, ...]`; sets `has_gap=True` if any step in the range lacks a script
-- [ ] T052 [US4] Write `_apply_migration_step(conn: sqlite3.Connection, step: MigrationStep) -> None` in `commands/migrate.py` — opens `BEGIN IMMEDIATE`; imports and runs the migration script passing `conn`; updates `meta schema_version`; `COMMIT`; rolls back on exception and re-raises
+- [ ] T052 [US4] Write `_apply_migration_step(conn: sqlite3.Connection, step: MigrationStep) -> None` in `commands/migrate.py` — opens `BEGIN IMMEDIATE`; loads the migration script via `importlib.import_module` (or `importlib.util.spec_from_file_location`) and calls its `upgrade(conn: sqlite3.Connection) -> None` function (migration scripts MUST expose exactly this interface); updates `meta schema_version` to `step.to_version`; `COMMIT`; on any exception calls `conn.rollback()` explicitly then re-raises (never swallow)
 - [ ] T053 [US4] Write the `@click.command("migrate")` handler in `commands/migrate.py` — checks index exists; calls `_load_migration_plan`; if `is_already_current` prints "Schema already at version N" and exits 0; if `has_gap` prints error and exits 1; otherwise applies steps sequentially; prints per-step progress per contract
 - [ ] T054 [US4] Register `from cerebrofy.commands.migrate import migrate` and `cli.add_command(migrate)` in `src/cerebrofy/cli.py`
 
@@ -183,11 +183,12 @@ schema updated and data intact. Confirm missing script produces clear error.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-**Purpose**: Extend existing test files, verify latency gate (SC-001), and run the
+**Purpose**: Extend existing test files, verify latency gates (SC-001, SC-005), and run the
 quickstart validation.
 
 - [ ] T056 [P] Extend `tests/unit/test_hooks.py` — add tests for `upgrade_to_hard_block` (verifies version marker replaced, sentinels respected, absent-sentinel warning) and `downgrade_to_warn_only`
 - [ ] T057 Run `cerebrofy update` against a real 1-file change in a 10k-file repo and verify wall-clock time < 2s (SC-001 gate condition for enabling hard-block in FR-014)
+- [ ] T060 [P] Run the post-merge hook script against a repo with a 10k-node `cerebrofy.db` and verify wall-clock time < 1s (SC-005 gate condition; hook is lightweight but must be verified before shipping)
 - [ ] T058 Run the full quickstart.md validation steps 1–9 end to end in a fresh tmp repo to confirm all Phase 3 acceptance scenarios pass
 - [ ] T059 [P] Run `ruff check src/ tests/` and `mypy src/` and fix any issues in Phase 3 files
 
@@ -215,14 +216,14 @@ quickstart validation.
 ### Parallel Opportunities
 
 - T006–T013 (all dataclasses) can run in parallel
-- T014–T016 (`_is_git_repo`, `_has_commits`, `_run_git_cmd`) can run in parallel
+- T014–T016 (`_is_git_repo`, `_has_commits`, `_run_git_cmd`) can all run in parallel (all marked `[P]`)
 - T021–T023 (BFS helpers) can run in parallel within scope_resolver
 - T025–T028 (partial delete functions) can run in parallel in db/writer.py
 - T035–T036 (unit tests for US1) can run in parallel
 - T038 (`_normalize_sig`) can run in parallel with T039
 - T042–T043 (hook upgrade/downgrade) can run in parallel
 - T048 (post-merge script generator) can run in parallel with T049
-- T056 and T059 can run in parallel in the polish phase
+- T056, T059, T060 can run in parallel in the polish phase
 
 ---
 
