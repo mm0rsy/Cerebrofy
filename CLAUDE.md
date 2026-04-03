@@ -47,6 +47,12 @@ src/
     ├── commands/update.py       ← cerebrofy update: partial atomic re-index orchestrator
     ├── commands/validate.py     ← cerebrofy validate: drift classification command
     ├── commands/migrate.py      ← cerebrofy migrate: sequential schema migration runner
+    ├── commands/specify.py      ← cerebrofy specify: hybrid search + LLM + spec writer
+    ├── commands/plan.py         ← cerebrofy plan: hybrid search + Markdown/JSON reporter
+    ├── commands/tasks.py        ← cerebrofy tasks: hybrid search + numbered task list
+    ├── search/hybrid.py         ← HybridSearch: KNN + BFS, single read-only connection
+    ├── llm/client.py            ← LLMClient: openai SDK wrapper, streaming + retry + timeout
+    ├── llm/prompt_builder.py    ← PromptBuilder: string.Template, lobe context injection
     └── queries/                 ← Bundled default .scm files per language
 tests/
 ├── unit/                        ← Per-module unit tests
@@ -55,7 +61,10 @@ tests/
     ├── test_build_command.py    ← Full cerebrofy build against tmp_path repos
     ├── test_update_command.py   ← Full cerebrofy update against tmp_path repos
     ├── test_validate_command.py ← Structural/minor drift scenarios
-    └── test_migrate_command.py  ← Schema migration with mock scripts
+    ├── test_migrate_command.py  ← Schema migration with mock scripts
+    ├── test_specify_command.py  ← cerebrofy specify with mock LLM endpoint
+    ├── test_plan_command.py     ← cerebrofy plan: Markdown/JSON, --top-k, offline
+    └── test_tasks_command.py    ← cerebrofy tasks: task list, RUNTIME_BOUNDARY notes
 pyproject.toml
 ```
 
@@ -85,6 +94,13 @@ cerebrofy --help
 cerebrofy init
 cerebrofy init --force
 cerebrofy parse <file-or-dir>
+cerebrofy plan "add OAuth2 login"
+cerebrofy plan --json "add OAuth2 login"
+cerebrofy plan --top-k 20 "add rate limiting"
+cerebrofy tasks "add OAuth2 login"
+cerebrofy tasks --top-k 5 "add rate limiting"
+cerebrofy specify "add OAuth2 login"
+cerebrofy specify --top-k 5 "add OAuth2 login"
 ```
 
 ## Code Style
@@ -113,8 +129,22 @@ cerebrofy parse <file-or-dir>
 - **Drift classification**: `validate/drift_classifier.py` compares Neuron `name` + whitespace-normalized `signature`. Minor = no structural change. Structural = any Neuron added/removed/renamed/sig-changed, or import added/removed.
 - **Git detection**: `update/change_detector.py` uses `subprocess.run()` with explicit arg lists (never `shell=True`). Handle fresh-repo edge case: check `git rev-parse --verify HEAD` before running `git diff` commands.
 - **cerebrofy_map.md on update**: `cerebrofy update` rewrites `cerebrofy_map.md` with new `state_hash` on every successful run (same as `cerebrofy build`).
+- **Hybrid search connection**: `search/hybrid.py` opens `cerebrofy.db` via `open_db()` with `?mode=ro` URI. KNN query and BFS traversal MUST share the same `sqlite3.Connection` object — zero IPC, zero serialization.
+- **RUNTIME_BOUNDARY in BFS**: Phase 4 BFS excludes `RUNTIME_BOUNDARY` edges from traversal. They are collected as `RuntimeBoundaryWarning` and displayed separately — never counted in blast radius.
+- **Embedding before LLM call**: `cerebrofy specify` embeds the description query (same as `cerebrofy plan`/`tasks`) BEFORE opening the DB connection. The embed model must match `embed_model` in `cerebrofy.db` meta (FR-018).
+- **Spec file atomicity**: `cerebrofy specify` collects the full LLM response in memory before writing to disk. On timeout or error, no partial file is written.
+- **`cerebrofy plan --json` schema**: Stable field names `matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope` + `schema_version: 1`. All fields always present (empty `[]` if no results). No decorative text on stdout when `--json` is active.
+- **System prompt template**: Resolved via `string.Template.safe_substitute()` with `$lobe_context`. File override path resolved relative to repo root. Built-in default lives in `llm/prompt_builder.py`.
+- **Phase 4 read-only**: `cerebrofy specify`, `cerebrofy plan`, `cerebrofy tasks` MUST NOT write to `cerebrofy.db` or any tracked source file. The only permitted write is the spec output file in `docs/cerebrofy/specs/`.
 
 ## Recent Changes
+
+- **004-ai-bridge** (2026-04-04): Phase 4 — Added `cerebrofy specify` (hybrid search + LLM +
+  streaming spec writer), `cerebrofy plan` (hybrid search + Markdown/JSON impact reporter),
+  `cerebrofy tasks` (hybrid search + numbered task list). Introduced: `search/hybrid.py`
+  (HybridSearchResult, single read-only SQLite connection), `llm/client.py` (openai SDK
+  wrapper, retry, timeout), `llm/prompt_builder.py` (string.Template, lobe context injection),
+  `commands/specify.py`, `commands/plan.py`, `commands/tasks.py`.
 
 - **003-autonomic-nervous-system** (2026-04-03): Phase 3 — Added `cerebrofy update` (partial
   atomic re-index, < 2s for single-file change), `cerebrofy validate` (tiered drift
