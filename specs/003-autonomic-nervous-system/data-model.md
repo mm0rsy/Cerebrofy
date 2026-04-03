@@ -43,7 +43,7 @@ class FileChange:
 @dataclass(frozen=True)
 class ChangeSet:
     changes: tuple[FileChange, ...]  # all detected file changes
-    detected_via: str                # "git" | "hash_comparison"
+    detected_via: str                # "git" | "hash_comparison" | "explicit"
 ```
 
 **Invariants**:
@@ -51,6 +51,8 @@ class ChangeSet:
 - `status` is exactly one of `"M"`, `"D"`, `"A"`
 - No two `FileChange` entries share the same `path`
 - `changes` is empty when no files changed since last build/update
+- `detected_via` is exactly one of `"git"` (auto-detect in git repo), `"hash_comparison"` (auto-detect without git), or `"explicit"` (caller-supplied file list via `cerebrofy update [FILES...]`)
+- When `detected_via="explicit"`: files absent on disk are classified `"D"`; files present on disk that pass ignore rules are classified `"M"`
 
 ---
 
@@ -168,7 +170,8 @@ BEGIN IMMEDIATE
   4. DELETE FROM file_hashes WHERE file IN (deleted_files)
   5. INSERT new nodes for changed_files (re-parsed Neurons)
   6. INSERT new edges for changed_files (re-resolved local + cross-module)
-  7. INSERT new vec_neurons for new/changed nodes (embed only if content changed)
+  7. INSERT new vec_neurons for new/changed nodes (vectors pre-computed BEFORE BEGIN IMMEDIATE;
+        only the INSERT occurs under the write lock — never the embedding model invocation)
   8. INSERT OR REPLACE file_hashes for changed_files ∪ deleted-cleaned
   9. UPDATE meta SET value = new_state_hash WHERE key = 'state_hash'
  10. UPDATE meta SET value = now() WHERE key = 'last_build'
