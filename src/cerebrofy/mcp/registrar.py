@@ -43,7 +43,7 @@ MCP_CONFIG_PATHS: list[tuple[str, Path]] = [
     ),
     (
         "Opencode",
-        Path("~/.opencode/mcp.json").expanduser(),
+        Path("~/.config/opencode/mcp.json").expanduser(),
     ),
     (
         "Generic MCP",
@@ -67,7 +67,13 @@ def find_writable_mcp_path(global_mode: bool) -> Path | None:
         if path.parent.exists() and os.access(path.parent, os.W_OK):
             return path
 
-    return None
+    # Fallback: create ~/.config/mcp/ and return the generic path.
+    fallback = Path("~/.config/mcp/servers.json").expanduser()
+    try:
+        fallback.parent.mkdir(parents=True, exist_ok=True)
+        return fallback
+    except OSError:
+        return None
 
 
 def has_cerebrofy_mcp_entry(config_path: Path) -> bool:
