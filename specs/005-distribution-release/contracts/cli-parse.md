@@ -34,7 +34,7 @@ open the database.
 
 ## Execution Flow
 
-1. Load `CerebrофyConfig` from `.cerebrofy/config.yaml` (walk up from CWD to find repo root)
+1. Load `CerebrоfyConfig` from `.cerebrofy/config.yaml` (walk up from CWD to find repo root)
 2. Load `IgnoreRuleSet` from `.cerebrofy-ignore` and `.gitignore`
 3. Determine target files:
    - If `path` is a file: single file `[path]`

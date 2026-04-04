@@ -1,4 +1,4 @@
-"""CerebrофyConfig dataclass and config.yaml I/O helpers."""
+"""CerebrоfyConfig dataclass and config.yaml I/O helpers."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import yaml
 
 
 @dataclass(frozen=True)
-class CerebrофyConfig:
+class CerebrоfyConfig:
     """Full contents of `.cerebrofy/config.yaml`."""
 
     lobes: dict[str, str]
@@ -27,6 +27,7 @@ DEFAULT_TRACKED_EXTENSIONS: list[str] = [
     ".cpp", ".c", ".h",
 ]
 
+def validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]:
 
 def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-arg]
     """Return a plain dict matching the config.yaml schema with defaults."""
@@ -48,13 +49,13 @@ def write_config(config: dict, path: Path) -> None:  # type: ignore[type-arg]
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
 
 
-def load_config(path: Path) -> CerebrофyConfig:
-    """Load and parse config.yaml into a CerebrофyConfig. Raises FileNotFoundError if missing."""
+def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig:
+    """Load and parse config.yaml into a CerebrоfyConfig. Raises FileNotFoundError if missing.
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    return CerebrофyConfig(
+    config = CerebrоfyConfig(
         lobes=data["lobes"],
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),

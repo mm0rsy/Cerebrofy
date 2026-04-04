@@ -109,7 +109,7 @@ src/
     │   └── neuron.py            ← Neuron dataclass + ParseResult; extraction + dedup logic
     ├── config/
     │   ├── __init__.py
-    │   └── loader.py            ← CerebrофyConfig dataclass; config.yaml read/write/validate
+    │   └── loader.py            ← CerebrоfyConfig dataclass; config.yaml read/write/validate
     ├── ignore/
     │   ├── __init__.py
     │   └── ruleset.py           ← IgnoreRuleSet; merges .cerebrofy-ignore + .gitignore via pathspec

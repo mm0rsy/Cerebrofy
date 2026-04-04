@@ -49,11 +49,11 @@ each can be executed independently by any capable LLM with only local file conte
 
 ### Config Data Types (`src/cerebrofy/config/loader.py`)
 
-- [x] T009 [P] Create `src/cerebrofy/config/loader.py` with a frozen `@dataclass` named `CerebrофyConfig` with fields: `lobes: dict[str, str]`, `tracked_extensions: list[str]`, `embedding_model: str = "local"`, `embed_dim: int = 768`, `llm_endpoint: str = "openai"`, `llm_model: str = "gpt-4o"`, `top_k: int = 10`
+- [x] T009 [P] Create `src/cerebrofy/config/loader.py` with a frozen `@dataclass` named `CerebrоfyConfig` with fields: `lobes: dict[str, str]`, `tracked_extensions: list[str]`, `embedding_model: str = "local"`, `embed_dim: int = 768`, `llm_endpoint: str = "openai"`, `llm_model: str = "gpt-4o"`, `top_k: int = 10`
 - [x] T010 Add constant `DEFAULT_TRACKED_EXTENSIONS: list[str]` to `src/cerebrofy/config/loader.py` containing: `.py .js .ts .tsx .jsx .go .rs .java .rb .cpp .c .h` (one string per extension with leading dot)
 - [x] T011 Add function `build_default_config(lobes: dict[str, str]) -> dict` to `src/cerebrofy/config/loader.py`. Returns a plain dict matching the `config.yaml` schema from `data-model.md`, using `lobes` as the lobes value and defaults for all other fields.
 - [x] T012 Add function `write_config(config: dict, path: Path) -> None` to `src/cerebrofy/config/loader.py`. Writes `config` as YAML to `path` using `yaml.dump` with `default_flow_style=False` and `allow_unicode=True`.
-- [x] T013 Add function `load_config(path: Path) -> CerebrофyConfig` to `src/cerebrofy/config/loader.py`. Reads YAML from `path`, constructs and returns a `CerebrофyConfig`. Raises `FileNotFoundError` if `path` does not exist.
+- [x] T013 Add function `load_config(path: Path) -> CerebrоfyConfig` to `src/cerebrofy/config/loader.py`. Reads YAML from `path`, constructs and returns a `CerebrоfyConfig`. Raises `FileNotFoundError` if `path` does not exist.
 
 ### Ignore Rule Engine (`src/cerebrofy/ignore/ruleset.py`)
 
@@ -137,7 +137,7 @@ Named nested functions MUST be captured. Anonymous/lambda expressions MUST NOT b
 - [x] T052 [US2] Add function `build_module_neuron(file: str, total_lines: int) -> Neuron` to `src/cerebrofy/parser/engine.py`. Returns a `Neuron` with `type="module"`, `name` set to the stem of `file` (filename without extension), `id=f"{file}::{name}"`, `line_start=1`, `line_end=total_lines`, `signature=None`, `docstring=None`.
 - [x] T053 [US2] Add function `extract_neurons(tree: Tree, source: bytes, file: str, query: Query) -> list[Neuron]` to `src/cerebrofy/parser/engine.py`. Runs `query.captures(tree.root_node)`. For each capture calls `map_capture_to_neuron`; collects non-None results. Appends `build_module_neuron` result. Calls `deduplicate_neurons` (imported from `neuron.py`) before returning.
 - [x] T054 [US2] Add function `parse_file(file_path: Path, queries_dir: Path, repo_root: Path) -> ParseResult` to `src/cerebrofy/parser/engine.py`. Reads file bytes. Gets extension. Calls `load_language_parser` and `load_query`. If either returns `None`, returns `ParseResult(file=rel_path, neurons=[], warnings=[f"No parser for {extension}"])`. Calls `Language.parser().parse(source)`, checks for `root_node.has_error`, calls `extract_neurons`. Returns `ParseResult`.
-- [x] T055 [US2] Add function `parse_directory(root: Path, config: CerebrофyConfig, ignore_rules: IgnoreRuleSet) -> list[ParseResult]` to `src/cerebrofy/parser/engine.py`. Walks all files under `root` recursively. For each file: compute relative path from `root`; skip if `ignore_rules.matches(rel_path)`; skip if file extension not in `config.tracked_extensions`; call `parse_file`. Return list of all `ParseResult` objects.
+- [x] T055 [US2] Add function `parse_directory(root: Path, config: CerebrоfyConfig, ignore_rules: IgnoreRuleSet) -> list[ParseResult]` to `src/cerebrofy/parser/engine.py`. Walks all files under `root` recursively. For each file: compute relative path from `root`; skip if `ignore_rules.matches(rel_path)`; skip if file extension not in `config.tracked_extensions`; call `parse_file`. Return list of all `ParseResult` objects.
 - [x] T056 [P] [US2] Create `src/cerebrofy/commands/parse.py` with `@click.command("parse")` function `cerebrofy_parse`. Accepts a `path` argument (file or directory). If path is a file, calls `parse_file` and prints Neurons as JSON. If directory, loads config with `load_config`, creates `IgnoreRuleSet.from_directory`, calls `parse_directory`, prints all Neurons as JSON array.
 - [x] T057 [US2] Import `cerebrofy_parse` from `src/cerebrofy/commands/parse.py` and register it in `src/cerebrofy/cli.py` using `main.add_command(cerebrofy_parse)`.
 
@@ -151,7 +151,7 @@ Named nested functions MUST be captured. Anonymous/lambda expressions MUST NOT b
 
 **Independent Test**: Edit `config.yaml` to rename a Lobe and add a pattern to `.cerebrofy-ignore`. Run `cerebrofy parse` — renamed Lobe is used, newly ignored directory is excluded.
 
-- [ ] T058 [P] [US3] Add function `validate_config(config: CerebrофyConfig, queries_dir: Path) -> list[str]` to `src/cerebrofy/config/loader.py`. Checks: (1) `lobes` is not empty; (2) `tracked_extensions` is not empty; (3) for each extension in `tracked_extensions`, verify a `.scm` file exists in `queries_dir` — warn (don't error) if missing; (4) `embed_dim` matches model: 768 for local, 1536 for openai, 1024 for cohere. Returns list of warning strings.
+- [ ] T058 [P] [US3] Add function `validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]` to `src/cerebrofy/config/loader.py`. Checks: (1) `lobes` is not empty; (2) `tracked_extensions` is not empty; (3) for each extension in `tracked_extensions`, verify a `.scm` file exists in `queries_dir` — warn (don't error) if missing; (4) `embed_dim` matches model: 768 for local, 1536 for openai, 1024 for cohere. Returns list of warning strings.
 - [ ] T059 [US3] Update `load_config` in `src/cerebrofy/config/loader.py` to accept an optional `queries_dir: Path | None = None` parameter. When provided, call `validate_config` and print any warnings to stderr.
 - [ ] T060 [US3] Verify (no code change needed) that the existing T048 + T054 logic already handles unknown extensions gracefully: `load_query` returns `None` when no `.scm` exists → `parse_file` returns a `ParseResult` with `warnings=["No parser for {extension}"]`. Confirm this warning text is printed to stderr by `cerebrofy_parse` (T056). If `cerebrofy_parse` currently swallows warnings silently, update it to print them.
 
@@ -174,8 +174,8 @@ Named nested functions MUST be captured. Anonymous/lambda expressions MUST NOT b
 
 - **Setup (Phase 1)**: No dependencies — start immediately
 - **Foundational (Phase 2)**: Depends on Setup — blocks all user stories
-- **US1 (Phase 3)**: Depends on Foundational — requires Neuron, CerebrофyConfig, IgnoreRuleSet
-- **US2 (Phase 4)**: Depends on Foundational — requires Neuron, ParseResult, CerebrофyConfig, IgnoreRuleSet
+- **US1 (Phase 3)**: Depends on Foundational — requires Neuron, CerebrоfyConfig, IgnoreRuleSet
+- **US2 (Phase 4)**: Depends on Foundational — requires Neuron, ParseResult, CerebrоfyConfig, IgnoreRuleSet
 - **US3 (Phase 5)**: Depends on US1 + US2 (config and parser both complete)
 - **Polish (Phase 6)**: Depends on all user stories complete
 
@@ -222,7 +222,7 @@ T005 tests/__init__.py files
 **Wave 1** (all parallel):
 ```
 T006 Neuron dataclass
-T009 CerebrофyConfig dataclass
+T009 CerebrоfyConfig dataclass
 T014 IgnoreRuleSet skeleton + DEFAULT_IGNORE_CONTENT
 ```
 

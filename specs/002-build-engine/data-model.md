@@ -9,7 +9,7 @@
 
 Phase 2 introduces `cerebrofy.db` — the single persistent artifact of `cerebrofy build`. All
 entities below live in this one SQLite file. Entities from Phase 1 (`Neuron`, `ParseResult`,
-`CerebrофyConfig`, `IgnoreRuleSet`) are unchanged; Phase 2 adds the persistence layer, graph
+`CerebrоfyConfig`, `IgnoreRuleSet`) are unchanged; Phase 2 adds the persistence layer, graph
 edges, embedding vectors, and documentation structures.
 
 ---

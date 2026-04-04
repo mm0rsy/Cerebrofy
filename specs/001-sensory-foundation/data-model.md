@@ -73,7 +73,7 @@ Defined in `config.yaml` under the `lobes` key.
 
 ---
 
-### CerebrофyConfig
+### CerebrоfyConfig
 
 The full contents of `.cerebrofy/config.yaml`. Parsed and validated on every Cerebrofy command.
 

@@ -265,7 +265,7 @@ Note: {src_name} has unresolvable cross-language calls — see RUNTIME_BOUNDARY 
 
 ## Config Extensions
 
-Phase 4 adds new optional keys to the existing `CerebrофyConfig` dataclass and `config.yaml`:
+Phase 4 adds new optional keys to the existing `CerebrоfyConfig` dataclass and `config.yaml`:
 
 ```yaml
 # config.yaml additions for Phase 4

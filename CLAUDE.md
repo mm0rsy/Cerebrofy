@@ -26,7 +26,7 @@ src/
     ├── commands/build.py        ← cerebrofy build: 6-step atomic pipeline orchestrator
     ├── parser/engine.py         ← Tree-sitter runner (.scm dispatch)
     ├── parser/neuron.py         ← Neuron dataclass + ParseResult
-    ├── config/loader.py         ← CerebrофyConfig dataclass; config.yaml I/O
+    ├── config/loader.py         ← CerebrоfyConfig dataclass; config.yaml I/O
     ├── ignore/ruleset.py        ← IgnoreRuleSet (pathspec)
     ├── hooks/installer.py       ← Git hook append/create/idempotency
     ├── mcp/registrar.py         ← MCP registration, fallback snippet
@@ -193,7 +193,7 @@ pip install cerebrofy[mcp]
   Embedder ABC (local/OpenAI/Cohere), Markdown generator, BuildLock, state_hash computation.
 
   MCP registration) and Universal Parser (Tree-sitter + .scm queries → Neuron records).
-  Introduced: Neuron schema, CerebrофyConfig, IgnoreRuleSet, Lobe detection algorithm.
+  Introduced: Neuron schema, CerebrоfyConfig, IgnoreRuleSet, Lobe detection algorithm.
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->

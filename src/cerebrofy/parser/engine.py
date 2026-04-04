@@ -11,7 +11,7 @@ import tree_sitter_languages
 # Suppress tree-sitter 0.21 FutureWarning about Language(path, name) constructor.
 warnings.filterwarnings("ignore", category=FutureWarning, module="tree_sitter")
 
-from cerebrofy.config.loader import CerebrофyConfig
+from cerebrofy.config.loader import CerebrоfyConfig
 from cerebrofy.ignore.ruleset import IgnoreRuleSet
 from cerebrofy.parser.neuron import Neuron, ParseResult, deduplicate_neurons
 
@@ -211,7 +211,7 @@ def parse_file(file_path: Path, queries_dir: Path, repo_root: Path) -> ParseResu
 
 def parse_directory(
     root: Path,
-    config: CerebrофyConfig,
+    config: CerebrоfyConfig,
     ignore_rules: IgnoreRuleSet,
     queries_dir: Path | None = None,
 ) -> list[ParseResult]:

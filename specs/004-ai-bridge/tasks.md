@@ -20,7 +20,7 @@ dataclass, or one-concern unit so that a simpler LLM can handle it without broad
 
 - [ ] T001 Create `src/cerebrofy/search/__init__.py` (empty file — creates search package)
 - [ ] T002 Create `src/cerebrofy/llm/__init__.py` (empty file — creates llm package)
-- [ ] T003 Add Phase 4 fields to `CerebrофyConfig` dataclass in `src/cerebrofy/config/loader.py`:
+- [ ] T003 Add Phase 4 fields to `CerebrоfyConfig` dataclass in `src/cerebrofy/config/loader.py`:
   Add five optional fields with their defaults:
   ```python
   llm_endpoint: str = ""
