@@ -87,11 +87,16 @@ def _classify_file_drift(
             drift_detail="\n".join(details),
         )
 
+    # File content changed (hash mismatch triggered re-parse) but all Neurons
+    # are identical → minor drift (comment / whitespace / formatting only).
+    # NOTE: import-level drift is not yet detected here because import statement
+    # text is not stored in the DB (requires a dedicated schema migration to add
+    # import tracking — tracked as a known gap).
     return DriftRecord(
         file=file,
-        drift_type="none",
+        drift_type="minor",
         changed_neurons=(),
-        drift_detail="",
+        drift_detail="non-structural changes only (whitespace/comments)",
     )
 
 
@@ -114,8 +119,21 @@ def classify_drift(
     for file in changed_files:
         file_path = root / file
         if not file_path.exists():
-            # Deleted file — skip (no content to parse)
+            # Deleted indexed file: every neuron it had is now "removed" → structural drift.
+            rows = conn.execute(
+                "SELECT name FROM nodes WHERE file = ?", (file,)
+            ).fetchall()
+            neuron_names = tuple(row[0] for row in rows)
+            if neuron_names:
+                details = "\n".join(f"{file}::{n}  [removed]" for n in neuron_names)
+                records.append(DriftRecord(
+                    file=file,
+                    drift_type="structural",
+                    changed_neurons=neuron_names,
+                    drift_detail=details,
+                ))
             continue
+
         # Hash check: skip if file content matches indexed hash
         current_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
         row = conn.execute(

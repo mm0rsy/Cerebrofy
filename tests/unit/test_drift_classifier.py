@@ -37,20 +37,20 @@ def test_normalize_sig_unchanged() -> None:
 
 
 def test_no_drift(tmp_path: Path) -> None:
-    """File re-parses to exact same Neurons → no drift."""
+    """File re-parses to exact same Neurons → minor drift (hash changed but neurons stable)."""
     py_file = tmp_path / "test.py"
     py_file.write_text("def add(a, b):\n    return a + b\n")
 
     conn = _make_conn_with_nodes([("add", "test.py", "def add(a, b):")])
-    # Write a fake config-like object
+
     class FakeCfg:
         tracked_extensions = {".py"}
         lobes = {"root": "."}
 
     record = _classify_file_drift("test.py", conn, FakeCfg(), tmp_path)
-    # The re-parse may find slightly different sig — just check the type
     assert record.file == "test.py"
-    assert record.drift_type in ("none", "structural")
+    # _classify_file_drift is called when hash already differs; if neurons match → minor
+    assert record.drift_type in ("minor", "structural")
 
 
 def test_structural_drift_new_function(tmp_path: Path) -> None:
@@ -100,3 +100,59 @@ def test_no_drift_hash_match(tmp_path: Path) -> None:
     # Hash matches → classify_drift should return empty list (skipped)
     records = classify_drift(["test.py"], conn, FakeCfg(), tmp_path)
     assert records == []
+
+
+def test_minor_drift_when_neurons_unchanged(tmp_path: Path) -> None:
+    """File content changes but all Neurons are identical → minor drift (not none)."""
+    from unittest.mock import MagicMock, patch
+
+    from cerebrofy.parser.neuron import Neuron, ParseResult
+    from cerebrofy.validate.drift_classifier import classify_drift
+
+    py_file = tmp_path / "test.py"
+    py_file.write_text("def foo():\n    pass\n")
+
+    # Index has the same neuron that parse_file will return — no structural change.
+    conn = _make_conn_with_nodes([("foo", "test.py", "def foo():")])
+    conn.execute(
+        "INSERT INTO file_hashes VALUES (?, ?)", ("test.py", "old_hash_value")
+    )
+
+    # Fake ParseResult returns only the one function neuron so the index matches exactly.
+    fake_neuron = MagicMock(spec=Neuron)
+    fake_neuron.name = "foo"
+    fake_neuron.signature = "def foo():"
+    fake_result = MagicMock(spec=ParseResult)
+    fake_result.neurons = [fake_neuron]
+
+    class FakeCfg:
+        tracked_extensions = {".py"}
+        lobes = {"root": "."}
+
+    with patch("cerebrofy.parser.engine.parse_file", return_value=fake_result):
+        records = classify_drift(["test.py"], conn, FakeCfg(), tmp_path)
+
+    # Hash doesn't match → re-parse; neurons match → minor drift
+    assert len(records) == 1
+    assert records[0].drift_type == "minor"
+
+
+def test_deleted_file_is_structural_drift(tmp_path: Path) -> None:
+    """A file in the index that no longer exists on disk → structural drift (neurons removed)."""
+    from cerebrofy.validate.drift_classifier import classify_drift
+
+    # File does NOT exist on disk
+    conn = _make_conn_with_nodes([("bar", "deleted.py", "def bar():")])
+    conn.execute(
+        "INSERT INTO file_hashes VALUES (?, ?)", ("deleted.py", "some_hash")
+    )
+
+    class FakeCfg:
+        tracked_extensions = {".py"}
+        lobes = {"root": "."}
+
+    records = classify_drift(["deleted.py"], conn, FakeCfg(), tmp_path)
+    assert len(records) == 1
+    assert records[0].drift_type == "structural"
+    assert "bar" in records[0].changed_neurons
+    assert "removed" in records[0].drift_detail

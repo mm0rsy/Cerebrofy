@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import click
@@ -23,6 +23,7 @@ class MigrationPlan:
     steps: tuple[MigrationStep, ...]
     is_already_current: bool
     has_gap: bool
+    is_downgrade: bool = field(default=False)
 
 
 def _load_migration_plan(
@@ -37,7 +38,17 @@ def _load_migration_plan(
     row = c.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
     current_version = int(row[0]) if row else 0
 
-    if current_version >= target_version:
+    if current_version > target_version:
+        # Schema is newer than the requested target — downgrade not supported.
+        return MigrationPlan(
+            current_version=current_version,
+            target_version=target_version,
+            steps=(),
+            is_already_current=False,
+            has_gap=False,
+            is_downgrade=True,
+        )
+    if current_version == target_version:
         return MigrationPlan(
             current_version=current_version,
             target_version=target_version,
@@ -99,7 +110,7 @@ def _apply_migration_step(conn: object, step: MigrationStep) -> None:
 )
 def cerebrofy_migrate(target: int) -> None:
     """Apply sequential schema migrations up to the target version."""
-    import sqlite3
+    from cerebrofy.db.connection import open_db
 
     root = Path.cwd()
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
@@ -111,13 +122,27 @@ def cerebrofy_migrate(target: int) -> None:
         sys.exit(1)
 
     migrations_dir = root / ".cerebrofy" / "scripts" / "migrations"
-    conn = sqlite3.connect(str(db_path))
+    # Use open_db to load the sqlite-vec extension so migration scripts that
+    # touch vec_neurons (a vec0 virtual table) work correctly.
+    conn = open_db(db_path)
 
     try:
         plan = _load_migration_plan(conn, migrations_dir, target)
 
+        if plan.is_downgrade:
+            click.echo(
+                f"Error: Index schema version {plan.current_version} is newer than "
+                f"this Cerebrofy installation (supports up to {target}). "
+                f"Upgrade Cerebrofy to the latest version, or run 'cerebrofy build' "
+                f"to rebuild from source.",
+                err=True,
+            )
+            sys.exit(1)
+
         if plan.is_already_current:
-            click.echo(f"Schema already at version {plan.current_version}")
+            click.echo(
+                f"Cerebrofy: Schema already at version {plan.current_version}. Nothing to migrate."
+            )
             sys.exit(0)
 
         if plan.has_gap:
@@ -128,11 +153,14 @@ def cerebrofy_migrate(target: int) -> None:
             )
             sys.exit(1)
 
+        click.echo(
+            f"Cerebrofy: Migrating schema from version {plan.current_version} to {target}..."
+        )
         for step in plan.steps:
-            click.echo(f"Cerebrofy: Migrating v{step.from_version} → v{step.to_version}...")
+            click.echo(f"Cerebrofy: Applying migration v{step.from_version}_to_v{step.to_version}... ", nl=False)
             _apply_migration_step(conn, step)
-            click.echo(f"Cerebrofy: Migration to v{step.to_version} complete.")
+            click.echo("done.")
 
-        click.echo(f"Cerebrofy: Schema at version {target}.")
+        click.echo(f"Cerebrofy: Migration complete. Schema now at version {target}.")
     finally:
         conn.close()

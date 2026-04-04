@@ -83,7 +83,7 @@ def test_validate_exits_1_on_structural_drift(
 def test_validate_exits_0_on_comment_only_change(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Comment-only change → no structural drift → validate exits 0."""
+    """Comment-only change → minor drift only → validate exits 0."""
     monkeypatch.chdir(tmp_path)
     _setup_git_repo(tmp_path)
     runner = CliRunner()
@@ -98,6 +98,8 @@ def test_validate_exits_0_on_comment_only_change(
     result = runner.invoke(main, ["validate"])
     assert result.exit_code == 0, f"Expected exit 0 for comment-only change:\n{result.output}"
     assert "STRUCTURAL DRIFT" not in result.output
+    # File hash changed but neurons unchanged → minor drift message
+    assert "Minor drift" in result.output or "Index is current" in result.output
 
 
 # ---------------------------------------------------------------------------

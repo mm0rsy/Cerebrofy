@@ -119,7 +119,27 @@ def test_migrate_already_current_exits_0(
 
     result = runner.invoke(main, ["migrate"])
     assert result.exit_code == 0, f"Expected exit 0:\n{result.output}"
-    assert "already" in result.output.lower() or "version" in result.output.lower()
+    assert "Cerebrofy: Schema already at version" in result.output
+    assert "Nothing to migrate" in result.output
+
+
+def test_migrate_downgrade_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Schema newer than target → migrate exits 1 with a downgrade error."""
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+    db_path = _setup_indexed_repo(tmp_path, runner)
+
+    # Bump schema_version above the default target (1)
+    conn = _open_db(db_path)
+    conn.execute("UPDATE meta SET value='5' WHERE key='schema_version'")
+    conn.commit()
+    conn.close()
+
+    result = runner.invoke(main, ["migrate", "--target", "1"])
+    assert result.exit_code == 1
+    assert "newer" in result.output.lower() or "newer" in str(result.exception).lower()
 
 
 # ---------------------------------------------------------------------------

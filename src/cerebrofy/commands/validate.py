@@ -8,6 +8,7 @@ from pathlib import Path
 
 import click
 
+from cerebrofy.db.connection import check_schema_version
 from cerebrofy.validate.drift_classifier import DriftRecord, classify_drift
 
 
@@ -43,7 +44,16 @@ def cerebrofy_validate(hook: str | None) -> None:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
     try:
-        # Collect all tracked files as potential candidates
+        # Invariant: verify schema version before any read (CLAUDE.md invariant).
+        try:
+            check_schema_version(conn)
+        except ValueError as schema_err:
+            click.echo(
+                f"Cerebrofy: {schema_err}. Run 'cerebrofy migrate' to update the schema."
+            )
+            sys.exit(0)  # Schema mismatch is WARN-only; never blocks
+
+        # Collect all tracked files currently on disk
         tracked_files: list[str] = []
         for file_path in sorted(root.rglob("*")):
             if not file_path.is_file():
@@ -54,7 +64,15 @@ def cerebrofy_validate(hook: str | None) -> None:
             if file_path.suffix.lower() in config.tracked_extensions:
                 tracked_files.append(rel)
 
-        records = classify_drift(tracked_files, conn, config, root)
+        # Also include indexed files that no longer exist on disk — deleting a
+        # tracked file removes all its Neurons, which is structural drift.
+        indexed_files = {
+            row[0] for row in conn.execute("SELECT file FROM file_hashes").fetchall()
+        }
+        deleted_indexed = list(indexed_files - set(tracked_files))
+        all_files_to_check = tracked_files + deleted_indexed
+
+        records = classify_drift(all_files_to_check, conn, config, root)
 
     finally:
         conn.close()
