@@ -20,12 +20,23 @@ class Neuron:
 
 
 @dataclass(frozen=True)
+class RawCapture:
+    """A single tree-sitter capture that does not produce a Neuron (e.g. call, import)."""
+
+    capture_name: str  # e.g. "call", "import"
+    text: str          # literal text of the captured node
+    file: str
+    line: int          # 1-based line number
+
+
+@dataclass(frozen=True)
 class ParseResult:
     """Output of a single parser run on one source file."""
 
     file: str
     neurons: list[Neuron] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    raw_captures: tuple[RawCapture, ...] = field(default_factory=tuple)
 
 
 def deduplicate_neurons(neurons: list[Neuron]) -> list[Neuron]:

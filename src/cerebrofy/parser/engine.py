@@ -10,7 +10,7 @@ import tree_sitter_languages  # type: ignore[import-untyped]
 
 from cerebrofy.config.loader import CerebrоfyConfig
 from cerebrofy.ignore.ruleset import IgnoreRuleSet
-from cerebrofy.parser.neuron import Neuron, ParseResult, deduplicate_neurons
+from cerebrofy.parser.neuron import Neuron, ParseResult, RawCapture, deduplicate_neurons
 
 # Suppress tree-sitter 0.21 FutureWarning about Language(path, name) constructor.
 # Must be set before any get_language() call (fires lazily, not at import time).
@@ -193,11 +193,14 @@ def extract_neurons(
     source: bytes,
     file: str,
     query: "Query",
-) -> list[Neuron]:
+) -> tuple[list[Neuron], tuple[RawCapture, ...]]:
     """Run query captures and map them to Neurons (plus module Neuron).
 
     Per data-model: classes that contain methods do NOT produce a class Neuron —
     only their method Neurons are kept (byte-range containment check).
+
+    Returns (neurons, raw_captures) where raw_captures holds call/import captures
+    that did not produce a Neuron.
     """
     captures = query.captures(tree.root_node)  # list[(Node, capture_name)]
 
@@ -239,6 +242,7 @@ def extract_neurons(
                     break
 
     neurons: list[Neuron] = []
+    raw_captures: list[RawCapture] = []
     for node, capture_name in captures:
         if _is_class_capture(capture_name) and id(node) in suppressed_class_ids:
             continue
@@ -248,11 +252,18 @@ def extract_neurons(
         )
         if neuron is not None:
             neurons.append(neuron)
+        elif "call" in capture_name or "import" in capture_name:
+            raw_captures.append(RawCapture(
+                capture_name=capture_name,
+                text=node.text.decode("utf-8", errors="replace"),
+                file=file,
+                line=node.start_point[0] + 1,
+            ))
 
     total_lines = source.count(b"\n") + 1
     neurons.append(build_module_neuron(file, total_lines))
 
-    return deduplicate_neurons(neurons)
+    return deduplicate_neurons(neurons), tuple(raw_captures)
 
 
 def parse_file(file_path: Path, queries_dir: Path, repo_root: Path) -> ParseResult:
@@ -279,8 +290,8 @@ def parse_file(file_path: Path, queries_dir: Path, repo_root: Path) -> ParseResu
     if tree.root_node.has_error:
         warnings.append(f"Syntax error in {rel_path}: file partially parsed.")
 
-    neurons = extract_neurons(tree, source, rel_path, query)
-    return ParseResult(file=rel_path, neurons=neurons, warnings=warnings)
+    neurons, raw_captures = extract_neurons(tree, source, rel_path, query)
+    return ParseResult(file=rel_path, neurons=neurons, warnings=warnings, raw_captures=raw_captures)
 
 
 def parse_directory(
