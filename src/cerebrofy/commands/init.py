@@ -116,12 +116,12 @@ def cerebrofy_init(global_mcp: bool, no_mcp: bool, force: bool) -> None:
 
     create_scaffold_directories(root)
     copy_query_files(root, force=force)
-    write_cerebrofy_ignore(root)
 
     click.echo("Cerebrofy: Writing .cerebrofy/config.yaml")
     write_config(build_default_config(lobes), cerebrofy_dir / "config.yaml")
 
     click.echo("Cerebrofy: Writing .cerebrofy-ignore")
+    write_cerebrofy_ignore(root)
     click.echo("Cerebrofy: Installing git hooks (warn-only mode)")
     hook_warnings = install_hooks(root)
     for w in hook_warnings:
