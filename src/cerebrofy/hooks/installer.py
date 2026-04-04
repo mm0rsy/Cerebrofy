@@ -57,6 +57,54 @@ def install_hooks(root: Path) -> list[str]:
     return warnings
 
 
+def upgrade_to_hard_block(hook_path: Path) -> None:
+    """Upgrade the cerebrofy pre-push hook from warn-only (v1) to hard-block (v2).
+
+    Replaces version marker and adds explicit exit-code propagation.
+    Emits a warning if sentinels are absent (manually edited hook).
+    """
+    if not hook_path.exists():
+        return
+    content = hook_path.read_text(encoding="utf-8")
+    if HOOK_MARKER_START not in content or HOOK_MARKER_END not in content:
+        import click
+        click.echo(
+            "Warning: Git hook not managed by Cerebrofy — manual upgrade to hard-block required.",
+            err=True,
+        )
+        return
+    # Replace version marker and add exit-code propagation
+    content = content.replace(
+        "# cerebrofy-hook-version: 1", "# cerebrofy-hook-version: 2"
+    )
+    # Replace warn-only call with hard-block call
+    content = content.replace(
+        "cerebrofy validate --hook pre-push\n",
+        "cerebrofy validate --hook pre-push\nexit_code=$?\nif [ $exit_code -ne 0 ]; then exit 1; fi\n",
+    )
+    hook_path.write_text(content, encoding="utf-8")
+
+
+def downgrade_to_warn_only(hook_path: Path) -> None:
+    """Downgrade the cerebrofy pre-push hook from hard-block (v2) to warn-only (v1).
+
+    Inverse of upgrade_to_hard_block.
+    """
+    if not hook_path.exists():
+        return
+    content = hook_path.read_text(encoding="utf-8")
+    if HOOK_MARKER_START not in content or HOOK_MARKER_END not in content:
+        return
+    content = content.replace(
+        "# cerebrofy-hook-version: 2", "# cerebrofy-hook-version: 1"
+    )
+    content = content.replace(
+        "cerebrofy validate --hook pre-push\nexit_code=$?\nif [ $exit_code -ne 0 ]; then exit 1; fi\n",
+        "cerebrofy validate --hook pre-push\n",
+    )
+    hook_path.write_text(content, encoding="utf-8")
+
+
 def add_gitignore_entry(repo_root: Path) -> None:
     """Append .cerebrofy/db/ to .gitignore if not already present (FR-019)."""
     entry = ".cerebrofy/db/"

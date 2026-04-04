@@ -89,6 +89,67 @@ def build_neuron_text(neuron: Neuron) -> str:
     return text[:512]
 
 
+def delete_nodes_for_files(
+    conn: sqlite3.Connection, files: frozenset[str]
+) -> set[str]:
+    """Delete all nodes whose file is in files; return the set of deleted IDs."""
+    if not files:
+        return set()
+    placeholders = ",".join("?" * len(files))
+    rows = conn.execute(
+        f"SELECT id FROM nodes WHERE file IN ({placeholders})", tuple(files)
+    ).fetchall()
+    deleted_ids = {row[0] for row in rows}
+    conn.execute(
+        f"DELETE FROM nodes WHERE file IN ({placeholders})", tuple(files)
+    )
+    return deleted_ids
+
+
+def delete_edges_for_files(
+    conn: sqlite3.Connection,
+    files: frozenset[str],
+    deleted_node_ids: set[str],
+) -> None:
+    """Delete edges for given files and orphaned edges referencing deleted node IDs."""
+    if files:
+        placeholders = ",".join("?" * len(files))
+        conn.execute(
+            f"DELETE FROM edges WHERE file IN ({placeholders})", tuple(files)
+        )
+    if deleted_node_ids:
+        placeholders = ",".join("?" * len(deleted_node_ids))
+        params = tuple(deleted_node_ids)
+        conn.execute(
+            f"DELETE FROM edges WHERE src_id IN ({placeholders}) OR dst_id IN ({placeholders})",
+            params + params,
+        )
+
+
+def delete_vec_neurons(
+    conn: sqlite3.Connection, node_ids: set[str]
+) -> None:
+    """Delete vec_neurons rows for the given node IDs (must be inside BEGIN IMMEDIATE)."""
+    if not node_ids:
+        return
+    placeholders = ",".join("?" * len(node_ids))
+    conn.execute(
+        f"DELETE FROM vec_neurons WHERE id IN ({placeholders})", tuple(node_ids)
+    )
+
+
+def delete_file_hashes(
+    conn: sqlite3.Connection, files: frozenset[str]
+) -> None:
+    """Delete file_hashes rows for the given file paths."""
+    if not files:
+        return
+    placeholders = ",".join("?" * len(files))
+    conn.execute(
+        f"DELETE FROM file_hashes WHERE file IN ({placeholders})", tuple(files)
+    )
+
+
 def upsert_vectors(
     conn: sqlite3.Connection,
     neuron_ids: list[str],

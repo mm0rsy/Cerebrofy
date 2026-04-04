@@ -5,7 +5,10 @@ import click
 from cerebrofy import __version__
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.init import cerebrofy_init
+from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.parse import cerebrofy_parse
+from cerebrofy.commands.update import cerebrofy_update
+from cerebrofy.commands.validate import cerebrofy_validate
 
 
 @click.group()
@@ -16,4 +19,7 @@ def main() -> None:
 
 main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_init)
+main.add_command(cerebrofy_migrate)
 main.add_command(cerebrofy_parse)
+main.add_command(cerebrofy_update)
+main.add_command(cerebrofy_validate)
