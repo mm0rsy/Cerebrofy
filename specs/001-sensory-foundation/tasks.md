@@ -43,23 +43,23 @@ each can be executed independently by any capable LLM with only local file conte
 
 ### Neuron Data Types (`src/cerebrofy/parser/neuron.py`)
 
-- [ ] T006 [P] Create `src/cerebrofy/parser/neuron.py` with a frozen `@dataclass` named `Neuron` with these fields: `id: str`, `name: str`, `type: str` (literal "function"/"class"/"module"), `file: str`, `line_start: int`, `line_end: int`, `signature: str | None = None`, `docstring: str | None = None`
-- [ ] T007 Add a frozen `@dataclass` named `ParseResult` to `src/cerebrofy/parser/neuron.py` with fields: `file: str`, `neurons: list[Neuron]`, `warnings: list[str]`. Use `field(default_factory=list)` for the list fields.
-- [ ] T008 Add function `deduplicate_neurons(neurons: list[Neuron]) -> list[Neuron]` to `src/cerebrofy/parser/neuron.py`. It must keep only the first Neuron for each `id` (ordered by `line_start` ascending). Return a new list; do not mutate input.
+- [x] T006 [P] Create `src/cerebrofy/parser/neuron.py` with a frozen `@dataclass` named `Neuron` with these fields: `id: str`, `name: str`, `type: str` (literal "function"/"class"/"module"), `file: str`, `line_start: int`, `line_end: int`, `signature: str | None = None`, `docstring: str | None = None`
+- [x] T007 Add a frozen `@dataclass` named `ParseResult` to `src/cerebrofy/parser/neuron.py` with fields: `file: str`, `neurons: list[Neuron]`, `warnings: list[str]`. Use `field(default_factory=list)` for the list fields.
+- [x] T008 Add function `deduplicate_neurons(neurons: list[Neuron]) -> list[Neuron]` to `src/cerebrofy/parser/neuron.py`. It must keep only the first Neuron for each `id` (ordered by `line_start` ascending). Return a new list; do not mutate input.
 
 ### Config Data Types (`src/cerebrofy/config/loader.py`)
 
-- [ ] T009 [P] Create `src/cerebrofy/config/loader.py` with a frozen `@dataclass` named `CerebrофyConfig` with fields: `lobes: dict[str, str]`, `tracked_extensions: list[str]`, `embedding_model: str = "local"`, `embed_dim: int = 768`, `llm_endpoint: str = "openai"`, `llm_model: str = "gpt-4o"`, `top_k: int = 10`
-- [ ] T010 Add constant `DEFAULT_TRACKED_EXTENSIONS: list[str]` to `src/cerebrofy/config/loader.py` containing: `.py .js .ts .tsx .jsx .go .rs .java .rb .cpp .c .h` (one string per extension with leading dot)
-- [ ] T011 Add function `build_default_config(lobes: dict[str, str]) -> dict` to `src/cerebrofy/config/loader.py`. Returns a plain dict matching the `config.yaml` schema from `data-model.md`, using `lobes` as the lobes value and defaults for all other fields.
-- [ ] T012 Add function `write_config(config: dict, path: Path) -> None` to `src/cerebrofy/config/loader.py`. Writes `config` as YAML to `path` using `yaml.dump` with `default_flow_style=False` and `allow_unicode=True`.
-- [ ] T013 Add function `load_config(path: Path) -> CerebrофyConfig` to `src/cerebrofy/config/loader.py`. Reads YAML from `path`, constructs and returns a `CerebrофyConfig`. Raises `FileNotFoundError` if `path` does not exist.
+- [x] T009 [P] Create `src/cerebrofy/config/loader.py` with a frozen `@dataclass` named `CerebrофyConfig` with fields: `lobes: dict[str, str]`, `tracked_extensions: list[str]`, `embedding_model: str = "local"`, `embed_dim: int = 768`, `llm_endpoint: str = "openai"`, `llm_model: str = "gpt-4o"`, `top_k: int = 10`
+- [x] T010 Add constant `DEFAULT_TRACKED_EXTENSIONS: list[str]` to `src/cerebrofy/config/loader.py` containing: `.py .js .ts .tsx .jsx .go .rs .java .rb .cpp .c .h` (one string per extension with leading dot)
+- [x] T011 Add function `build_default_config(lobes: dict[str, str]) -> dict` to `src/cerebrofy/config/loader.py`. Returns a plain dict matching the `config.yaml` schema from `data-model.md`, using `lobes` as the lobes value and defaults for all other fields.
+- [x] T012 Add function `write_config(config: dict, path: Path) -> None` to `src/cerebrofy/config/loader.py`. Writes `config` as YAML to `path` using `yaml.dump` with `default_flow_style=False` and `allow_unicode=True`.
+- [x] T013 Add function `load_config(path: Path) -> CerebrофyConfig` to `src/cerebrofy/config/loader.py`. Reads YAML from `path`, constructs and returns a `CerebrофyConfig`. Raises `FileNotFoundError` if `path` does not exist.
 
 ### Ignore Rule Engine (`src/cerebrofy/ignore/ruleset.py`)
 
-- [ ] T014 [P] Create `src/cerebrofy/ignore/ruleset.py` with string constant `DEFAULT_IGNORE_CONTENT` containing the default `.cerebrofy-ignore` lines from `data-model.md` (node_modules/, __pycache__/, .git/, dist/, build/, out/, vendor/, .venv/, venv/, *.min.js, *.min.css, *.map, *.lock, *.pyc, *.egg-info/, coverage/, .nyc_output/ — each on its own line with a comment header)
-- [ ] T015 Add `@dataclass` named `IgnoreRuleSet` to `src/cerebrofy/ignore/ruleset.py` with fields: `cerebrofy_lines: list[str]`, `git_lines: list[str]`. Add classmethod `from_directory(root: Path) -> IgnoreRuleSet` that reads `.cerebrofy-ignore` and `.gitignore` from `root` (each may not exist — default to empty list).
-- [ ] T016 Add method `matches(self, path: str) -> bool` to `IgnoreRuleSet` in `src/cerebrofy/ignore/ruleset.py`. Uses `pathspec.PathSpec.from_lines("gitwildmatch", lines)` to check both rulesets. Returns `True` if `path` matches any rule in either set.
+- [x] T014 [P] Create `src/cerebrofy/ignore/ruleset.py` with string constant `DEFAULT_IGNORE_CONTENT` containing the default `.cerebrofy-ignore` lines from `data-model.md` (node_modules/, __pycache__/, .git/, dist/, build/, out/, vendor/, .venv/, venv/, *.min.js, *.min.css, *.map, *.lock, *.pyc, *.egg-info/, coverage/, .nyc_output/ — each on its own line with a comment header)
+- [x] T015 Add `@dataclass` named `IgnoreRuleSet` to `src/cerebrofy/ignore/ruleset.py` with fields: `cerebrofy_lines: list[str]`, `git_lines: list[str]`. Add classmethod `from_directory(root: Path) -> IgnoreRuleSet` that reads `.cerebrofy-ignore` and `.gitignore` from `root` (each may not exist — default to empty list).
+- [x] T016 Add method `matches(self, path: str) -> bool` to `IgnoreRuleSet` in `src/cerebrofy/ignore/ruleset.py`. Uses `pathspec.PathSpec.from_lines("gitwildmatch", lines)` to check both rulesets. Returns `True` if `path` matches any rule in either set.
 
 **Checkpoint**: Foundation ready — all shared data structures exist and are importable. User story implementation can now begin.
 
