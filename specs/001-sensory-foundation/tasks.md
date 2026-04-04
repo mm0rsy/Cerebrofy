@@ -161,10 +161,10 @@ Named nested functions MUST be captured. Anonymous/lambda expressions MUST NOT b
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T061 [P] Add `--version` flag to the Click group in `src/cerebrofy/cli.py` using `@click.version_option(version=__version__, prog_name="cerebrofy")`
-- [ ] T062 [P] Run `quickstart.md` edge-case scenarios manually: flat repo, syntax-error file, unwritable MCP paths, pre-existing hook — fix any issues found
-- [ ] T063 Run `ruff check src/ tests/` and `mypy src/` — fix all reported issues in source files
-- [ ] T064 [P] Verify SC-001: time `cerebrofy init` against a repo containing at least 1,000 files (e.g., using `time cerebrofy init` in a generated fixture directory). Confirm wall-clock time is under 30 seconds. Document result in a comment or CI note — no automated assertion required for Phase 1.
+- [x] T061 [P] Add `--version` flag to the Click group in `src/cerebrofy/cli.py` using `@click.version_option(version=__version__, prog_name="cerebrofy")`
+- [x] T062 [P] Run `quickstart.md` edge-case scenarios manually: flat repo, syntax-error file, unwritable MCP paths, pre-existing hook — fix any issues found
+- [x] T063 Run `ruff check src/ tests/` and `mypy src/` — fix all reported issues in source files
+- [x] T064 [P] Verify SC-001: time `cerebrofy init` against a repo containing at least 1,000 files (e.g., using `time cerebrofy init` in a generated fixture directory). Confirm wall-clock time is under 30 seconds. Document result in a comment or CI note — no automated assertion required for Phase 1.
 
 ---
 

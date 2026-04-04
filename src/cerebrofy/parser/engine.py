@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-import tree_sitter_languages
-
-# Suppress tree-sitter 0.21 FutureWarning about Language(path, name) constructor.
-warnings.filterwarnings("ignore", category=FutureWarning, module="tree_sitter")
+import tree_sitter_languages  # type: ignore[import-untyped]
 
 from cerebrofy.config.loader import CerebrоfyConfig
 from cerebrofy.ignore.ruleset import IgnoreRuleSet
 from cerebrofy.parser.neuron import Neuron, ParseResult, deduplicate_neurons
+
+# Suppress tree-sitter 0.21 FutureWarning about Language(path, name) constructor.
+# Must be set before any get_language() call (fires lazily, not at import time).
+warnings.filterwarnings("ignore", category=FutureWarning, module="tree_sitter")
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Query, Tree
@@ -42,7 +43,7 @@ def load_language_parser(extension: str) -> "Language | None":
     if not lang_name:
         return None
     try:
-        return tree_sitter_languages.get_language(lang_name)
+        return cast("Language", tree_sitter_languages.get_language(lang_name))
     except Exception:
         return None
 
@@ -56,7 +57,7 @@ def load_query(extension: str, queries_dir: Path) -> "Query | None":
     if not scm_path.exists():
         return None
     try:
-        lang = tree_sitter_languages.get_language(lang_name)
+        lang = cast("Language", tree_sitter_languages.get_language(lang_name))
         scm_text = scm_path.read_text(encoding="utf-8")
         return lang.query(scm_text)
     except Exception:
