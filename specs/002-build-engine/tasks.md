@@ -27,9 +27,9 @@ each can be executed independently by any capable LLM with only local file conte
 **Purpose**: Extend the Phase 1 package with new dependencies and empty module stubs.
 All tasks are independent.
 
-- [ ] T001 Add new dependencies to `pyproject.toml`: `sqlite-vec>=0.5`, `sentence-transformers>=2.2`, `openai>=1.0`, `cohere>=4.0`. Place them in the `[project.dependencies]` list alongside the existing Phase 1 deps.
-- [ ] T002 [P] Create empty `__init__.py` stubs for all new subpackages: `src/cerebrofy/db/__init__.py`, `src/cerebrofy/graph/__init__.py`, `src/cerebrofy/embedder/__init__.py`, `src/cerebrofy/markdown/__init__.py`
-- [ ] T003 [P] Verify `pip install -e ".[dev]"` resolves all new deps after T001; confirm `import sqlite_vec`, `import sentence_transformers`, `import openai`, `import cohere` succeed in a Python REPL. No file changes needed — this is a validation-only task.
+- [x] T001 Add new dependencies to `pyproject.toml`: `sqlite-vec>=0.5`, `sentence-transformers>=2.2`, `openai>=1.0`, `cohere>=4.0`. Place them in the `[project.dependencies]` list alongside the existing Phase 1 deps.
+- [x] T002 [P] Create empty `__init__.py` stubs for all new subpackages: `src/cerebrofy/db/__init__.py`, `src/cerebrofy/graph/__init__.py`, `src/cerebrofy/embedder/__init__.py`, `src/cerebrofy/markdown/__init__.py`
+- [x] T003 [P] Verify `pip install -e ".[dev]"` resolves all new deps after T001; confirm `import sqlite_vec`, `import sentence_transformers`, `import openai`, `import cohere` succeed in a Python REPL. No file changes needed — this is a validation-only task.
 
 **Checkpoint**: `pip install -e ".[dev]"` succeeds with all new packages installed.
 

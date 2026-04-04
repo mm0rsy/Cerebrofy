@@ -13,6 +13,10 @@ dependencies = [
     "pathspec>=0.12",
     "PyYAML>=6.0",
     "click>=8.1",
+    "sqlite-vec>=0.1.6",
+    "sentence-transformers>=2.2",
+    "openai>=1.0",
+    "cohere>=4.0",
 ]
 
 [project.optional-dependencies]
