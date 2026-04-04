@@ -17,8 +17,15 @@ from cerebrofy.db.writer import (
     compute_state_hash,
     insert_meta,
     write_build_meta,
+    write_edges,
     write_file_hashes,
     write_nodes,
+)
+from cerebrofy.graph.resolver import (
+    build_name_registry,
+    resolve_cross_module_edges,
+    resolve_import_edges,
+    resolve_local_edges,
 )
 from cerebrofy.ignore.ruleset import IgnoreRuleSet
 from cerebrofy.parser.engine import parse_directory
@@ -112,6 +119,33 @@ def build_step6_commit(
     return state_hash
 
 
+def build_step2_local_graph(
+    conn: sqlite3.Connection,
+    parse_results: list,  # type: ignore[type-arg]
+    name_registry: dict,  # type: ignore[type-arg]
+) -> None:
+    """Step 2: Resolve intra-file LOCAL_CALL edges and write them to the DB."""
+    click.echo("Cerebrofy: Step 2/6 — Building local call graph")
+    all_edges = []
+    for pr in parse_results:
+        all_edges.extend(resolve_local_edges(pr, name_registry))
+    write_edges(conn, all_edges)
+
+
+def build_step3_cross_module_graph(
+    conn: sqlite3.Connection,
+    parse_results: list,  # type: ignore[type-arg]
+    name_registry: dict,  # type: ignore[type-arg]
+) -> None:
+    """Step 3: Resolve cross-module EXTERNAL_CALL, RUNTIME_BOUNDARY, and IMPORT edges."""
+    click.echo("Cerebrofy: Step 3/6 — Resolving cross-module calls")
+    all_edges = []
+    for pr in parse_results:
+        all_edges.extend(resolve_cross_module_edges(pr, name_registry))
+        all_edges.extend(resolve_import_edges(pr, name_registry))
+    write_edges(conn, all_edges)
+
+
 @click.command("build")
 def cerebrofy_build() -> None:
     """Build the Cerebrofy index for the current repository."""
@@ -137,6 +171,10 @@ def cerebrofy_build() -> None:
 
     all_neurons = [n for pr in parse_results for n in pr.neurons]
     write_nodes(conn, all_neurons)
+
+    name_registry = build_name_registry(parse_results)
+    build_step2_local_graph(conn, parse_results, name_registry)
+    build_step3_cross_module_graph(conn, parse_results, name_registry)
 
     state_hash = build_step6_commit(conn, root, config, ignore_rules)
 
