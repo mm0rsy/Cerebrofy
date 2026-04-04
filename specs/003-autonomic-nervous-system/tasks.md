@@ -94,7 +94,7 @@ Confirm it completes in < 2s, the index reflects the change, and a second run is
 
 ### Integration Test for User Story 1
 
-- [x] T037 [US1] Write integration test for `cerebrofy update` in `tests/integration/test_update_command.py` — create `tmp_path` git repo; run `cerebrofy build`; edit one file; run `cerebrofy update`; assert exit 0 and state_hash changed in DB meta; assert second run is no-op (`"Cerebrofy: Nothing to update. Index is current."`); then run `cerebrofy validate` and assert exit 0 with zero structural drift records (SC-002 verification: index must fully reflect current source after update)
+- [x] T037 [US1] Write integration test for `cerebrofy update` in `tests/integration/test_update_command.py` — DONE — create `tmp_path` git repo; run `cerebrofy build`; edit one file; run `cerebrofy update`; assert exit 0 and state_hash changed in DB meta; assert second run is no-op (`"Cerebrofy: Nothing to update. Index is current."`); then run `cerebrofy validate` and assert exit 0 with zero structural drift records (SC-002 verification: index must fully reflect current source after update)
 
 **Checkpoint**: `cerebrofy update` fully functional. Verify SC-001 (< 2s single-file change).
 
@@ -131,7 +131,7 @@ Confirm exit 1 listing the new function. Run after a comment-only change — con
 
 ### Integration Test for User Story 2
 
-- [x] T047 [US2] Write integration test for `cerebrofy validate` in `tests/integration/test_validate_command.py` — three scenarios: structural drift exits 1; minor drift exits 0; missing index exits 0
+- [x] T047 [US2] Write integration test for `cerebrofy validate` in `tests/integration/test_validate_command.py` — three scenarios: structural drift exits 1; minor drift exits 0; missing index exits 0 — DONE
 
 **Checkpoint**: `cerebrofy validate` functional. Pre-push hook upgrade available.
 
@@ -147,12 +147,12 @@ Confirm exit 1 listing the new function. Run after a comment-only change — con
 
 ### Implementation
 
-- [ ] T048 [P] [US3] Write `_generate_post_merge_script(map_md_path: str, db_path: str) -> str` in `src/cerebrofy/hooks/installer.py` — returns the shell script body for the post-merge hook; `map_md_path` and `db_path` are injected as shell variables at generation time (resolved from `config` by the caller — the shell script cannot read `config.yaml` directly); script reads `state_hash` from `map_md_path`; queries `db_path` meta table via sqlite3 shell or embedded Python one-liner; prints warning if hashes differ; always exits 0
-- [ ] T049 [US3] Update `install_hooks(repo_root: Path, config: CerebrоfyConfig) -> None` in `src/cerebrofy/hooks/installer.py` — in addition to pre-push hook, also writes `post-merge` hook by calling `_generate_post_merge_script(map_md_path=str(resolved_map_path), db_path=str(resolved_db_path))`; derives both paths from `config` and `repo_root` at install time; uses same idempotency logic (sentinel append/skip)
+- [x] T048 [P] [US3] Write `_generate_post_merge_script(map_md_path: str, db_path: str) -> str` in `src/cerebrofy/hooks/installer.py` — returns the shell script body for the post-merge hook; `map_md_path` and `db_path` are injected as shell variables at generation time (resolved from `config` by the caller — the shell script cannot read `config.yaml` directly); script reads `state_hash` from `map_md_path`; queries `db_path` meta table via sqlite3 shell or embedded Python one-liner; prints warning if hashes differ; always exits 0
+- [x] T049 [US3] Update `install_hooks(repo_root: Path, config: CerebrоfyConfig) -> None` in `src/cerebrofy/hooks/installer.py` — in addition to pre-push hook, also writes `post-merge` hook by calling `_generate_post_merge_script(map_md_path=str(resolved_map_path), db_path=str(resolved_db_path))`; derives both paths from `config` and `repo_root` at install time; uses same idempotency logic (sentinel append/skip)
 
 ### Integration Test for User Story 3
 
-- [ ] T050 [US3] Write integration test for post-merge hook in `tests/integration/test_update_command.py` (filed here per plan.md — covers both US1 and US3 since both are update-adjacent) — create `tmp_path` git repo with cerebrofy index; modify `cerebrofy_map.md` to contain a different `state_hash`; trigger post-merge hook shell script directly (not via `git merge`); assert warning message printed to stderr; assert script exits 0 (WARN-only, never blocks)
+- [x] T050 [US3] Write integration test for post-merge hook in `tests/integration/test_update_command.py` (filed here per plan.md — covers both US1 and US3 since both are update-adjacent) — create `tmp_path` git repo with cerebrofy index; modify `cerebrofy_map.md` to contain a different `state_hash`; trigger post-merge hook shell script directly (not via `git merge`); assert warning message printed to stderr; assert script exits 0 (WARN-only, never blocks)
 
 **Checkpoint**: Post-merge hook installed and warn-only behavior verified.
 
@@ -168,14 +168,14 @@ schema updated and data intact. Confirm missing script produces clear error.
 
 ### Implementation
 
-- [ ] T051 [US4] Write `_load_migration_plan(conn: sqlite3.Connection, migrations_dir: Path, target_version: int) -> MigrationPlan` in `commands/migrate.py` — reads `schema_version` from `meta` table; scans `migrations_dir` for files named `v{N}_to_v{N+1}.py`; builds ordered `tuple[MigrationStep, ...]`; sets `has_gap=True` if any step in the range lacks a script
-- [ ] T052 [US4] Write `_apply_migration_step(conn: sqlite3.Connection, step: MigrationStep) -> None` in `commands/migrate.py` — opens `BEGIN IMMEDIATE`; loads the migration script via `importlib.import_module` (or `importlib.util.spec_from_file_location`) and calls its `upgrade(conn: sqlite3.Connection) -> None` function (migration scripts MUST expose exactly this interface); updates `meta schema_version` to `step.to_version`; `COMMIT`; on any exception calls `conn.rollback()` explicitly then re-raises (never swallow)
-- [ ] T053 [US4] Write the `@click.command("migrate")` handler in `commands/migrate.py` — checks index exists; calls `_load_migration_plan`; if `is_already_current` prints "Schema already at version N" and exits 0; if `has_gap` prints error and exits 1; otherwise applies steps sequentially; prints per-step progress per contract
-- [ ] T054 [US4] Register `from cerebrofy.commands.migrate import migrate` and `cli.add_command(migrate)` in `src/cerebrofy/cli.py`
+- [x] T051 [US4] Write `_load_migration_plan(conn: sqlite3.Connection, migrations_dir: Path, target_version: int) -> MigrationPlan` in `commands/migrate.py` — reads `schema_version` from `meta` table; scans `migrations_dir` for files named `v{N}_to_v{N+1}.py`; builds ordered `tuple[MigrationStep, ...]`; sets `has_gap=True` if any step in the range lacks a script
+- [x] T052 [US4] Write `_apply_migration_step(conn: sqlite3.Connection, step: MigrationStep) -> None` in `commands/migrate.py` — opens `BEGIN IMMEDIATE`; loads the migration script via `importlib.import_module` (or `importlib.util.spec_from_file_location`) and calls its `upgrade(conn: sqlite3.Connection) -> None` function (migration scripts MUST expose exactly this interface); updates `meta schema_version` to `step.to_version`; `COMMIT`; on any exception calls `conn.rollback()` explicitly then re-raises (never swallow)
+- [x] T053 [US4] Write the `@click.command("migrate")` handler in `commands/migrate.py` — checks index exists; calls `_load_migration_plan`; if `is_already_current` prints "Schema already at version N" and exits 0; if `has_gap` prints error and exits 1; otherwise applies steps sequentially; prints per-step progress per contract
+- [x] T054 [US4] Register `from cerebrofy.commands.migrate import migrate` and `cli.add_command(migrate)` in `src/cerebrofy/cli.py`
 
 ### Integration Test for User Story 4
 
-- [ ] T055 [US4] Write integration test for `cerebrofy migrate` in `tests/integration/test_migrate_command.py` — create tmp index; downgrade schema_version to 0; write a v0_to_v1.py migration script; run `cerebrofy migrate`; assert schema_version is 1 and exit 0; assert missing script path produces exit 1
+- [x] T055 [US4] Write integration test for `cerebrofy migrate` in `tests/integration/test_migrate_command.py` — create tmp index; downgrade schema_version to 0; write a v0_to_v1.py migration script; run `cerebrofy migrate`; assert schema_version is 1 and exit 0; assert missing script path produces exit 1
 
 **Checkpoint**: All four user stories are independently functional and testable.
 
@@ -186,11 +186,11 @@ schema updated and data intact. Confirm missing script produces clear error.
 **Purpose**: Extend existing test files, verify latency gates (SC-001, SC-005), and run the
 quickstart validation.
 
-- [ ] T056 [P] Extend `tests/unit/test_hooks.py` — add tests for `upgrade_to_hard_block` (verifies version marker replaced, sentinels respected, absent-sentinel warning) and `downgrade_to_warn_only`
+- [x] T056 [P] Extend `tests/unit/test_hooks.py` — add tests for `upgrade_to_hard_block` (verifies version marker replaced, sentinels respected, absent-sentinel warning) and `downgrade_to_warn_only`
 - [ ] T057 Run `cerebrofy update` against a real 1-file change in a 10k-file repo and verify wall-clock time < 2s (SC-001 gate condition for enabling hard-block in FR-014)
 - [ ] T060 [P] Run the post-merge hook script against a repo with a 10k-node `cerebrofy.db` and verify wall-clock time < 1s (SC-005 gate condition; hook is lightweight but must be verified before shipping)
 - [ ] T058 Run the full quickstart.md validation steps 1–9 end to end in a fresh tmp repo to confirm all Phase 3 acceptance scenarios pass
-- [ ] T059 [P] Run `ruff check src/ tests/` and `mypy src/` and fix any issues in Phase 3 files
+- [x] T059 [P] Run `ruff check src/ tests/` and `mypy src/` and fix any issues in Phase 3 files
 
 ---
 

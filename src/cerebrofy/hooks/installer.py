@@ -43,17 +43,75 @@ def append_to_hook(hook_path: Path, hook_name: str) -> str:
     return f"Warning: Pre-existing hook at {hook_path} — appending Cerebrofy call."
 
 
-def install_hooks(root: Path) -> list[str]:
-    """Install cerebrofy pre-push and post-merge hooks. Returns any warning messages."""
+def _generate_post_merge_script(map_md_path: str, db_path: str) -> str:
+    """Return the shell script body for the cerebrofy post-merge hook.
+
+    map_md_path and db_path are injected as Python string literals at generation time
+    (resolved from repo_root at install time — the shell script cannot read config.yaml).
+    Script reads state_hash from cerebrofy_map.md; queries DB meta table via sqlite3.
+    Always exits 0 (WARN-only, never blocks).
+    """
+    map_md_literal = repr(map_md_path)
+    db_literal = repr(db_path)
+    return f"""\
+{HOOK_MARKER_START}
+# cerebrofy-hook-version: 1
+python3 << 'CEREBROFY_PM_CHECK'
+import re, sqlite3, sys
+MAP_MD = {map_md_literal}
+DB_PATH = {db_literal}
+try:
+    content = open(MAP_MD, encoding='utf-8').read()
+    m = re.search(r'\\*\\*State Hash\\*\\*: `([a-f0-9]+)`', content)
+    remote_hash = m.group(1) if m else ''
+except Exception:
+    sys.exit(0)
+try:
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT value FROM meta WHERE key='state_hash'").fetchone()
+    local_hash = row[0] if row else ''
+    conn.close()
+except Exception:
+    sys.exit(0)
+if remote_hash and local_hash and remote_hash != local_hash:
+    print("Cerebrofy: Remote index state differs. Run 'cerebrofy build' to resync.", file=sys.stderr)
+CEREBROFY_PM_CHECK
+{HOOK_MARKER_END}
+"""
+
+
+def install_hooks(root: Path, config: object = None) -> list[str]:
+    """Install cerebrofy pre-push and post-merge hooks. Returns any warning messages.
+
+    config is accepted for forward compatibility but paths are derived from root.
+    """
     hooks_dir = root / ".git" / "hooks"
     warnings: list[str] = []
-    for hook_name in ("pre-push", "post-merge"):
-        hook_path = hooks_dir / hook_name
-        if not hook_path.exists():
-            create_hook_file(hook_path, hook_name)
-        elif not has_cerebrofy_marker(hook_path):
-            warnings.append(append_to_hook(hook_path, hook_name))
-        # else: marker already present — skip (idempotent)
+
+    # Pre-push hook: calls cerebrofy validate (warn-only by default)
+    pre_push = hooks_dir / "pre-push"
+    if not pre_push.exists():
+        create_hook_file(pre_push, "pre-push")
+    elif not has_cerebrofy_marker(pre_push):
+        warnings.append(append_to_hook(pre_push, "pre-push"))
+
+    # Post-merge hook: state_hash sync check (always exits 0 — never blocks)
+    map_md_path = str(root / "docs" / "cerebrofy" / "cerebrofy_map.md")
+    db_path = str(root / ".cerebrofy" / "db" / "cerebrofy.db")
+    post_merge_block = _generate_post_merge_script(map_md_path, db_path)
+
+    post_merge = hooks_dir / "post-merge"
+    if not post_merge.exists():
+        post_merge.write_text(f"#!/bin/sh\n{post_merge_block}", encoding="utf-8")
+        try:
+            os.chmod(post_merge, 0o755)
+        except (NotImplementedError, OSError):
+            pass
+    elif not has_cerebrofy_marker(post_merge):
+        existing = post_merge.read_text(encoding="utf-8")
+        post_merge.write_text(existing.rstrip("\n") + "\n" + post_merge_block, encoding="utf-8")
+        warnings.append(f"Warning: Pre-existing hook at {post_merge} — appending Cerebrofy call.")
+
     return warnings
 
 
