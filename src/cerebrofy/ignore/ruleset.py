@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
+
+import pathspec as _pathspec
 
 DEFAULT_IGNORE_CONTENT = """\
 # Cerebrofy default ignore list — edit to customize
@@ -33,6 +36,15 @@ class IgnoreRuleSet:
 
     cerebrofy_lines: list[str] = field(default_factory=list)
     git_lines: list[str] = field(default_factory=list)
+    # Compiled once in __post_init__; excluded from constructor, repr, and equality.
+    _spec: Optional[_pathspec.PathSpec] = field(init=False, repr=False, compare=False,
+                                                default=None)
+
+    def __post_init__(self) -> None:
+        all_lines = self.cerebrofy_lines + self.git_lines
+        self._spec = (
+            _pathspec.PathSpec.from_lines("gitwildmatch", all_lines) if all_lines else None
+        )
 
     @classmethod
     def from_directory(cls, root: Path) -> IgnoreRuleSet:
@@ -49,10 +61,4 @@ class IgnoreRuleSet:
 
     def matches(self, path: str) -> bool:
         """Return True if path matches any rule in either ignore set."""
-        import pathspec
-
-        all_lines = self.cerebrofy_lines + self.git_lines
-        if not all_lines:
-            return False
-        spec = pathspec.PathSpec.from_lines("gitwildmatch", all_lines)
-        return spec.match_file(path)
+        return self._spec.match_file(path) if self._spec else False
