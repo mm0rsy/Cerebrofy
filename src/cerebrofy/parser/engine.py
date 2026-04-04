@@ -19,21 +19,27 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="tree_sitter")
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Query, Tree
 
-# Maps file extension → tree-sitter-languages grammar name.
-# .h maps to "c_header" so load_query resolves to c_header.scm (declarations, not definitions).
+# Maps file extension → tree-sitter-languages grammar name (controls AST parsing).
 EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
     ".ts": "typescript",
     ".tsx": "tsx",
-    ".jsx": "javascript",
+    ".jsx": "javascript",  # JSX uses the JS grammar; query file overridden below
     ".go": "go",
     ".rs": "rust",
     ".java": "java",
     ".rb": "ruby",
     ".cpp": "cpp",
     ".c": "c",
-    ".h": "c_header",
+    ".h": "c",  # C headers use the C grammar; query file overridden below
+}
+
+# Maps extension → query file stem when it differs from the grammar name.
+# Allows separate .scm files for extensions that share a grammar (e.g. .h vs .c).
+EXTENSION_TO_QUERY_NAME: dict[str, str] = {
+    ".jsx": "jsx",       # jsx.scm instead of javascript.scm
+    ".h": "c_header",    # c_header.scm instead of c.scm
 }
 
 
@@ -53,7 +59,8 @@ def load_query(extension: str, queries_dir: Path) -> "Query | None":
     lang_name = EXTENSION_TO_LANGUAGE.get(extension)
     if not lang_name:
         return None
-    scm_path = queries_dir / f"{lang_name}.scm"
+    query_stem = EXTENSION_TO_QUERY_NAME.get(extension, lang_name)
+    scm_path = queries_dir / f"{query_stem}.scm"
     if not scm_path.exists():
         return None
     try:
@@ -101,10 +108,14 @@ def map_capture_to_neuron(
     node: "Node",
     source: bytes,
     file: str,
+    name_override: str | None = None,
 ) -> Neuron | None:
     """Convert a tree-sitter capture to a Neuron, or None for non-Neuron captures.
 
     Law V: zero language-specific logic here — all exclusions live in .scm files.
+
+    name_override: name from the associated @name capture (used when the identifier is
+    not a direct child of the structural node, e.g. C function declarations).
     """
     if "import" in capture_name or "call" in capture_name or capture_name == "name":
         return None
@@ -116,18 +127,21 @@ def map_capture_to_neuron(
     else:
         return None
 
-    # Extract name from the first identifier-like child
-    name: str | None = None
-    _NAME_TYPES = {
-        "identifier", "type_identifier", "field_identifier",
-        "property_identifier", "namespace_identifier", "constant",
-    }
-    for child in node.children:
-        if child.type in _NAME_TYPES:
-            name = source[child.start_byte:child.end_byte].decode(
-                "utf-8", errors="replace"
-            ).strip()
-            break
+    # Prefer name from the @name capture supplied by the .scm file; fall back to
+    # direct-child identifier search (works for Python/JS/TS where the identifier
+    # IS a direct child of the structural node).
+    name: str | None = name_override
+    if not name:
+        _NAME_TYPES = {
+            "identifier", "type_identifier", "field_identifier",
+            "property_identifier", "namespace_identifier", "constant",
+        }
+        for child in node.children:
+            if child.type in _NAME_TYPES:
+                name = source[child.start_byte:child.end_byte].decode(
+                    "utf-8", errors="replace"
+                ).strip()
+                break
 
     if not name:
         return None
@@ -162,17 +176,76 @@ def build_module_neuron(file: str, total_lines: int) -> Neuron:
     )
 
 
+def _is_class_capture(capture_name: str) -> bool:
+    """Return True if the capture name maps to a class-type Neuron."""
+    if "import" in capture_name or "call" in capture_name or capture_name == "name":
+        return False
+    return any(k in capture_name for k in ("class", "struct", "interface", "type"))
+
+
+def _is_function_capture(capture_name: str) -> bool:
+    """Return True if the capture name maps to a function-type Neuron."""
+    return "function" in capture_name or "method" in capture_name
+
+
 def extract_neurons(
     tree: "Tree",
     source: bytes,
     file: str,
     query: "Query",
 ) -> list[Neuron]:
-    """Run query captures and map them to Neurons (plus module Neuron)."""
+    """Run query captures and map them to Neurons (plus module Neuron).
+
+    Per data-model: classes that contain methods do NOT produce a class Neuron —
+    only their method Neurons are kept (byte-range containment check).
+    """
     captures = query.captures(tree.root_node)  # list[(Node, capture_name)]
+
+    # Build a name lookup from @name captures: structural_node_byte_range → name text.
+    # .scm files emit @name on the identifier node; we map each name to its enclosing
+    # structural node so languages like C (where the identifier is nested inside a
+    # function_declarator) can supply the name without engine-level language knowledge.
+    name_captures: list[tuple[int, int, str]] = [
+        (
+            node.start_byte,
+            node.end_byte,
+            source[node.start_byte:node.end_byte].decode("utf-8", errors="replace").strip(),
+        )
+        for node, cap in captures
+        if cap == "name"
+    ]
+
+    def _associated_name(structural_node: "Node") -> str | None:
+        """Return the @name text whose range falls inside structural_node, or None."""
+        for n_start, n_end, n_text in name_captures:
+            if structural_node.start_byte <= n_start and n_end <= structural_node.end_byte:
+                return n_text
+        return None
+
+    # Collect method byte ranges to identify classes that have methods.
+    method_ranges = [
+        (node.start_byte, node.end_byte)
+        for node, name in captures
+        if _is_function_capture(name)
+    ]
+
+    # A class node is suppressed if any method node falls within its byte range.
+    suppressed_class_ids: set[int] = set()
+    for node, name in captures:
+        if _is_class_capture(name):
+            for m_start, m_end in method_ranges:
+                if node.start_byte <= m_start and m_end <= node.end_byte:
+                    suppressed_class_ids.add(id(node))
+                    break
+
     neurons: list[Neuron] = []
     for node, capture_name in captures:
-        neuron = map_capture_to_neuron(capture_name, node, source, file)
+        if _is_class_capture(capture_name) and id(node) in suppressed_class_ids:
+            continue
+        neuron = map_capture_to_neuron(
+            capture_name, node, source, file,
+            name_override=_associated_name(node),
+        )
         if neuron is not None:
             neurons.append(neuron)
 
