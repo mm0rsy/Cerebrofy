@@ -25,7 +25,6 @@ def _build_task_items(
     result: HybridSearchResult,
 ) -> tuple[list[TaskItem], list[str]]:
     """Build task items and RUNTIME_BOUNDARY notes from a HybridSearchResult."""
-    blast_count = len(result.blast_radius)
     items: list[TaskItem] = []
 
     for i, neuron in enumerate(result.matched_neurons):
@@ -45,7 +44,7 @@ def _build_task_items(
             index=i + 1,
             neuron=neuron,
             lobe_name=lobe_name,
-            blast_count=blast_count,
+            blast_count=result.per_neuron_blast_counts.get(neuron.id, 0),
         ))
 
     notes: list[str] = [
@@ -115,14 +114,18 @@ def cerebrofy_tasks(description: str, top_k: int | None) -> None:
     embedding = _embed_query(description, config)
 
     lobe_dir = str(root / "docs" / "cerebrofy")
-    result = hybrid_search(
-        query=description,
-        db_path=str(db_path),
-        embedding=embedding,
-        top_k=effective_top_k,
-        config_embed_model=config.embedding_model,
-        lobe_dir=lobe_dir,
-    )
+    try:
+        result = hybrid_search(
+            query=description,
+            db_path=str(db_path),
+            embedding=embedding,
+            top_k=effective_top_k,
+            config_embed_model=config.embedding_model,
+            lobe_dir=lobe_dir,
+        )
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
 
     if not result.matched_neurons:
         click.echo("Cerebrofy: No relevant code units found for this description.")

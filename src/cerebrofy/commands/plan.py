@@ -120,14 +120,18 @@ def cerebrofy_plan(description: str, top_k: int | None, output_json: bool) -> No
     embedding = _embed_query(description, config)
 
     lobe_dir = str(root / "docs" / "cerebrofy")
-    result = hybrid_search(
-        query=description,
-        db_path=str(db_path),
-        embedding=embedding,
-        top_k=effective_top_k,
-        config_embed_model=config.embedding_model,
-        lobe_dir=lobe_dir,
-    )
+    try:
+        result = hybrid_search(
+            query=description,
+            db_path=str(db_path),
+            embedding=embedding,
+            top_k=effective_top_k,
+            config_embed_model=config.embedding_model,
+            lobe_dir=lobe_dir,
+        )
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
 
     if not result.matched_neurons:
         click.echo("Cerebrofy: No relevant code units found for this description.")

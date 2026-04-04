@@ -32,6 +32,7 @@ def _make_result(
         runtime_boundary_warnings=tuple(warnings),
         reindex_scope=len(matched) + len(blast),
         search_duration_ms=1.0,
+        per_neuron_blast_counts={},
     )
 
 

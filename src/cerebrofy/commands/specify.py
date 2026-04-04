@@ -19,7 +19,7 @@ def _resolve_output_path(specs_dir: Path, now: datetime) -> Path:
     if not base.exists():
         return base
     for suffix in range(2, 1000):
-        candidate = specs_dir / f"{timestamp}_spec_{suffix}.md"
+        candidate = specs_dir / f"{timestamp}_{suffix}_spec.md"
         if not candidate.exists():
             return candidate
     return base

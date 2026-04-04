@@ -57,6 +57,10 @@ class HybridSearchResult:
     runtime_boundary_warnings: tuple[RuntimeBoundaryWarning, ...]
     reindex_scope: int
     search_duration_ms: float
+    # Per-neuron BFS neighbor counts (keyed by MatchedNeuron.id).
+    # blast_count for neuron X = count of nodes reachable from X alone in depth-2 BFS
+    # (excluding RUNTIME_BOUNDARY edges). Used by `cerebrofy tasks` output format.
+    per_neuron_blast_counts: dict[str, int]
 
 
 def _run_knn_query(
@@ -202,6 +206,15 @@ def _resolve_affected_lobes(
     return frozenset(lobe_files.keys()), lobe_files
 
 
+def _count_bfs_neighbors(conn: sqlite3.Connection, seed_id: str) -> int:
+    """Count depth-2 BFS neighbors reachable from a single seed, excluding RUNTIME_BOUNDARY."""
+    visited = {seed_id}
+    level1_ids, _ = _expand_bfs_one_level(conn, {seed_id}, visited)
+    visited |= level1_ids
+    level2_ids, _ = _expand_bfs_one_level(conn, level1_ids, visited)
+    return len((level1_ids | level2_ids) - {seed_id})
+
+
 def _embed_query(description: str, config: object) -> bytes:
     """Embed description using the configured embedder; return serialized float32 bytes."""
     from cerebrofy.embedder.base import Embedder
@@ -234,11 +247,12 @@ def hybrid_search(
     lobe_dir: str,
 ) -> HybridSearchResult:
     """Run hybrid search: KNN + depth-2 BFS on a single read-only SQLite connection."""
-    from pathlib import Path as _Path
-
-    from cerebrofy.db.connection import open_db
-
-    conn = open_db(_Path(db_path))
+    # Open read-only with sqlite-vec extension loaded (FR-003 / FR-020).
+    # We skip WAL pragma — it requires a write and is unnecessary for read-only access.
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
 
     try:
         meta_model_row = conn.execute(
@@ -266,12 +280,33 @@ def hybrid_search(
                 runtime_boundary_warnings=(),
                 reindex_scope=0,
                 search_duration_ms=duration_ms,
+                per_neuron_blast_counts={},
             )
 
         seed_ids = {n.id for n in matched_neurons}
         blast_radius, warnings = _run_bfs(conn, seed_ids)
         all_ids = seed_ids | {n.id for n in blast_radius}
         affected_lobes, lobe_files = _resolve_affected_lobes(conn, all_ids, lobe_dir)
+
+        # Compute per-neuron BFS counts while connection is open (FR-022 / blast_count invariant).
+        per_neuron_blast_counts = {n.id: _count_bfs_neighbors(conn, n.id) for n in matched_neurons}
+
+        # Populate lobe_name on warnings now that lobe_files is resolved.
+        if warnings:
+            resolved_warnings = []
+            for w in warnings:
+                src_parts = w.src_file.split("/")
+                src_lobe = src_parts[0] if len(src_parts) > 1 else "root"
+                lobe_name = src_lobe if src_lobe in lobe_files else ""
+                resolved_warnings.append(RuntimeBoundaryWarning(
+                    src_id=w.src_id,
+                    src_name=w.src_name,
+                    src_file=w.src_file,
+                    dst_id=w.dst_id,
+                    lobe_name=lobe_name,
+                ))
+            warnings = resolved_warnings
+
         duration_ms = (time.monotonic() - start) * 1000
 
     finally:
@@ -287,4 +322,5 @@ def hybrid_search(
         runtime_boundary_warnings=tuple(warnings),
         reindex_scope=len(matched_neurons) + len(blast_radius),
         search_duration_ms=duration_ms,
+        per_neuron_blast_counts=per_neuron_blast_counts,
     )

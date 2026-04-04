@@ -43,18 +43,18 @@ class LLMClient:
         def _attempt() -> Any:
             try:
                 return self._call_once(payload.system_message, payload.user_message)
-            except openai.RateLimitError:
-                raise
-            except openai.BadRequestError:
-                raise
-            except (openai.APIStatusError, openai.APIConnectionError) as exc:
-                reason = (
-                    f"HTTP {exc.status_code}"
-                    if isinstance(exc, openai.APIStatusError)
-                    else "connection error"
-                )
+            except openai.APIStatusError as exc:
+                # Never retry on any 4xx client error (FR-022: only retry on 5xx)
+                if exc.status_code < 500:
+                    raise
                 print(
-                    f"Cerebrofy: LLM request failed ({reason}), retrying...",
+                    f"Cerebrofy: LLM request failed (HTTP {exc.status_code}), retrying...",
+                    file=sys.stderr,
+                )
+                return self._call_once(payload.system_message, payload.user_message)
+            except openai.APIConnectionError:
+                print(
+                    "Cerebrofy: LLM request failed (connection error), retrying...",
                     file=sys.stderr,
                 )
                 return self._call_once(payload.system_message, payload.user_message)
