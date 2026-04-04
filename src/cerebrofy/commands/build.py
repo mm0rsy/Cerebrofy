@@ -24,6 +24,8 @@ from cerebrofy.db.writer import (
     write_nodes,
 )
 from cerebrofy.embedder import get_embedder
+from cerebrofy.markdown.lobe import write_lobe_md
+from cerebrofy.markdown.map import write_map_md
 from cerebrofy.graph.resolver import (
     build_name_registry,
     resolve_cross_module_edges,
@@ -122,6 +124,22 @@ def build_step6_commit(
     return state_hash
 
 
+def build_step5_markdown(
+    conn: sqlite3.Connection,
+    config: object,
+    state_hash: str,
+    docs_dir: Path,
+) -> None:
+    """Step 5: Write per-lobe and map Markdown files (post-swap, read-only from DB)."""
+    click.echo("Cerebrofy: Step 5/6 — Writing Markdown documentation")
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    from cerebrofy.config.loader import CerebrоfyConfig
+    cfg: CerebrоfyConfig = config  # type: ignore[assignment]
+    for lobe_name, lobe_path in cfg.lobes.items():
+        write_lobe_md(conn, lobe_name, lobe_path, docs_dir)
+    write_map_md(conn, cfg.lobes, state_hash, docs_dir)
+
+
 def build_step4_vectors(
     conn: sqlite3.Connection,
     neurons: list,  # type: ignore[type-arg]
@@ -207,6 +225,9 @@ def cerebrofy_build() -> None:
     build_step4_vectors(conn, all_neurons, embedder)
 
     state_hash = build_step6_commit(conn, root, config, ignore_rules)
+
+    docs_dir = root / "docs" / "cerebrofy"
+    build_step5_markdown(conn, config, state_hash, docs_dir)
 
     elapsed = time.monotonic() - start
     files_count = len(parse_results)
