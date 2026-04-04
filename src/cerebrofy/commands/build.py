@@ -13,14 +13,17 @@ from cerebrofy.config.loader import load_config
 from cerebrofy.db.connection import open_db
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
+    build_neuron_text,
     compute_file_hash,
     compute_state_hash,
     insert_meta,
+    upsert_vectors,
     write_build_meta,
     write_edges,
     write_file_hashes,
     write_nodes,
 )
+from cerebrofy.embedder import get_embedder
 from cerebrofy.graph.resolver import (
     build_name_registry,
     resolve_cross_module_edges,
@@ -119,6 +122,26 @@ def build_step6_commit(
     return state_hash
 
 
+def build_step4_vectors(
+    conn: sqlite3.Connection,
+    neurons: list,  # type: ignore[type-arg]
+    embedder: object,
+) -> None:
+    """Step 4: Generate embeddings for all Neurons and upsert into vec_neurons."""
+    texts = [build_neuron_text(n) for n in neurons]
+    ids = [n.id for n in neurons]  # type: ignore[union-attr]
+    total = len(neurons)
+    batch_size = 256
+    for i in range(0, total, batch_size):
+        click.echo(
+            f"Cerebrofy: Step 4/6 — Generating embeddings ({i} / {total} neurons)"
+        )
+        texts_batch = texts[i:i + batch_size]
+        ids_batch = ids[i:i + batch_size]
+        embeddings_batch = embedder.embed(texts_batch)  # type: ignore[union-attr]
+        upsert_vectors(conn, ids_batch, embeddings_batch)
+
+
 def build_step2_local_graph(
     conn: sqlite3.Connection,
     parse_results: list,  # type: ignore[type-arg]
@@ -175,6 +198,13 @@ def cerebrofy_build() -> None:
     name_registry = build_name_registry(parse_results)
     build_step2_local_graph(conn, parse_results, name_registry)
     build_step3_cross_module_graph(conn, parse_results, name_registry)
+
+    try:
+        embedder = get_embedder(config.embedding_model)
+    except (ValueError, Exception) as exc:
+        click.echo(f"Error: Could not initialize embedder: {exc}", err=True)
+        sys.exit(1)
+    build_step4_vectors(conn, all_neurons, embedder)
 
     state_hash = build_step6_commit(conn, root, config, ignore_rules)
 
