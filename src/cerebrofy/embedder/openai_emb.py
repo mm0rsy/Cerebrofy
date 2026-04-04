@@ -9,7 +9,7 @@ class OpenAIEmbedder(Embedder):
     """Embed texts via OpenAI text-embedding-3-small API (1536-dim)."""
 
     def __init__(self) -> None:
-        import openai  # type: ignore[import-untyped]
+        import openai
         self.client = openai.OpenAI()  # reads OPENAI_API_KEY from env
 
     def embed(self, texts: list[str]) -> list[list[float]]:

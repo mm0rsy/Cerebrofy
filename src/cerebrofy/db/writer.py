@@ -8,6 +8,9 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from cerebrofy.graph.edges import Edge
+from cerebrofy.parser.neuron import Neuron
+
 
 def insert_meta(conn: sqlite3.Connection, embed_model: str, embed_dim: int) -> None:
     """Insert (or replace) the three initial meta rows for a fresh build."""
@@ -19,7 +22,7 @@ def insert_meta(conn: sqlite3.Connection, embed_model: str, embed_dim: int) -> N
     conn.executemany("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", rows)
 
 
-def write_nodes(conn: sqlite3.Connection, neurons: list) -> None:  # type: ignore[type-arg]
+def write_nodes(conn: sqlite3.Connection, neurons: list[Neuron]) -> None:
     """Write Neurons to the nodes table (INSERT OR REPLACE)."""
     rows = []
     for n in neurons:
@@ -72,7 +75,7 @@ def write_build_meta(conn: sqlite3.Connection, state_hash: str) -> None:
     conn.executemany("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", rows)
 
 
-def write_edges(conn: sqlite3.Connection, edges: list) -> None:  # type: ignore[type-arg]
+def write_edges(conn: sqlite3.Connection, edges: list[Edge]) -> None:
     """Write Edge objects to the edges table (INSERT OR IGNORE to avoid duplicates)."""
     conn.executemany(
         "INSERT OR IGNORE INTO edges(src_id, dst_id, rel_type, file) VALUES (?, ?, ?, ?)",
@@ -80,11 +83,9 @@ def write_edges(conn: sqlite3.Connection, edges: list) -> None:  # type: ignore[
     )
 
 
-def build_neuron_text(neuron: object) -> str:  # type: ignore[type-arg]
+def build_neuron_text(neuron: Neuron) -> str:
     """Build the text string sent to the embedding model for a Neuron."""
-    from cerebrofy.parser.neuron import Neuron
-    n: Neuron = neuron  # type: ignore[assignment]
-    text = f"{n.name}: {n.signature or ''} {n.docstring or ''}".strip()
+    text = f"{neuron.name}: {neuron.signature or ''} {neuron.docstring or ''}".strip()
     return text[:512]
 
 

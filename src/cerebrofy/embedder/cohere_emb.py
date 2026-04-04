@@ -11,7 +11,7 @@ class CohereEmbedder(Embedder):
     """Embed texts via Cohere embed-english-v3.0 API (1024-dim)."""
 
     def __init__(self) -> None:
-        import cohere  # type: ignore[import-untyped]
+        import cohere
         self.co = cohere.Client(os.environ["COHERE_API_KEY"])
 
     def embed(self, texts: list[str]) -> list[list[float]]:
@@ -24,5 +24,5 @@ class CohereEmbedder(Embedder):
                 model="embed-english-v3.0",
                 input_type="search_document",
             )
-            results.extend(response.embeddings)
+            results.extend(response.embeddings)  # type: ignore[arg-type]
         return results

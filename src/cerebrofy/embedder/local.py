@@ -9,7 +9,7 @@ class LocalEmbedder(Embedder):
     """Embed texts using nomic-embed-text-v1 via sentence-transformers (768-dim, offline)."""
 
     def __init__(self) -> None:
-        from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
+        from sentence_transformers import SentenceTransformer
         self.model = SentenceTransformer("nomic-ai/nomic-embed-text-v1")
 
     def embed(self, texts: list[str]) -> list[list[float]]:

@@ -214,10 +214,10 @@ second exits immediately with "build already in progress" error.
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T053 [P] Add `cerebrofy build` to the `## Commands` section in `CLAUDE.md` under the existing CLI examples
-- [ ] T054 [P] Add `--version` flag to the Click group in `src/cerebrofy/cli.py` using `@click.version_option(version=__version__, prog_name="cerebrofy")` if not already present from Phase 1
-- [ ] T055 [P] Run `quickstart.md` Steps 1–7 manually; fix any issues discovered in `src/cerebrofy/commands/build.py` or any Phase 2 module
-- [ ] T056 Run `ruff check src/ tests/` and `mypy src/` — fix all reported issues in Phase 2 source files
+- [x] T053 [P] Add `cerebrofy build` to the `## Commands` section in `CLAUDE.md` under the existing CLI examples
+- [x] T054 [P] Add `--version` flag to the Click group in `src/cerebrofy/cli.py` using `@click.version_option(version=__version__, prog_name="cerebrofy")` if not already present from Phase 1
+- [x] T055 [P] Run `quickstart.md` Steps 1–7 manually; fix any issues discovered in `src/cerebrofy/commands/build.py` or any Phase 2 module
+- [x] T056 Run `ruff check src/ tests/` and `mypy src/` — fix all reported issues in Phase 2 source files
 
 ---
 
