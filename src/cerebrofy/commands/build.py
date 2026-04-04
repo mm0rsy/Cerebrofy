@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
-from cerebrofy.db.connection import open_db
+from cerebrofy.db.connection import check_schema_version, open_db
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
@@ -120,7 +120,7 @@ def build_step6_commit(
     write_build_meta(conn, state_hash)
     conn.commit()
 
-    click.echo(f"Cerebrofy: Step 6/6 — Committing index (state_hash: {state_hash[:16]}...)")
+    click.echo(f"Cerebrofy: Step 5/6 — Committing index (state_hash: {state_hash[:16]}...)")
     return state_hash
 
 
@@ -135,10 +135,11 @@ def build_step5_markdown(
     Opens a FRESH read-only connection to the final (swapped) db_path. The .tmp
     connection is already closed before this function is called.
     """
-    click.echo("Cerebrofy: Step 5/6 — Writing Markdown documentation")
+    click.echo("Cerebrofy: Step 6/6 — Writing Markdown documentation")
     docs_dir.mkdir(parents=True, exist_ok=True)
     conn = open_db(db_path)
     try:
+        check_schema_version(conn)
         for lobe_name, lobe_path in config.lobes.items():
             write_lobe_md(conn, lobe_name, lobe_path, docs_dir)
         write_map_md(conn, config.lobes, state_hash, docs_dir)
@@ -209,7 +210,7 @@ def cerebrofy_build() -> None:
     ignore_rules = IgnoreRuleSet.from_directory(root)
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     tmp_path = get_tmp_path(db_path)
-    lock_path = db_path.parent / "cerebrofy.lock"
+    lock_path = db_path.parent / "cerebrofy.build.lock"
 
     # Concurrent build guard
     if lock_path.exists():
