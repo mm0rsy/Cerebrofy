@@ -14,6 +14,7 @@ Auto-generated from feature plans. Last updated: 2026-04-04
 - **Embedding (optional)**: `openai` ≥ 1.0 (1536-dim), `cohere` ≥ 4.0 (1024-dim)
 - **Testing**: `pytest` with `tmp_path` for filesystem isolation
 - **Distribution**: pip package + platform bundles (Homebrew, Snap, winget)
+- **MCP server**: `mcp` ≥ 1.0 (optional extra: `pip install cerebrofy[mcp]`) — MCP stdio server for AI tool integration
 
 ## Project Structure
 
@@ -53,6 +54,9 @@ src/
     ├── search/hybrid.py         ← HybridSearch: KNN + BFS, single read-only connection
     ├── llm/client.py            ← LLMClient: openai SDK wrapper, streaming + retry + timeout
     ├── llm/prompt_builder.py    ← PromptBuilder: string.Template, lobe context injection
+    ├── commands/parse.py        ← cerebrofy parse: read-only diagnostic parser (NDJSON output)
+    ├── commands/mcp.py          ← cerebrofy mcp: MCP stdio server entry point
+    ├── mcp/server.py            ← MCPServer: tool registration, CWD routing, plan/tasks/specify dispatch
     └── queries/                 ← Bundled default .scm files per language
 tests/
 ├── unit/                        ← Per-module unit tests
@@ -64,7 +68,16 @@ tests/
     ├── test_migrate_command.py  ← Schema migration with mock scripts
     ├── test_specify_command.py  ← cerebrofy specify with mock LLM endpoint
     ├── test_plan_command.py     ← cerebrofy plan: Markdown/JSON, --top-k, offline
-    └── test_tasks_command.py    ← cerebrofy tasks: task list, RUNTIME_BOUNDARY notes
+    ├── test_tasks_command.py    ← cerebrofy tasks: task list, RUNTIME_BOUNDARY notes
+    ├── test_parse_command.py    ← cerebrofy parse: NDJSON output, ignore rules, read-only
+    └── test_mcp_command.py      ← cerebrofy mcp: tool call simulation, CWD routing, no-index error
+packaging/
+├── snap/snapcraft.yaml           ← Snap package (classic confinement, core22)
+├── windows/nuitka_build.bat      ← Windows Nuitka build script
+├── windows/installer.nsi         ← NSIS installer (adds %PATH%)
+└── macos/build_bottle.sh         ← macOS binary build for Homebrew bottle
+.github/
+└── workflows/release.yml         ← Multi-platform release pipeline (matrix, fail-fast: false)
 pyproject.toml
 ```
 
@@ -101,6 +114,12 @@ cerebrofy tasks "add OAuth2 login"
 cerebrofy tasks --top-k 5 "add rate limiting"
 cerebrofy specify "add OAuth2 login"
 cerebrofy specify --top-k 5 "add OAuth2 login"
+cerebrofy parse src/auth/login.py      # NDJSON Neuron output, read-only
+cerebrofy parse src/                   # Parse entire directory
+cerebrofy mcp                          # Start MCP stdio server (for AI tools)
+
+# Install with MCP support
+pip install cerebrofy[mcp]
 ```
 
 ## Code Style
@@ -136,8 +155,26 @@ cerebrofy specify --top-k 5 "add OAuth2 login"
 - **`cerebrofy plan --json` schema**: Stable field names `matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope` + `schema_version: 1`. All fields always present (empty `[]` if no results). No decorative text on stdout when `--json` is active.
 - **System prompt template**: Resolved via `string.Template.safe_substitute()` with `$lobe_context`. File override path resolved relative to repo root. Built-in default lives in `llm/prompt_builder.py`.
 - **Phase 4 read-only**: `cerebrofy specify`, `cerebrofy plan`, `cerebrofy tasks` MUST NOT write to `cerebrofy.db` or any tracked source file. The only permitted write is the spec output file in `docs/cerebrofy/specs/`.
+- **cerebrofy parse read-only**: `cerebrofy parse` MUST NOT create or modify `cerebrofy.db` or any file. It uses `parser/engine.py` and `ignore/ruleset.py` directly. Output is NDJSON to stdout (one Neuron JSON per line).
+- **MCP dispatcher**: `cerebrofy mcp` uses CWD routing — reads `os.getcwd()` at each tool call to find the active repo's `.cerebrofy/config.yaml`. Exactly one MCP entry (`mcpServers.cerebrofy`) per machine, shared across all repos.
+- **MCP plan/tasks offline**: The MCP `plan` and `tasks` tools MUST NOT make network calls even if `llm_endpoint` is in `config.yaml`. LLM config is silently ignored (FR-027).
+- **blast_count per-Neuron**: In `cerebrofy tasks` and `cerebrofy plan --json`, `blast_count` for each matched Neuron = count of BFS neighbors reachable from **that specific Neuron** (depth-2, excluding RUNTIME_BOUNDARY). NOT the total across all matched Neurons.
+- **schema_version in plan --json**: The `cerebrofy plan --json` output MUST include `"schema_version": 1` as the first top-level field. This is a breaking addition from Phase 5 (FR-023).
+- **.gitignore on init**: `cerebrofy init` MUST append `.cerebrofy/db/` to the repository's `.gitignore` (creating the file if needed, no duplicate if already present). This prevents `cerebrofy.db` from being staged (FR-019).
+- **Hook sentinel format** (FR-020): The pre-push hook block MUST use `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` sentinels. The incorrect `# cerebrofy-hook-start` / `# cerebrofy-hook-end` format in earlier cli-init.md is superseded by this invariant.
 
 ## Recent Changes
+
+- **005-distribution-release** (2026-04-04): Phase 5 — Added `cerebrofy parse` (read-only
+  diagnostic, NDJSON Neuron output, no DB required) and `cerebrofy mcp` (MCP stdio server
+  exposing `plan`, `tasks`, `specify` as callable tools with CWD-based repo routing).
+  Added distribution packaging: Homebrew custom tap (macOS), Snap `--classic` (Linux),
+  winget installer via Nuitka (Windows), PyPI wheel. GitHub Actions matrix pipeline with
+  `fail-fast: false` for parallel platform builds. Retroactive corrections: `.gitignore`
+  `.cerebrofy/db/` entry (FR-019), hook sentinel format `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N`
+  (FR-020), validate clean message (FR-021), blast_count per-Neuron (FR-022),
+  `schema_version: 1` in plan --json (FR-023). New modules: `commands/parse.py`,
+  `commands/mcp.py`, `mcp/server.py`.
 
 - **004-ai-bridge** (2026-04-04): Phase 4 — Added `cerebrofy specify` (hybrid search + LLM +
   streaming spec writer), `cerebrofy plan` (hybrid search + Markdown/JSON impact reporter),
@@ -152,11 +189,9 @@ cerebrofy specify --top-k 5 "add OAuth2 login"
   upgrade from WARN-only to hard-block. Introduced: ChangeSet, UpdateScope, DriftRecord,
   MigrationPlan, `update/`, `validate/` modules.
 
-- **002-build-engine** (2026-04-03): Phase 2 — Added `cerebrofy build` (6-step atomic pipeline).
   Introduced: `cerebrofy.db` schema (nodes, edges, meta, file_hashes, vec_neurons), graph resolver,
   Embedder ABC (local/OpenAI/Cohere), Markdown generator, BuildLock, state_hash computation.
 
-- **001-sensory-foundation** (2026-04-03): Phase 1 — Added `cerebrofy init` (scaffold, hooks,
   MCP registration) and Universal Parser (Tree-sitter + .scm queries → Neuron records).
   Introduced: Neuron schema, CerebrофyConfig, IgnoreRuleSet, Lobe detection algorithm.
 
