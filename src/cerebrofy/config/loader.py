@@ -27,7 +27,47 @@ DEFAULT_TRACKED_EXTENSIONS: list[str] = [
     ".cpp", ".c", ".h",
 ]
 
+
+_EMBED_DIM_EXPECTED: dict[str, int] = {
+    "local": 768,
+    "openai": 1536,
+    "cohere": 1024,
+}
+
+
 def validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]:
+    """Validate config fields and return a list of warning strings (never raises)."""
+    warnings: list[str] = []
+
+    if not config.lobes:
+        warnings.append("config.yaml: 'lobes' is empty — no directories will be indexed.")
+
+    if not config.tracked_extensions:
+        warnings.append("config.yaml: 'tracked_extensions' is empty — no files will be parsed.")
+
+    for ext in config.tracked_extensions:
+        # EXTENSION_TO_LANGUAGE maps .h → c_header, so check the scm name accordingly
+        from cerebrofy.parser.engine import EXTENSION_TO_LANGUAGE
+        lang_name = EXTENSION_TO_LANGUAGE.get(ext)
+        if lang_name:
+            scm = queries_dir / f"{lang_name}.scm"
+        else:
+            scm = queries_dir / f"{ext.lstrip('.')}.scm"
+        if not scm.exists():
+            warnings.append(
+                f"config.yaml: no .scm file for extension '{ext}' in {queries_dir} — "
+                f"files with this extension will be skipped."
+            )
+
+    expected_dim = _EMBED_DIM_EXPECTED.get(config.embedding_model)
+    if expected_dim is not None and config.embed_dim != expected_dim:
+        warnings.append(
+            f"config.yaml: embed_dim={config.embed_dim} does not match "
+            f"embedding_model='{config.embedding_model}' (expected {expected_dim})."
+        )
+
+    return warnings
+
 
 def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-arg]
     """Return a plain dict matching the config.yaml schema with defaults."""
@@ -51,6 +91,11 @@ def write_config(config: dict, path: Path) -> None:  # type: ignore[type-arg]
 
 def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig:
     """Load and parse config.yaml into a CerebrоfyConfig. Raises FileNotFoundError if missing.
+
+    If queries_dir is provided, validate_config() is called and warnings are printed to stderr.
+    """
+    import sys
+
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     with open(path, encoding="utf-8") as f:
@@ -64,3 +109,7 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         llm_model=data.get("llm_model", "gpt-4o"),
         top_k=data.get("top_k", 10),
     )
+    if queries_dir is not None:
+        for warning in validate_config(config, queries_dir):
+            print(f"Warning: {warning}", file=sys.stderr)
+    return config

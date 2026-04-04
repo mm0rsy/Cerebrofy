@@ -151,9 +151,9 @@ Named nested functions MUST be captured. Anonymous/lambda expressions MUST NOT b
 
 **Independent Test**: Edit `config.yaml` to rename a Lobe and add a pattern to `.cerebrofy-ignore`. Run `cerebrofy parse` — renamed Lobe is used, newly ignored directory is excluded.
 
-- [ ] T058 [P] [US3] Add function `validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]` to `src/cerebrofy/config/loader.py`. Checks: (1) `lobes` is not empty; (2) `tracked_extensions` is not empty; (3) for each extension in `tracked_extensions`, verify a `.scm` file exists in `queries_dir` — warn (don't error) if missing; (4) `embed_dim` matches model: 768 for local, 1536 for openai, 1024 for cohere. Returns list of warning strings.
-- [ ] T059 [US3] Update `load_config` in `src/cerebrofy/config/loader.py` to accept an optional `queries_dir: Path | None = None` parameter. When provided, call `validate_config` and print any warnings to stderr.
-- [ ] T060 [US3] Verify (no code change needed) that the existing T048 + T054 logic already handles unknown extensions gracefully: `load_query` returns `None` when no `.scm` exists → `parse_file` returns a `ParseResult` with `warnings=["No parser for {extension}"]`. Confirm this warning text is printed to stderr by `cerebrofy_parse` (T056). If `cerebrofy_parse` currently swallows warnings silently, update it to print them.
+- [x] T058 [P] [US3] Add function `validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]` to `src/cerebrofy/config/loader.py`. Checks: (1) `lobes` is not empty; (2) `tracked_extensions` is not empty; (3) for each extension in `tracked_extensions`, verify a `.scm` file exists in `queries_dir` — warn (don't error) if missing; (4) `embed_dim` matches model: 768 for local, 1536 for openai, 1024 for cohere. Returns list of warning strings.
+- [x] T059 [US3] Update `load_config` in `src/cerebrofy/config/loader.py` to accept an optional `queries_dir: Path | None = None` parameter. When provided, call `validate_config` and print any warnings to stderr.
+- [x] T060 [US3] Verify (no code change needed) that the existing T048 + T054 logic already handles unknown extensions gracefully: `load_query` returns `None` when no `.scm` exists → `parse_file` returns a `ParseResult` with `warnings=["No parser for {extension}"]`. Confirm this warning text is printed to stderr by `cerebrofy_parse` (T056). If `cerebrofy_parse` currently swallows warnings silently, update it to print them.
 
 **Checkpoint**: All US3 acceptance scenarios pass. Config customization is respected end-to-end.
 
