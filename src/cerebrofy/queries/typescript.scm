@@ -4,7 +4,7 @@
 (function_declaration
   name: (identifier) @name) @function.def
 
-(function_expression
+(function
   name: (identifier) @name) @function.def
 
 (method_definition
@@ -19,7 +19,7 @@
 (interface_declaration
   name: (type_identifier) @name) @class.def
 
-(import_declaration) @import
+(import_statement) @import
 
 (call_expression
   function: (_) @name) @call
