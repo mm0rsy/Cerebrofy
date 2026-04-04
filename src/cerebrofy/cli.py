@@ -4,6 +4,7 @@ import click
 
 from cerebrofy import __version__
 from cerebrofy.commands.init import cerebrofy_init
+from cerebrofy.commands.parse import cerebrofy_parse
 
 
 @click.group()
@@ -13,3 +14,4 @@ def main() -> None:
 
 
 main.add_command(cerebrofy_init)
+main.add_command(cerebrofy_parse)

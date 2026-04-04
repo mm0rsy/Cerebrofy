@@ -8,8 +8,8 @@ version = "0.1.0"
 description = "AI-powered codebase intelligence CLI"
 requires-python = ">=3.11"
 dependencies = [
-    "tree-sitter>=0.21",
-    "tree-sitter-languages>=1.10",
+    "tree-sitter>=0.21,<0.22",
+    "tree-sitter-languages>=1.10,<2",
     "pathspec>=0.12",
     "PyYAML>=6.0",
     "click>=8.1",
