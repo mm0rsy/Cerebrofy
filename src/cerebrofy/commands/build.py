@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 import time
@@ -11,6 +12,7 @@ import click
 
 from cerebrofy.config.loader import load_config
 from cerebrofy.db.connection import open_db
+from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
     build_neuron_text,
@@ -50,15 +52,15 @@ def cleanup_stale_tmp(tmp_path: Path) -> None:
 
 
 def build_step0_create_db(db_path: Path, embed_model: str, embed_dim: int) -> sqlite3.Connection:
-    """Step 0: Create (or truncate) the database, apply schema, write initial meta rows.
+    """Step 0: Create the .tmp database, apply schema, write initial meta rows.
 
-    In US1 writes directly to db_path. US5 updates this to write to get_tmp_path(db_path).
+    Always writes to get_tmp_path(db_path). The atomic swap to db_path happens in
+    cerebrofy_build after all steps succeed.
     """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    # Remove stale db so CREATE TABLE succeeds on a fresh connection.
-    # US5 replaces this pattern with atomic .tmp → .db swap.
-    db_path.unlink(missing_ok=True)
-    conn = open_db(db_path)
+    tmp_path = get_tmp_path(db_path)
+    tmp_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path.unlink(missing_ok=True)
+    conn = open_db(tmp_path)
     create_schema(conn, embed_dim)
     insert_meta(conn, embed_model, embed_dim)
     return conn
@@ -125,19 +127,27 @@ def build_step6_commit(
 
 
 def build_step5_markdown(
-    conn: sqlite3.Connection,
+    db_path: Path,
     config: object,
     state_hash: str,
     docs_dir: Path,
 ) -> None:
-    """Step 5: Write per-lobe and map Markdown files (post-swap, read-only from DB)."""
+    """Step 5: Write per-lobe and map Markdown files.
+
+    Opens a FRESH read-only connection to the final (swapped) db_path. The .tmp
+    connection is already closed before this function is called.
+    """
     click.echo("Cerebrofy: Step 5/6 — Writing Markdown documentation")
     docs_dir.mkdir(parents=True, exist_ok=True)
     from cerebrofy.config.loader import CerebrоfyConfig
     cfg: CerebrоfyConfig = config  # type: ignore[assignment]
-    for lobe_name, lobe_path in cfg.lobes.items():
-        write_lobe_md(conn, lobe_name, lobe_path, docs_dir)
-    write_map_md(conn, cfg.lobes, state_hash, docs_dir)
+    conn = open_db(db_path)
+    try:
+        for lobe_name, lobe_path in cfg.lobes.items():
+            write_lobe_md(conn, lobe_name, lobe_path, docs_dir)
+        write_map_md(conn, cfg.lobes, state_hash, docs_dir)
+    finally:
+        conn.close()
 
 
 def build_step4_vectors(
@@ -202,37 +212,67 @@ def cerebrofy_build() -> None:
     config = load_config(config_path)
     ignore_rules = IgnoreRuleSet.from_directory(root)
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    tmp_path = get_tmp_path(db_path)
+    lock_path = db_path.parent / "cerebrofy.lock"
+
+    # Concurrent build guard
+    if lock_path.exists():
+        if is_stale(lock_path):
+            release(BuildLock(lock_path=lock_path, pid=0))
+        else:
+            click.echo("Error: A build is already in progress.", err=True)
+            sys.exit(1)
+
+    lock = acquire(lock_path)
+    cleanup_stale_tmp(tmp_path)
 
     click.echo("Cerebrofy: Starting build...")
     start = time.monotonic()
 
-    conn = build_step0_create_db(db_path, config.embedding_model, config.embed_dim)
-
-    parse_results = build_step1_parse(root, config, ignore_rules)
-
-    all_neurons = [n for pr in parse_results for n in pr.neurons]
-    write_nodes(conn, all_neurons)
-
-    name_registry = build_name_registry(parse_results)
-    build_step2_local_graph(conn, parse_results, name_registry)
-    build_step3_cross_module_graph(conn, parse_results, name_registry)
-
+    conn: sqlite3.Connection | None = None
     try:
-        embedder = get_embedder(config.embedding_model)
-    except (ValueError, Exception) as exc:
-        click.echo(f"Error: Could not initialize embedder: {exc}", err=True)
+        conn = build_step0_create_db(db_path, config.embedding_model, config.embed_dim)
+
+        parse_results = build_step1_parse(root, config, ignore_rules)
+
+        all_neurons = [n for pr in parse_results for n in pr.neurons]
+        write_nodes(conn, all_neurons)
+
+        name_registry = build_name_registry(parse_results)
+        build_step2_local_graph(conn, parse_results, name_registry)
+        build_step3_cross_module_graph(conn, parse_results, name_registry)
+
+        try:
+            embedder = get_embedder(config.embedding_model)
+        except (ValueError, Exception) as exc:
+            raise RuntimeError(f"Could not initialize embedder: {exc}") from exc
+        build_step4_vectors(conn, all_neurons, embedder)
+
+        state_hash = build_step6_commit(conn, root, config, ignore_rules)
+
+        # Close .tmp connection before the atomic swap
+        conn.close()
+        conn = None
+
+        # Atomic swap: .tmp → .db (only on success)
+        os.replace(str(tmp_path), str(db_path))
+
+        docs_dir = root / "docs" / "cerebrofy"
+        build_step5_markdown(db_path, config, state_hash, docs_dir)
+
+        elapsed = time.monotonic() - start
+        files_count = len(parse_results)
+        neurons_count = len(all_neurons)
+        click.echo(
+            f"Cerebrofy: Build complete. "
+            f"Indexed {neurons_count} neurons across {files_count} files in {elapsed:.1f}s."
+        )
+
+    except Exception as exc:
+        if conn is not None:
+            conn.close()
+        cleanup_stale_tmp(tmp_path)
+        click.echo(f"Error: Build failed: {exc}", err=True)
         sys.exit(1)
-    build_step4_vectors(conn, all_neurons, embedder)
-
-    state_hash = build_step6_commit(conn, root, config, ignore_rules)
-
-    docs_dir = root / "docs" / "cerebrofy"
-    build_step5_markdown(conn, config, state_hash, docs_dir)
-
-    elapsed = time.monotonic() - start
-    files_count = len(parse_results)
-    neurons_count = len(all_neurons)
-    click.echo(
-        f"Cerebrofy: Build complete. "
-        f"Indexed {neurons_count} neurons across {files_count} files in {elapsed:.1f}s."
-    )
+    finally:
+        release(lock)
