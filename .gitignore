@@ -3,3 +3,17 @@
 .specify/
 .claude/
 specs/BLUEPRINT_REVIEW.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Cerebrofy index (local artifact — never commit)
+.cerebrofy/db/

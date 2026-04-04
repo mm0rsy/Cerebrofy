@@ -26,11 +26,11 @@ each can be executed independently by any capable LLM with only local file conte
 
 **Purpose**: Create the Python package skeleton. All tasks can run in parallel.
 
-- [ ] T001 Create `pyproject.toml` at repo root with dependencies (`tree-sitter>=0.21`, `tree-sitter-languages>=1.10`, `pathspec>=0.12`, `PyYAML>=6.0`, `click>=8.1`), entry point `cerebrofy = "cerebrofy.cli:main"`, Python `>=3.11`
-- [ ] T002 [P] Create `src/cerebrofy/__init__.py` with `__version__ = "0.1.0"` and package docstring
-- [ ] T003 [P] Create empty `__init__.py` stubs for all subpackages: `src/cerebrofy/commands/__init__.py`, `src/cerebrofy/parser/__init__.py`, `src/cerebrofy/config/__init__.py`, `src/cerebrofy/ignore/__init__.py`, `src/cerebrofy/hooks/__init__.py`, `src/cerebrofy/mcp/__init__.py`
-- [ ] T004 [P] Create `src/cerebrofy/cli.py` with a Click command group named `main` (`@click.group()`), no commands registered yet — this is the entry point stub
-- [ ] T005 [P] Create `tests/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py` as empty files
+- [x] T001 Create `pyproject.toml` at repo root with dependencies (`tree-sitter>=0.21`, `tree-sitter-languages>=1.10`, `pathspec>=0.12`, `PyYAML>=6.0`, `click>=8.1`), entry point `cerebrofy = "cerebrofy.cli:main"`, Python `>=3.11`
+- [x] T002 [P] Create `src/cerebrofy/__init__.py` with `__version__ = "0.1.0"` and package docstring
+- [x] T003 [P] Create empty `__init__.py` stubs for all subpackages: `src/cerebrofy/commands/__init__.py`, `src/cerebrofy/parser/__init__.py`, `src/cerebrofy/config/__init__.py`, `src/cerebrofy/ignore/__init__.py`, `src/cerebrofy/hooks/__init__.py`, `src/cerebrofy/mcp/__init__.py`
+- [x] T004 [P] Create `src/cerebrofy/cli.py` with a Click command group named `main` (`@click.group()`), no commands registered yet — this is the entry point stub
+- [x] T005 [P] Create `tests/__init__.py`, `tests/unit/__init__.py`, `tests/integration/__init__.py` as empty files
 
 **Checkpoint**: Package installs with `pip install -e .` and `cerebrofy --help` shows an empty command group.
 
