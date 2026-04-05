@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cerebrofy"
+version = "0.1.0"
+description = "AI-powered codebase intelligence CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "tree-sitter>=0.21,<0.22",
+    "tree-sitter-languages>=1.10,<2",
+    "pathspec>=0.12",
+    "PyYAML>=6.0",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+dev = [
+    "pytest>=7.0",
+    "mypy>=1.0",
+    "ruff>=0.1",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+cerebrofy = "cerebrofy.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cerebrofy = ["queries/*.scm"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
