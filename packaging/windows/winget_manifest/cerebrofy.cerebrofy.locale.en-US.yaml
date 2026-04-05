@@ -1,0 +1,15 @@
+PackageIdentifier: cerebrofy.cerebrofy
+PackageVersion: __VERSION__
+PackageLocale: en-US
+Publisher: Cerebrofy
+PackageName: Cerebrofy
+ShortDescription: AI-ready codebase indexer
+Description: >-
+  Cerebrofy indexes your codebase into a local graph + vector database
+  and provides AI-grounded planning and specification tools.
+Tags:
+- ai
+- cli
+- code-intelligence
+ManifestType: locale
+ManifestVersion: 1.4.0

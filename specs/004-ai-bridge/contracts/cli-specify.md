@@ -48,14 +48,20 @@ the LLM response to stdout, and writes the complete response to a timestamped Ma
 
 ## Execution Flow
 
+**Two-connection pattern (FR-026)**: `cerebrofy specify` opens the database twice with separate
+connections. Connection 1 (pre-flight) reads only the `meta` table. Connection 2 (main search)
+performs the KNN query and BFS traversal. This keeps pre-flight validation isolated from search.
+
 ```
-1. Embed DESCRIPTION using the configured embedding model
-2. Open cerebrofy.db (read-only: ?mode=ro)
-3. KNN query on vec_neurons → top_k MatchedNeurons (ordered by similarity desc)
-4. BFS depth=2 on edges from each MatchedNeuron (exclude RUNTIME_BOUNDARY)
-5. Collect HybridSearchResult
-6. If KNN returns 0 results → print "Cerebrofy: No relevant code units found for this description." → exit 0 (no LLM call, no file write)
-7. Close DB connection
+1. Open cerebrofy.db (pre-flight, read-only) → read embed_model from meta → close connection
+   (This is a dedicated pre-flight connection — closed before embedding begins)
+2. Embed DESCRIPTION using the configured embedding model
+3. Open cerebrofy.db (main, read-only: ?mode=ro) for hybrid search
+4. KNN query on vec_neurons → top_k MatchedNeurons (ordered by similarity desc)
+5. BFS depth=2 on edges from each MatchedNeuron (exclude RUNTIME_BOUNDARY)
+6. Collect HybridSearchResult
+7. If KNN returns 0 results → print "Cerebrofy: No relevant code units found for this description." → exit 0 (no LLM call, no file write)
+8. Close main DB connection
 8. Print hybrid search summary to stderr:
      "Cerebrofy: Hybrid search — {N} neurons matched, {M} lobes affected"
      "  · {name} ({file}) — score {similarity:.2f}"  (one line per matched neuron)

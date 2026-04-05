@@ -5,6 +5,7 @@ import click
 from cerebrofy import __version__
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.init import cerebrofy_init
+from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.parse import cerebrofy_parse
 from cerebrofy.commands.plan import cerebrofy_plan
@@ -22,6 +23,7 @@ def main() -> None:
 
 main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_init)
+main.add_command(cerebrofy_mcp)
 main.add_command(cerebrofy_migrate)
 main.add_command(cerebrofy_parse)
 main.add_command(cerebrofy_plan)

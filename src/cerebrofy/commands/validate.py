@@ -98,5 +98,5 @@ def cerebrofy_validate(hook: str | None) -> None:
         click.echo("Cerebrofy: Suggestion: run 'cerebrofy update' to keep the index current.")
         sys.exit(0)
 
-    click.echo("Cerebrofy: Index is current. No drift detected.")
+    click.echo("Cerebrofy: Index is clean.")
     sys.exit(0)

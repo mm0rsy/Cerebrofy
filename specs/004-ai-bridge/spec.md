@@ -216,7 +216,7 @@ lobe link, blast radius count. Confirm exit 0 and no network calls.
 
 - **FR-006**: `cerebrofy plan` MUST output a Markdown report to stdout containing four labeled sections: **Matched Neurons** (name, file, line_start, cosine similarity score), **Blast Radius** (depth-2 neighbor Neuron names and files, RUNTIME_BOUNDARY edges excluded), **Affected Lobes** (lobe names and `.md` file paths), **Re-index Scope** (estimated count of nodes impacted). No LLM call is made.
 
-- **FR-007**: `cerebrofy plan` MUST support a `--json` flag producing a machine-readable JSON object with stable top-level fields: `matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope`. When `--json` is active, no decorative text, progress messages, or warnings are mixed into stdout (they go to stderr only).
+- **FR-007**: `cerebrofy plan` MUST support a `--json` flag producing a machine-readable JSON object with stable top-level fields: `schema_version` (always `1`), `matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope`. The `schema_version` field MUST always be present as the first top-level field. AI tools SHOULD check `schema_version` before parsing (FR-023). When `--json` is active, no decorative text, progress messages, or warnings are mixed into stdout (they go to stderr only).
 
 - **FR-008**: `cerebrofy tasks` MUST output a numbered Markdown task list to stdout. Each item MUST follow: `N. Modify {neuron_name} in [[{lobe_name}]] ({file}:{line_start}) — blast radius: {count} nodes`. Items MUST be ordered by descending KNN similarity score. No LLM call is made.
 

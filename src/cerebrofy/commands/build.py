@@ -97,13 +97,13 @@ def build_step1_parse(
     return parse_results
 
 
-def build_step6_commit(
+def build_step5_commit(
     conn: sqlite3.Connection,
     root: Path,
     config: CerebrоfyConfig,
     ignore_rules: IgnoreRuleSet,
 ) -> str:
-    """Step 6: Compute file hashes, write state_hash + last_build, commit."""
+    """Step 5: Compute file hashes, write state_hash + last_build, commit."""
     file_hash_map: dict[str, str] = {}
     for file_path in sorted(root.rglob("*")):
         if not file_path.is_file():
@@ -124,13 +124,13 @@ def build_step6_commit(
     return state_hash
 
 
-def build_step5_markdown(
+def build_step6_markdown(
     db_path: Path,
     config: CerebrоfyConfig,
     state_hash: str,
     docs_dir: Path,
 ) -> None:
-    """Step 5: Write per-lobe and map Markdown files.
+    """Step 6: Write per-lobe and map Markdown files.
 
     Opens a FRESH read-only connection to the final (swapped) db_path. The .tmp
     connection is already closed before this function is called.
@@ -245,7 +245,7 @@ def cerebrofy_build() -> None:
             raise RuntimeError(f"Could not initialize embedder: {exc}") from exc
         build_step4_vectors(conn, all_neurons, embedder)
 
-        state_hash = build_step6_commit(conn, root, config, ignore_rules)
+        state_hash = build_step5_commit(conn, root, config, ignore_rules)
 
         # Close .tmp connection before the atomic swap
         conn.close()
@@ -255,7 +255,7 @@ def cerebrofy_build() -> None:
         os.replace(str(tmp_path), str(db_path))
 
         docs_dir = root / "docs" / "cerebrofy"
-        build_step5_markdown(db_path, config, state_hash, docs_dir)
+        build_step6_markdown(db_path, config, state_hash, docs_dir)
 
         elapsed = time.monotonic() - start
         files_count = len(parse_results)

@@ -11,7 +11,13 @@ import click
 from cerebrofy.config.loader import build_default_config, write_config
 from cerebrofy.hooks.installer import add_gitignore_entry, install_hooks
 from cerebrofy.ignore.ruleset import DEFAULT_IGNORE_CONTENT
-from cerebrofy.mcp.registrar import register_mcp
+from cerebrofy.mcp.registrar import (
+    MCP_FALLBACK_SNIPPET,
+    find_writable_mcp_config,
+    has_cerebrofy_mcp_entry,
+    warn_if_multiple_installations,
+    write_mcp_entry,
+)
 
 # Monorepo manifest filenames used for Lobe auto-detection.
 _MANIFESTS = {"package.json", "pyproject.toml", "go.mod", "Cargo.toml", "pom.xml"}
@@ -131,15 +137,27 @@ def cerebrofy_init(global_mcp: bool, no_mcp: bool, force: bool) -> None:
     add_gitignore_entry(root)
 
     if not no_mcp:
-        ok, msg = register_mcp(global_mcp)
-        if ok:
-            click.echo(f"Cerebrofy: MCP server {msg}")
-        else:
+        try:
+            if global_mcp:
+                from pathlib import Path as _Path
+                mcp_path = _Path("~/.config/mcp/servers.json").expanduser()
+                mcp_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                mcp_path = find_writable_mcp_config()
+
+            if has_cerebrofy_mcp_entry(mcp_path):
+                click.echo(f"Cerebrofy: MCP server already registered at {mcp_path}")
+            else:
+                write_mcp_entry(mcp_path)
+                click.echo(f"Cerebrofy: MCP server registered at {mcp_path}")
+
+            warn_if_multiple_installations()
+        except OSError:
             click.echo(
                 "Warning: Could not write MCP config (permission denied). "
                 "Add this entry manually:",
                 err=True,
             )
-            click.echo(msg, err=True)
+            click.echo(MCP_FALLBACK_SNIPPET, err=True)
 
     click.echo("Cerebrofy initialized. Run `cerebrofy build` to index your codebase.")
