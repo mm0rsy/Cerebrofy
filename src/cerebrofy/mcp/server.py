@@ -153,10 +153,10 @@ def _handle_specify(arguments: dict[str, Any]) -> list[Any]:
         check_schema_version(conn)
         meta_rows = conn.execute("SELECT key, value FROM meta").fetchall()
         db_meta = {row[0]: row[1] for row in meta_rows}
-    except ValueError as exc:
+    except ValueError:
         conn.close()
-        raise exc
-    finally:
+        raise
+    else:
         conn.close()
 
     from cerebrofy.commands.specify import _validate_specify_prerequisites
