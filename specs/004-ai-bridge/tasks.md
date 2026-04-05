@@ -18,9 +18,9 @@ dataclass, or one-concern unit so that a simpler LLM can handle it without broad
 
 **Purpose**: Create directory scaffolding and extend config before any module is written.
 
-- [ ] T001 Create `src/cerebrofy/search/__init__.py` (empty file — creates search package)
-- [ ] T002 Create `src/cerebrofy/llm/__init__.py` (empty file — creates llm package)
-- [ ] T003 Add Phase 4 fields to `CerebrоfyConfig` dataclass in `src/cerebrofy/config/loader.py`:
+- [x] T001 Create `src/cerebrofy/search/__init__.py` (empty file — creates search package)
+- [x] T002 Create `src/cerebrofy/llm/__init__.py` (empty file — creates llm package)
+- [x] T003 Add Phase 4 fields to `CerebrоfyConfig` dataclass in `src/cerebrofy/config/loader.py`:
   Add five optional fields with their defaults:
   ```python
   llm_endpoint: str = ""
@@ -45,19 +45,19 @@ No user story work can begin until this phase is complete.
 
 ### Data structures (can all be written in parallel)
 
-- [ ] T004 [P] Add `MatchedNeuron` frozen dataclass to `src/cerebrofy/search/hybrid.py`:
+- [x] T004 [P] Add `MatchedNeuron` frozen dataclass to `src/cerebrofy/search/hybrid.py`:
   fields `id: str`, `name: str`, `file: str`, `line_start: int`, `similarity: float`.
   Use `@dataclass(frozen=True)`. No other code in this task.
 
-- [ ] T005 [P] Add `BlastRadiusNeuron` frozen dataclass to `src/cerebrofy/search/hybrid.py`:
+- [x] T005 [P] Add `BlastRadiusNeuron` frozen dataclass to `src/cerebrofy/search/hybrid.py`:
   fields `id: str`, `name: str`, `file: str`, `line_start: int`.
   Use `@dataclass(frozen=True)`. No other code in this task.
 
-- [ ] T006 [P] Add `RuntimeBoundaryWarning` frozen dataclass to `src/cerebrofy/search/hybrid.py`:
+- [x] T006 [P] Add `RuntimeBoundaryWarning` frozen dataclass to `src/cerebrofy/search/hybrid.py`:
   fields `src_id: str`, `src_name: str`, `src_file: str`, `dst_id: str`, `lobe_name: str`.
   Use `@dataclass(frozen=True)`. No other code in this task.
 
-- [ ] T007 Add `HybridSearchResult` frozen dataclass to `src/cerebrofy/search/hybrid.py`
+- [x] T007 Add `HybridSearchResult` frozen dataclass to `src/cerebrofy/search/hybrid.py`
   (depends on T004, T005, T006):
   fields `query: str`, `top_k: int`, `matched_neurons: tuple[MatchedNeuron, ...]`,
   `blast_radius: tuple[BlastRadiusNeuron, ...]`, `affected_lobes: frozenset[str]`,
@@ -67,7 +67,7 @@ No user story work can begin until this phase is complete.
 
 ### KNN query
 
-- [ ] T008 Implement `_run_knn_query(conn: sqlite3.Connection, embedding: bytes, top_k: int) -> list[MatchedNeuron]` in `src/cerebrofy/search/hybrid.py`:
+- [x] T008 Implement `_run_knn_query(conn: sqlite3.Connection, embedding: bytes, top_k: int) -> list[MatchedNeuron]` in `src/cerebrofy/search/hybrid.py`:
   Use a **two-step** approach required by sqlite-vec `vec0` virtual tables:
 
   **Step 1** — KNN search (uses required `k = ?` constraint):
@@ -89,7 +89,7 @@ No user story work can begin until this phase is complete.
 
 ### BFS helpers
 
-- [ ] T009 Implement `_expand_bfs_one_level(conn: sqlite3.Connection, current_ids: set[str], visited_ids: set[str]) -> tuple[set[str], list[RuntimeBoundaryWarning]]` in `src/cerebrofy/search/hybrid.py`:
+- [x] T009 Implement `_expand_bfs_one_level(conn: sqlite3.Connection, current_ids: set[str], visited_ids: set[str]) -> tuple[set[str], list[RuntimeBoundaryWarning]]` in `src/cerebrofy/search/hybrid.py`:
   Query `SELECT src_id, dst_id, rel_type FROM edges WHERE src_id IN (...)`.
   Use the `RUNTIME_BOUNDARY` constant from `src/cerebrofy/graph/edges.py`.
   For each row: if `rel_type == RUNTIME_BOUNDARY`, create a stub `RuntimeBoundaryWarning`
@@ -97,11 +97,11 @@ No user story work can begin until this phase is complete.
   Otherwise add `dst_id` to `next_ids` if not already in `visited_ids`.
   Return `(next_ids, warnings)`.
 
-- [ ] T010 Implement `_fetch_blast_radius_neurons(conn: sqlite3.Connection, node_ids: set[str]) -> list[BlastRadiusNeuron]` in `src/cerebrofy/search/hybrid.py`:
+- [x] T010 Implement `_fetch_blast_radius_neurons(conn: sqlite3.Connection, node_ids: set[str]) -> list[BlastRadiusNeuron]` in `src/cerebrofy/search/hybrid.py`:
   Query `SELECT id, name, file, line_start FROM nodes WHERE id IN (...)` for the given IDs.
   Return list of `BlastRadiusNeuron`. If `node_ids` is empty, return `[]`.
 
-- [ ] T011 Implement `_run_bfs(conn: sqlite3.Connection, seed_ids: set[str]) -> tuple[list[BlastRadiusNeuron], list[RuntimeBoundaryWarning]]` in `src/cerebrofy/search/hybrid.py` (depends on T009, T010):
+- [x] T011 Implement `_run_bfs(conn: sqlite3.Connection, seed_ids: set[str]) -> tuple[list[BlastRadiusNeuron], list[RuntimeBoundaryWarning]]` in `src/cerebrofy/search/hybrid.py` (depends on T009, T010):
   Run exactly two levels of BFS using `_expand_bfs_one_level`:
   - Track `visited = seed_ids.copy()`.
   - Level 1: expand from `seed_ids` → `(level1_ids, warnings1)`. Add `level1_ids` to `visited`.
@@ -114,7 +114,7 @@ No user story work can begin until this phase is complete.
 
 ### Lobe resolution
 
-- [ ] T012 Implement `_resolve_affected_lobes(conn: sqlite3.Connection, node_ids: set[str], lobe_dir: str) -> tuple[frozenset[str], dict[str, str]]` in `src/cerebrofy/search/hybrid.py`:
+- [x] T012 Implement `_resolve_affected_lobes(conn: sqlite3.Connection, node_ids: set[str], lobe_dir: str) -> tuple[frozenset[str], dict[str, str]]` in `src/cerebrofy/search/hybrid.py`:
   Query `SELECT DISTINCT file FROM nodes WHERE id IN (...)`.
   For each file path, derive the lobe name: take the first path component before `/`
   (e.g., `"auth/validator.py"` → `"auth"`; a root-level file → `"root"`).
@@ -124,7 +124,7 @@ No user story work can begin until this phase is complete.
 
 ### Embedding helper
 
-- [ ] T013 Implement `_embed_query(description: str, config) -> bytes` in `src/cerebrofy/search/hybrid.py`:
+- [x] T013 Implement `_embed_query(description: str, config) -> bytes` in `src/cerebrofy/search/hybrid.py`:
   Load the configured embedder using the same Embedder ABC from Phase 2
   (`src/cerebrofy/embedder/base.py`). Call `embedder.embed([description])[0]` to get the
   embedding vector. Return `sqlite_vec.serialize_float32(vector)` — the serialized bytes
@@ -134,7 +134,7 @@ No user story work can begin until this phase is complete.
 
 ### Orchestrator
 
-- [ ] T014 Implement `hybrid_search(query: str, db_path: str, embedding: bytes, top_k: int, config_embed_model: str, lobe_dir: str) -> HybridSearchResult` in `src/cerebrofy/search/hybrid.py` (depends on T007–T012):
+- [x] T014 Implement `hybrid_search(query: str, db_path: str, embedding: bytes, top_k: int, config_embed_model: str, lobe_dir: str) -> HybridSearchResult` in `src/cerebrofy/search/hybrid.py` (depends on T007–T012):
   1. Open DB using `open_db()` from `src/cerebrofy/db/connection.py` with read-only mode.
      Per research Decision 1: `open_db()` supports a `?mode=ro` URI flag — use the form
      documented in Phase 2's `db/connection.py` for read-only access.
@@ -181,11 +181,11 @@ is the final stdout line, and the LLM response content is in the file. Exit code
 
 ### Prompt builder module (can all be written in parallel)
 
-- [ ] T015 [P] [US1] Add `LLMContextPayload` frozen dataclass to `src/cerebrofy/llm/prompt_builder.py`:
+- [x] T015 [P] [US1] Add `LLMContextPayload` frozen dataclass to `src/cerebrofy/llm/prompt_builder.py`:
   fields `system_message: str`, `user_message: str`, `lobe_names: tuple[str, ...]`, `token_estimate: int`.
   Use `@dataclass(frozen=True)`.
 
-- [ ] T016 [P] [US1] Add built-in default system prompt template constant `DEFAULT_SYSTEM_PROMPT` to `src/cerebrofy/llm/prompt_builder.py`:
+- [x] T016 [P] [US1] Add built-in default system prompt template constant `DEFAULT_SYSTEM_PROMPT` to `src/cerebrofy/llm/prompt_builder.py`:
   ```
   You are a senior software architect with deep knowledge of the following codebase.
 
@@ -201,19 +201,19 @@ is the final stdout line, and the LLM response content is in the file. Exit code
   ```
   Store as a module-level string constant. No logic in this task.
 
-- [ ] T017 [P] [US1] Implement `_load_template(template_path: str | None, repo_root: str) -> string.Template` in `src/cerebrofy/llm/prompt_builder.py`:
+- [x] T017 [P] [US1] Implement `_load_template(template_path: str | None, repo_root: str) -> string.Template` in `src/cerebrofy/llm/prompt_builder.py`:
   If `template_path` is None or empty string: return `string.Template(DEFAULT_SYSTEM_PROMPT)`.
   Otherwise resolve the path relative to `repo_root`. If the file does not exist, raise
   `FileNotFoundError(f"system_prompt_template file not found: {resolved_path}")`.
   Read and return `string.Template(file_content)`.
 
-- [ ] T018 [P] [US1] Implement `_build_lobe_context(lobe_files: dict[str, str]) -> str` in `src/cerebrofy/llm/prompt_builder.py`:
+- [x] T018 [P] [US1] Implement `_build_lobe_context(lobe_files: dict[str, str]) -> str` in `src/cerebrofy/llm/prompt_builder.py`:
   For each `(lobe_name, lobe_path)` sorted alphabetically by lobe_name:
     Read the file at `lobe_path`. If file does not exist, skip silently.
     Append `f"## {lobe_name}\n\n{content}\n\n"` to the result string.
   Return the concatenated string. Return `""` if `lobe_files` is empty.
 
-- [ ] T019 [US1] Implement `build_llm_context(result: HybridSearchResult, template_path: str | None, repo_root: str) -> LLMContextPayload` in `src/cerebrofy/llm/prompt_builder.py` (depends on T015–T018):
+- [x] T019 [US1] Implement `build_llm_context(result: HybridSearchResult, template_path: str | None, repo_root: str) -> LLMContextPayload` in `src/cerebrofy/llm/prompt_builder.py` (depends on T015–T018):
   1. Call `_load_template(template_path, repo_root)` → `tmpl`.
   2. Call `_build_lobe_context(result.affected_lobe_files)` → `lobe_context`.
   3. `system_message = tmpl.safe_substitute(lobe_context=lobe_context)`.
@@ -224,19 +224,19 @@ is the final stdout line, and the LLM response content is in the file. Exit code
 
 ### LLM client module
 
-- [ ] T020 [P] [US1] Implement `LLMClient.__init__(self, base_url: str, api_key: str, model: str, timeout: int)` in `src/cerebrofy/llm/client.py`:
+- [x] T020 [P] [US1] Implement `LLMClient.__init__(self, base_url: str, api_key: str, model: str, timeout: int)` in `src/cerebrofy/llm/client.py`:
   Store `self.model = model` and `self.timeout = timeout`.
   Create `self._client = openai.OpenAI(base_url=base_url, api_key=api_key)`.
   No other logic.
 
-- [ ] T021 [US1] Implement `LLMClient._call_once(self, system_message: str, user_message: str) -> Iterator[str] | str` in `src/cerebrofy/llm/client.py` (depends on T020):
+- [x] T021 [US1] Implement `LLMClient._call_once(self, system_message: str, user_message: str) -> Iterator[str] | str` in `src/cerebrofy/llm/client.py` (depends on T020):
   Call `self._client.chat.completions.create(model=self.model, messages=[{"role":"system","content":system_message},{"role":"user","content":user_message}], stream=True)`.
   If the endpoint returns a non-streaming `ChatCompletion` object (detected by `isinstance`
   check), emit `"Note: streaming not supported by endpoint, buffering response."` to stderr
   and return the complete content string.
   Otherwise return the streaming iterator (a `Stream` object).
 
-- [ ] T022 [US1] Implement `LLMClient.call(self, payload: LLMContextPayload) -> str` in `src/cerebrofy/llm/client.py` (depends on T021):
+- [x] T022 [US1] Implement `LLMClient.call(self, payload: LLMContextPayload) -> str` in `src/cerebrofy/llm/client.py` (depends on T021):
   This method combines retry logic + wall-clock timeout into a single implementation.
 
   **Retry wrapper** (outer):
@@ -273,13 +273,13 @@ is the final stdout line, and the LLM response content is in the file. Exit code
 
 ### cerebrofy specify command
 
-- [ ] T023 [P] [US1] Implement `_resolve_output_path(specs_dir: Path, now: datetime) -> Path` in `src/cerebrofy/commands/specify.py`:
+- [x] T023 [P] [US1] Implement `_resolve_output_path(specs_dir: Path, now: datetime) -> Path` in `src/cerebrofy/commands/specify.py`:
   Format timestamp as `now.strftime("%Y-%m-%dT%H-%M-%S")`.
   Build base path `specs_dir / f"{timestamp}_spec.md"`.
   If file exists, try suffix `_2`, `_3`, ... until a non-existent path is found.
   Return the resolved `Path` object. Do NOT create the file.
 
-- [ ] T024 [P] [US1] Implement `_print_search_summary(result: HybridSearchResult, model: str)` in `src/cerebrofy/commands/specify.py`:
+- [x] T024 [P] [US1] Implement `_print_search_summary(result: HybridSearchResult, model: str)` in `src/cerebrofy/commands/specify.py`:
   Write to stderr (using `click.echo(..., err=True)`):
   ```
   Cerebrofy: Hybrid search — {N} neurons matched, {M} lobes affected
@@ -288,7 +288,7 @@ is the final stdout line, and the LLM response content is in the file. Exit code
   Cerebrofy: Calling LLM ({model})...
   ```
 
-- [ ] T025 [P] [US1] Implement `_validate_specify_prerequisites(config, db_meta: dict) -> None` in `src/cerebrofy/commands/specify.py`:
+- [x] T025 [P] [US1] Implement `_validate_specify_prerequisites(config, db_meta: dict) -> None` in `src/cerebrofy/commands/specify.py`:
   Check in order:
   1. `config.llm_endpoint` non-empty → else raise `click.UsageError("Missing config key: llm_endpoint")`.
   2. `config.llm_model` non-empty → else raise `click.UsageError("Missing config key: llm_model")`.
@@ -304,7 +304,7 @@ is the final stdout line, and the LLM response content is in the file. Exit code
      f"config says {config.embedding_model}. Run 'cerebrofy build' to rebuild.")`.
      (This early exit prevents the more opaque `ValueError` from `hybrid_search` for specify.)
 
-- [ ] T026 [US1] Implement `specify` click command in `src/cerebrofy/commands/specify.py` (depends on T023–T025, T013, T014, T019, T022):
+- [x] T026 [US1] Implement `specify` click command in `src/cerebrofy/commands/specify.py` (depends on T023–T025, T013, T014, T019, T022):
   ```python
   @click.command()
   @click.argument("description")
@@ -336,7 +336,7 @@ is the final stdout line, and the LLM response content is in the file. Exit code
   18. Write `full_response` to file.
   19. Print output file path as final stdout line. Exit 0.
 
-- [ ] T027 [US1] Register `specify` command in `src/cerebrofy/cli.py`:
+- [x] T027 [US1] Register `specify` command in `src/cerebrofy/cli.py`:
   Add `from cerebrofy.commands.specify import specify` import and `cli.add_command(specify)`.
 
 **Checkpoint**: `cerebrofy specify "..."` runs end-to-end against a real index and LLM endpoint.
@@ -351,7 +351,7 @@ is the final stdout line, and the LLM response content is in the file. Exit code
 Confirm Markdown output with 4 sections, exit 0. Run with `--json` and confirm valid JSON
 with all required fields.
 
-- [ ] T028 [P] [US2] Implement `_format_plan_markdown(result: HybridSearchResult) -> str` in `src/cerebrofy/commands/plan.py`:
+- [x] T028 [P] [US2] Implement `_format_plan_markdown(result: HybridSearchResult) -> str` in `src/cerebrofy/commands/plan.py`:
   Build a Markdown string with these sections:
   - `# Cerebrofy Plan: {result.query}`
   - `## Matched Neurons` — Markdown table: columns `#`, `Name`, `File`, `Line`, `Similarity` (2 dp). One row per `MatchedNeuron` in order.
@@ -360,7 +360,7 @@ with all required fields.
   - `## Affected Lobes` — Markdown table: columns `Lobe`, `File`. One row per entry in `affected_lobe_files` sorted by lobe name.
   - `## Re-index Scope` — `Estimated **{reindex_scope} nodes** would need re-indexing for changes in this area.`
 
-- [ ] T029 [P] [US2] Implement `_format_plan_json(result: HybridSearchResult) -> str` in `src/cerebrofy/commands/plan.py`:
+- [x] T029 [P] [US2] Implement `_format_plan_json(result: HybridSearchResult) -> str` in `src/cerebrofy/commands/plan.py`:
   Build a dict:
   ```python
   {
@@ -381,7 +381,7 @@ with all required fields.
   Return `json.dumps(d, indent=2)`. All four array fields MUST always be present (empty list
   `[]` if no results). `schema_version` must always be present.
 
-- [ ] T030 [US2] Implement `plan` click command in `src/cerebrofy/commands/plan.py` (depends on T028, T029, T013, T014):
+- [x] T030 [US2] Implement `plan` click command in `src/cerebrofy/commands/plan.py` (depends on T028, T029, T013, T014):
   ```python
   @click.command()
   @click.argument("description")
@@ -401,7 +401,7 @@ with all required fields.
      Else: print `_format_plan_markdown(result)` to stdout.
   9. Exit 0.
 
-- [ ] T031 [US2] Register `plan` command in `src/cerebrofy/cli.py`:
+- [x] T031 [US2] Register `plan` command in `src/cerebrofy/cli.py`:
   Add `from cerebrofy.commands.plan import plan` import and `cli.add_command(plan)`.
 
 **Checkpoint**: `cerebrofy plan "..."` and `cerebrofy plan --json "..."` work offline against a valid index.
@@ -416,14 +416,14 @@ with all required fields.
 Confirm output is a numbered Markdown list where each item follows the exact format
 `N. Modify {name} in [[{lobe}]] ({file}:{line}) — blast radius: {count} nodes`. Exit 0.
 
-- [ ] T032 [P] [US3] Add `TaskItem` frozen dataclass to `src/cerebrofy/commands/tasks.py`:
+- [x] T032 [P] [US3] Add `TaskItem` frozen dataclass to `src/cerebrofy/commands/tasks.py`:
   fields `index: int`, `neuron: MatchedNeuron`, `lobe_name: str`, `blast_count: int`.
   Use `@dataclass(frozen=True)`.
   Note: `blast_count` is the total blast radius count (i.e., `len(result.blast_radius)`) shared
   across all task items. This is consistent with spec FR-008 — "blast radius: {count} nodes"
   refers to the total structural blast, not a per-neuron sub-count.
 
-- [ ] T033 [US3] Implement `_build_task_items(result: HybridSearchResult) -> tuple[list[TaskItem], list[str]]` in `src/cerebrofy/commands/tasks.py` (depends on T032):
+- [x] T033 [US3] Implement `_build_task_items(result: HybridSearchResult) -> tuple[list[TaskItem], list[str]]` in `src/cerebrofy/commands/tasks.py` (depends on T032):
   - `blast_count = len(result.blast_radius)` (total blast radius, same value for all items).
   - For each `MatchedNeuron` in `result.matched_neurons` (already ordered by descending similarity):
     Derive `lobe_name` by matching `neuron.file` against `result.affected_lobe_files` keys
@@ -434,14 +434,14 @@ Confirm output is a numbered Markdown list where each item follows the exact for
     `f"Note: {w.src_name} has unresolvable cross-language calls — see RUNTIME_BOUNDARY entries in [[{w.lobe_name}]]."`
   - Return `(task_items, note_strings)`.
 
-- [ ] T034 [P] [US3] Implement `_format_tasks_markdown(items: list[TaskItem], notes: list[str], description: str) -> str` in `src/cerebrofy/commands/tasks.py`:
+- [x] T034 [P] [US3] Implement `_format_tasks_markdown(items: list[TaskItem], notes: list[str], description: str) -> str` in `src/cerebrofy/commands/tasks.py`:
   Header: `f"# Cerebrofy Tasks: {description}\n\n"`.
   For each `TaskItem`:
     Append `f"{item.index}. Modify {item.neuron.name} in [[{item.lobe_name}]] ({item.neuron.file}:{item.neuron.line_start}) — blast radius: {item.blast_count} nodes\n"`.
   If `notes` is non-empty: append `"\n"` then each note on its own line.
   Return the full string.
 
-- [ ] T035 [US3] Implement `tasks` click command in `src/cerebrofy/commands/tasks.py` (depends on T032–T034, T013, T014):
+- [x] T035 [US3] Implement `tasks` click command in `src/cerebrofy/commands/tasks.py` (depends on T032–T034, T013, T014):
   ```python
   @click.command()
   @click.argument("description")
@@ -460,7 +460,7 @@ Confirm output is a numbered Markdown list where each item follows the exact for
   9. Print `_format_tasks_markdown(items, notes, description)` to stdout.
   10. Exit 0.
 
-- [ ] T036 [US3] Register `tasks` command in `src/cerebrofy/cli.py`:
+- [x] T036 [US3] Register `tasks` command in `src/cerebrofy/cli.py`:
   Add `from cerebrofy.commands.tasks import tasks` import and `cli.add_command(tasks)`.
 
 **Checkpoint**: All three commands (`specify`, `plan`, `tasks`) are registered and functional.
@@ -473,56 +473,56 @@ Confirm output is a numbered Markdown list where each item follows the exact for
 
 ### Unit tests
 
-- [ ] T037 Write unit tests for `_run_knn_query` in `tests/unit/test_hybrid_search.py`:
+- [x] T037 Write unit tests for `_run_knn_query` in `tests/unit/test_hybrid_search.py`:
   Set up an in-memory SQLite DB with a mock `vec_neurons` table (stub sqlite-vec, or skip vec_neurons
   and test with a patched `_run_knn_query` that uses a simple numeric column for distance).
   Assert `MatchedNeuron.similarity = 1 - distance/2`, fields match DB rows, ordering is descending.
 
-- [ ] T038 Write unit tests for `_run_bfs` (RUNTIME_BOUNDARY exclusion) in `tests/unit/test_hybrid_search.py`:
+- [x] T038 Write unit tests for `_run_bfs` (RUNTIME_BOUNDARY exclusion) in `tests/unit/test_hybrid_search.py`:
   Set up `edges` table with one regular edge and one `RUNTIME_BOUNDARY` edge.
   Assert: regular neighbor appears in `blast_radius`; RUNTIME_BOUNDARY edge produces a
   `RuntimeBoundaryWarning`; neighbor from RUNTIME_BOUNDARY edge is NOT in `blast_radius`.
 
-- [ ] T039 Write unit tests for `hybrid_search` (embed_model mismatch + zero results) in `tests/unit/test_hybrid_search.py`:
+- [x] T039 Write unit tests for `hybrid_search` (embed_model mismatch + zero results) in `tests/unit/test_hybrid_search.py`:
   - embed_model mismatch: set `meta.embed_model = "model-a"`, call with `config_embed_model = "model-b"`.
     Assert `ValueError` is raised before any query executes.
   - Zero results: mock `_run_knn_query` to return `[]`. Assert returned `HybridSearchResult` has
     empty `matched_neurons`, `reindex_scope == 0`, `blast_radius` empty.
 
-- [ ] T040 [P] Write unit tests for `_load_template` in `tests/unit/test_prompt_builder.py`:
+- [x] T040 [P] Write unit tests for `_load_template` in `tests/unit/test_prompt_builder.py`:
   - Call with `template_path=None` → assert returns `string.Template` wrapping `DEFAULT_SYSTEM_PROMPT`.
   - Call with a valid file path (use `tmp_path`) → assert reads file content.
   - Call with a non-existent path → assert `FileNotFoundError` is raised.
 
-- [ ] T041 Write unit tests for `_build_lobe_context` in `tests/unit/test_prompt_builder.py`:
+- [x] T041 Write unit tests for `_build_lobe_context` in `tests/unit/test_prompt_builder.py`:
   - Empty dict → returns `""`.
   - Two lobe files (use `tmp_path`) → assert output contains both lobe headers in alphabetical order.
   - Missing lobe file → assert that lobe is silently skipped (no error, no content).
 
-- [ ] T042 [P] Write unit tests for `LLMClient.call` retry behavior in `tests/unit/test_llm_client.py`:
+- [x] T042 [P] Write unit tests for `LLMClient.call` retry behavior in `tests/unit/test_llm_client.py`:
   Mock `_call_once` to raise `openai.APIStatusError` (status=500) on first call, succeed on second.
   Assert: call returns result, stderr contains "retrying..." message.
   Mock to raise `openai.RateLimitError` → assert no retry, error propagates immediately.
   Mock to raise `openai.BadRequestError` (400) → assert no retry, error propagates immediately.
 
-- [ ] T043 [P] Write unit tests for `LLMClient.call` timeout in `tests/unit/test_llm_client.py`:
+- [x] T043 [P] Write unit tests for `LLMClient.call` timeout in `tests/unit/test_llm_client.py`:
   Set `timeout=1` (1 second). Mock `_call_once` to return a generator that sleeps 2 seconds
   before yielding. Assert `TimeoutError` is raised with the correct message. Assert no partial
   result is returned and no output file exists (caller catches the error).
 
-- [ ] T044 [P] Write unit tests for `_format_plan_json` in `tests/unit/test_plan_command.py`:
+- [x] T044 [P] Write unit tests for `_format_plan_json` in `tests/unit/test_plan_command.py`:
   Build a minimal `HybridSearchResult` (via `query="test"`, 1 matched neuron, 1 blast neuron).
   Assert JSON output: `schema_version=1`, all 4 array fields present, `similarity` rounded to 2dp.
   Call again with empty blast_radius → assert `blast_radius` key is `[]` (not absent).
 
-- [ ] T045 [P] Write unit tests for `_build_task_items` in `tests/unit/test_tasks_command.py`:
+- [x] T045 [P] Write unit tests for `_build_task_items` in `tests/unit/test_tasks_command.py`:
   Build a `HybridSearchResult` with 2 matched neurons (different similarities) and 1 RUNTIME_BOUNDARY warning.
   Assert: `items` has 2 entries ordered by descending similarity; `blast_count` equals
   `len(result.blast_radius)` for all items; note strings list has 1 entry with the expected format.
 
 ### Integration tests
 
-- [ ] T046 [P] Write integration test for `cerebrofy specify` (happy path + SC-002 check) in `tests/integration/test_specify_command.py`:
+- [x] T046 [P] Write integration test for `cerebrofy specify` (happy path + SC-002 check) in `tests/integration/test_specify_command.py`:
   Use `tmp_path` fixture to create a minimal valid `cerebrofy.db` with 2 nodes. Mock the openai
   SDK to return a streaming response `["Hello ", "world"]`. Invoke `specify` via `click.testing.CliRunner`.
   Assert: exit code 0; a `.md` file exists in `docs/cerebrofy/specs/`; file content is "Hello world";
@@ -532,14 +532,14 @@ Confirm output is a numbered Markdown list where each item follows the exact for
   the grounding design works — only lobe context injected, no hallucinated IDs can appear from
   a mock that echoes back the input.)
 
-- [ ] T047 Write integration test for `cerebrofy specify` error cases in `tests/integration/test_specify_command.py`:
+- [x] T047 Write integration test for `cerebrofy specify` error cases in `tests/integration/test_specify_command.py`:
   - Missing API key → exit 1, message names the environment variable.
   - Empty description → exit 1, message `"Description must not be empty."`.
   - Zero KNN results → exit 0, no file written, message `"No relevant code units found"`.
   - LLM timeout (mock that sleeps > `llm_timeout`) → exit 1, no file written, timeout message.
   - State_hash mismatch → exit 0 (spec still written), stderr contains `"Warning: Index may be out of sync."`.
 
-- [ ] T048 [P] Write integration test for `cerebrofy plan` in `tests/integration/test_plan_command.py`:
+- [x] T048 [P] Write integration test for `cerebrofy plan` in `tests/integration/test_plan_command.py`:
   Use `tmp_path` + valid `cerebrofy.db`. Run via `CliRunner`.
   - Default Markdown: assert output contains `## Matched Neurons`, `## Blast Radius`, `## Affected Lobes`, `## Re-index Scope`.
   - Header: assert output starts with `# Cerebrofy Plan: add user authentication` (query propagated).
@@ -547,14 +547,14 @@ Confirm output is a numbered Markdown list where each item follows the exact for
   - `--top-k 1`: assert at most 1 matched neuron row in output.
   - No network calls: run with no internet access (mock embedder + use in-memory DB).
 
-- [ ] T049 [P] Write integration test for `cerebrofy tasks` in `tests/integration/test_tasks_command.py`:
+- [x] T049 [P] Write integration test for `cerebrofy tasks` in `tests/integration/test_tasks_command.py`:
   Use `tmp_path` + valid `cerebrofy.db`. Run via `CliRunner`.
   - Assert output starts with `# Cerebrofy Tasks: add user authentication`.
   - Assert each numbered item matches regex `^\d+\. Modify .+ in \[\[.+\]\] \(.+:\d+\) — blast radius: \d+ nodes$`.
   - RUNTIME_BOUNDARY edge in DB: assert a `Note:` line appears after the numbered list (not in it).
   - `--top-k 1`: assert exactly 1 task item.
 
-- [ ] T050 Write integration test for read-only invariant (FR-020) in `tests/integration/test_plan_command.py`:
+- [x] T050 Write integration test for read-only invariant (FR-020) in `tests/integration/test_plan_command.py`:
   Record the file modification time of `cerebrofy.db` before running `cerebrofy plan` and
   `cerebrofy tasks`. Assert the modification time is unchanged after each command completes.
   (Guarantees no accidental writes to the index during search.)
@@ -563,17 +563,17 @@ Confirm output is a numbered Markdown list where each item follows the exact for
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] Verify `cerebrofy plan`, `cerebrofy tasks`, `cerebrofy specify` appear in `cerebrofy --help` output. Check `cli.py` command registration. Add `help=` strings to Click decorators for all three commands if not already present.
+- [x] T051 [P] Verify `cerebrofy plan`, `cerebrofy tasks`, `cerebrofy specify` appear in `cerebrofy --help` output. Check `cli.py` command registration. Add `help=` strings to Click decorators for all three commands if not already present.
 
-- [ ] T052 Run `ruff check src/cerebrofy/search/ src/cerebrofy/llm/ src/cerebrofy/commands/specify.py src/cerebrofy/commands/plan.py src/cerebrofy/commands/tasks.py` and fix any reported lint errors.
+- [x] T052 Run `ruff check src/cerebrofy/search/ src/cerebrofy/llm/ src/cerebrofy/commands/specify.py src/cerebrofy/commands/plan.py src/cerebrofy/commands/tasks.py` and fix any reported lint errors.
 
-- [ ] T053 Run `mypy src/cerebrofy/search/ src/cerebrofy/llm/ src/cerebrofy/commands/specify.py src/cerebrofy/commands/plan.py src/cerebrofy/commands/tasks.py` and fix any type errors.
+- [x] T053 Run `mypy src/cerebrofy/search/ src/cerebrofy/llm/ src/cerebrofy/commands/specify.py src/cerebrofy/commands/plan.py src/cerebrofy/commands/tasks.py` and fix any type errors.
 
-- [ ] T054 Validate SC-003 (plan/tasks parity): add a test to `tests/integration/test_plan_command.py` that runs `cerebrofy plan` and `cerebrofy tasks` with the same description + `--top-k` on the same index. Assert matched Neuron IDs and blast radius IDs are identical in both outputs.
+- [x] T054 Validate SC-003 (plan/tasks parity): add a test to `tests/integration/test_plan_command.py` that runs `cerebrofy plan` and `cerebrofy tasks` with the same description + `--top-k` on the same index. Assert matched Neuron IDs and blast radius IDs are identical in both outputs.
 
-- [ ] T055 Validate SC-001 (hybrid search < 50ms): add a timing assertion to `tests/unit/test_hybrid_search.py` that calls `hybrid_search()` on a 1,000-node in-memory DB (no sqlite-vec KNN needed — mock `_run_knn_query` to return 10 results) and asserts `result.search_duration_ms < 50`.
+- [x] T055 Validate SC-001 (hybrid search < 50ms): add a timing assertion to `tests/unit/test_hybrid_search.py` that calls `hybrid_search()` on a 1,000-node in-memory DB (no sqlite-vec KNN needed — mock `_run_knn_query` to return 10 results) and asserts `result.search_duration_ms < 50`.
 
-- [ ] T056 Validate SC-004 (first token within 3s): in `tests/integration/test_specify_command.py`, add a mock LLM that introduces a 2-second delay before returning the first token. Assert the wall-clock time from `CliRunner.invoke()` to first stdout character is < 3 seconds. Document that this test verifies streaming path only (excludes cold embedder load, per SC-004 exemption).
+- [x] T056 Validate SC-004 (first token within 3s): in `tests/integration/test_specify_command.py`, add a mock LLM that introduces a 2-second delay before returning the first token. Assert the wall-clock time from `CliRunner.invoke()` to first stdout character is < 3 seconds. Document that this test verifies streaming path only (excludes cold embedder load, per SC-004 exemption).
 
 ---
 

@@ -16,8 +16,10 @@ class CerebrоfyConfig:
     tracked_extensions: list[str]
     embedding_model: str = "local"
     embed_dim: int = 768
-    llm_endpoint: str = "openai"
-    llm_model: str = "gpt-4o"
+    llm_endpoint: str = ""
+    llm_model: str = ""
+    llm_timeout: int = 60
+    system_prompt_template: str = ""
     top_k: int = 10
 
 
@@ -76,8 +78,8 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
         "embed_dim": 768,
-        "llm_endpoint": "openai",
-        "llm_model": "gpt-4o",
+        "llm_endpoint": "",
+        "llm_model": "",
         "top_k": 10,
     }
 
@@ -105,8 +107,10 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),
         embed_dim=data.get("embed_dim", 768),
-        llm_endpoint=data.get("llm_endpoint", "openai"),
-        llm_model=data.get("llm_model", "gpt-4o"),
+        llm_endpoint=data.get("llm_endpoint", ""),
+        llm_model=data.get("llm_model", ""),
+        llm_timeout=data.get("llm_timeout", 60),
+        system_prompt_template=data.get("system_prompt_template", ""),
         top_k=data.get("top_k", 10),
     )
     if queries_dir is not None:
