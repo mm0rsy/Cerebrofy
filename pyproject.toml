@@ -49,3 +49,10 @@ strict = true
 [[tool.mypy.overrides]]
 module = ["mcp", "mcp.*"]
 ignore_missing_imports = true
+
+# mcp decorators (list_tools, call_tool) raise either no-untyped-call or
+# untyped-decorator depending on mypy's evaluation order — never both at once.
+# Disable warn_unused_ignores locally so both codes can coexist safely.
+[[tool.mypy.overrides]]
+module = ["cerebrofy.mcp.server"]
+warn_unused_ignores = false

@@ -238,7 +238,7 @@ async def run_mcp_server() -> None:
         "required": ["description"],
     }
 
-    @app.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
+    @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]  # mcp has no stubs
     async def list_tools() -> list[Tool]:
         return [
             Tool(
@@ -270,7 +270,7 @@ async def run_mcp_server() -> None:
             ),
         ]
 
-    @app.call_tool()  # type: ignore[untyped-decorator]
+    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]  # mcp has no stubs
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         schema_mismatch_msg = "Schema version mismatch. Run 'cerebrofy migrate' to update."
         embed_mismatch_msg = "Embedding model mismatch. Run 'cerebrofy build' to rebuild."
