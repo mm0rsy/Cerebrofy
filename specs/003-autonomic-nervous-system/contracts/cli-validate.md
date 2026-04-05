@@ -36,7 +36,7 @@ cerebrofy validate [--hook PRE_PUSH]
 
 **No drift**:
 ```
-Cerebrofy: Index is current. No drift detected.
+Cerebrofy: Index is clean.
 ```
 
 **Minor drift only**:

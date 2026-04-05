@@ -128,9 +128,10 @@ Estimated **{N} nodes** would need re-indexing for changes in this area.
 
 **Invariants**:
 - All four top-level array fields always present (empty `[]` if no results)
-- `schema_version: 1` always present
+- `schema_version: 1` always present as the first top-level field; AI tools SHOULD check it before parsing (FR-023)
 - `similarity` rounded to 2 decimal places
 - No decorative text on stdout when `--json` is active; warnings go to stderr only
+- `cerebrofy plan` MUST silently ignore `llm_endpoint`, `llm_model`, `llm_timeout`, and `system_prompt_template` config keys — their presence MUST NOT trigger any network call (FR-027)
 
 ---
 

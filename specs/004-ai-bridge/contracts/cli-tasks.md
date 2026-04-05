@@ -97,6 +97,7 @@ Note: {src_name} has unresolvable cross-language calls — see RUNTIME_BOUNDARY 
 - `blast_count` per task item = direct BFS neighbors of that specific Neuron (not total blast radius count)
 - RUNTIME_BOUNDARY notes appear AFTER the numbered list; they are NOT counted in any task's `blast_count`
 - For the same DESCRIPTION and `top_k`: output is identical to `cerebrofy plan`'s Neuron set and blast radius set (FR-010 / SC-003)
+- `cerebrofy tasks` MUST silently ignore `llm_endpoint`, `llm_model`, `llm_timeout`, and `system_prompt_template` config keys — their presence MUST NOT trigger any network call (FR-027)
 
 ---
 

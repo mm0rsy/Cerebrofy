@@ -125,21 +125,32 @@ After a successful `cerebrofy init`, the following MUST exist:
 When creating a new hook file:
 ```sh
 #!/bin/sh
-# cerebrofy-hook-start
+# BEGIN cerebrofy
+# cerebrofy-hook-version: 1
 cerebrofy validate --hook pre-push
-# cerebrofy-hook-end
+# END cerebrofy
 ```
 
 When appending to an existing hook file:
 ```sh
 [...existing content...]
-# cerebrofy-hook-start
+# BEGIN cerebrofy
+# cerebrofy-hook-version: 1
 cerebrofy validate --hook pre-push
-# cerebrofy-hook-end
+# END cerebrofy
 ```
 
-**Idempotency marker**: The `# cerebrofy-hook-start` / `# cerebrofy-hook-end` block. If found
-in the existing file, the append step is skipped entirely.
+**Idempotency marker**: The `# BEGIN cerebrofy` / `# END cerebrofy` sentinel block. If found
+in the existing file, the append step is skipped entirely. The `# cerebrofy-hook-version: N`
+line within the block identifies the hook version for upgrade detection (FR-020).
+
+## Filesystem Side-Effects
+
+In addition to scaffolding `.cerebrofy/`, `cerebrofy init` also modifies:
+
+- **`.gitignore`**: Appends `.cerebrofy/db/` (creates the file if absent). This prevents
+  `cerebrofy.db` from being staged by `git add .`. No duplicate entry is added if the
+  pattern is already present (FR-019).
 
 New hook files MUST be set executable (`chmod 755` equivalent on POSIX; appropriate ACL on Windows).
 

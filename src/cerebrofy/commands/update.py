@@ -290,13 +290,21 @@ def cerebrofy_update(files: tuple[str, ...]) -> None:
 
         # Step 8: Rewrite Markdown (post-commit)
         _rewrite_markdown_after_update(scope, conn, config, root, new_state_hash)
+        conn.close()
 
         elapsed = time.monotonic() - start
+
+        # Upgrade pre-push hook to hard-block once update is verified fast enough (FR-003/FR-014).
+        # upgrade_hook() is idempotent — no-op if already version 2.
+        if elapsed < 2.0:
+            from cerebrofy.hooks.installer import upgrade_hook
+            pre_push = root / ".git" / "hooks" / "pre-push"
+            upgrade_hook(pre_push)
+
         click.echo(
             f"Cerebrofy: Update complete. Re-indexed {nodes_reindexed} neurons "
             f"in {elapsed:.1f}s. New state_hash: {new_state_hash[:16]}..."
         )
-        conn.close()
 
     except SystemExit:
         raise
