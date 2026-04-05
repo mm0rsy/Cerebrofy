@@ -25,7 +25,7 @@ def _find_repo_root(start: Path) -> Path:
 
 def _make_error_content(message: str) -> list[Any]:
     """Return a TextContent list with isError=True for MCP error responses."""
-    from mcp.types import TextContent  # type: ignore[import-untyped]
+    from mcp.types import TextContent
     return [TextContent(type="text", text=message)]
 
 
@@ -36,7 +36,7 @@ def _make_error_result(message: str) -> list[Any]:
 
 def _handle_plan(arguments: dict[str, Any]) -> list[Any]:
     """Run hybrid search and return plan JSON as TextContent."""
-    from mcp.types import TextContent  # type: ignore[import-untyped]
+    from mcp.types import TextContent
 
     description: str = arguments.get("description", "")
     top_k_arg: int | None = arguments.get("top_k")
@@ -78,7 +78,7 @@ def _handle_plan(arguments: dict[str, Any]) -> list[Any]:
 
 def _handle_tasks(arguments: dict[str, Any]) -> list[Any]:
     """Run hybrid search and return structured tasks JSON as TextContent."""
-    from mcp.types import TextContent  # type: ignore[import-untyped]
+    from mcp.types import TextContent
 
     description: str = arguments.get("description", "")
     top_k_arg: int | None = arguments.get("top_k")
@@ -133,7 +133,7 @@ def _handle_tasks(arguments: dict[str, Any]) -> list[Any]:
 
 def _handle_specify(arguments: dict[str, Any]) -> list[Any]:
     """Run hybrid search + LLM and return spec file path + content as TextContent."""
-    from mcp.types import TextContent  # type: ignore[import-untyped]
+    from mcp.types import TextContent
 
     description: str = arguments.get("description", "")
     top_k_arg: int | None = arguments.get("top_k")
@@ -214,9 +214,9 @@ def _handle_specify(arguments: dict[str, Any]) -> list[Any]:
 
 async def run_mcp_server() -> None:
     """Start the cerebrofy MCP stdio server."""
-    from mcp.server import Server  # type: ignore[import-untyped]
-    from mcp.server.stdio import stdio_server  # type: ignore[import-untyped]
-    from mcp.types import Tool, TextContent  # type: ignore[import-untyped]
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import Tool, TextContent
 
     app = Server("cerebrofy")
 
@@ -238,7 +238,7 @@ async def run_mcp_server() -> None:
         "required": ["description"],
     }
 
-    @app.list_tools()
+    @app.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[Tool]:
         return [
             Tool(
@@ -270,7 +270,7 @@ async def run_mcp_server() -> None:
             ),
         ]
 
-    @app.call_tool()
+    @app.call_tool()  # type: ignore[untyped-decorator]
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         schema_mismatch_msg = "Schema version mismatch. Run 'cerebrofy migrate' to update."
         embed_mismatch_msg = "Embedding model mismatch. Run 'cerebrofy build' to rebuild."

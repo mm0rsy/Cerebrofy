@@ -43,3 +43,9 @@ line-length = 100
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+# mcp is an optional dependency that ships no type stubs.
+# Suppress import-not-found for the whole mcp namespace.
+[[tool.mypy.overrides]]
+module = ["mcp", "mcp.*"]
+ignore_missing_imports = true
