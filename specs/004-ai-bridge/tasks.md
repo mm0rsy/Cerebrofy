@@ -419,12 +419,12 @@ Confirm output is a numbered Markdown list where each item follows the exact for
 - [x] T032 [P] [US3] Add `TaskItem` frozen dataclass to `src/cerebrofy/commands/tasks.py`:
   fields `index: int`, `neuron: MatchedNeuron`, `lobe_name: str`, `blast_count: int`.
   Use `@dataclass(frozen=True)`.
-  Note: `blast_count` is the total blast radius count (i.e., `len(result.blast_radius)`) shared
-  across all task items. This is consistent with spec FR-008 — "blast radius: {count} nodes"
-  refers to the total structural blast, not a per-neuron sub-count.
+  Note (FR-022 correction): `blast_count` is computed independently per-neuron as
+  `len(bfs_neighbors(neuron.id, depth=2, exclude_runtime_boundary=True))`. Each TaskItem has
+  its own blast_count; it is NOT the total blast_radius count shared across all items.
 
 - [x] T033 [US3] Implement `_build_task_items(result: HybridSearchResult) -> tuple[list[TaskItem], list[str]]` in `src/cerebrofy/commands/tasks.py` (depends on T032):
-  - `blast_count = len(result.blast_radius)` (total blast radius, same value for all items).
+  - `blast_count = result.per_neuron_blast_counts.get(neuron.id, 0)` (per-neuron BFS count — FR-022).
   - For each `MatchedNeuron` in `result.matched_neurons` (already ordered by descending similarity):
     Derive `lobe_name` by matching `neuron.file` against `result.affected_lobe_files` keys
     (lobe name is the first path component of the file, same derivation as `_resolve_affected_lobes`).

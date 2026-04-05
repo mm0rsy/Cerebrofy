@@ -9,6 +9,11 @@ from pathlib import Path
 HOOK_MARKER_START = "# BEGIN cerebrofy"
 HOOK_MARKER_END = "# END cerebrofy"
 
+# Canonical constant names per Phase 5 spec (T012 / FR-020).
+HOOK_SENTINEL_BEGIN = HOOK_MARKER_START
+HOOK_SENTINEL_END = HOOK_MARKER_END
+HOOK_VERSION_MARKER = "# cerebrofy-hook-version:"
+
 # Version 1 = warn-only (Phase 1). Version 2 = hard-block (Phase 3 upgrade).
 HOOK_SCRIPT_BLOCK = """\
 {marker_start}
@@ -16,6 +21,81 @@ HOOK_SCRIPT_BLOCK = """\
 cerebrofy validate --hook {{hook_name}}
 {marker_end}
 """.format(marker_start=HOOK_MARKER_START, marker_end=HOOK_MARKER_END)
+
+
+HOOK_SCRIPT_V1: str = (
+    f"{HOOK_SENTINEL_BEGIN}\n"
+    f"{HOOK_VERSION_MARKER} 1\n"
+    "cerebrofy validate --hook pre-push\n"
+    f"{HOOK_SENTINEL_END}\n"
+)
+
+HOOK_SCRIPT_V2: str = (
+    f"{HOOK_SENTINEL_BEGIN}\n"
+    f"{HOOK_VERSION_MARKER} 2\n"
+    "if ! cerebrofy validate --hook pre-push; then\n"
+    "    echo 'Cerebrofy: Structural drift detected. Run cerebrofy update to sync.'\n"
+    "    exit 1\n"
+    "fi\n"
+    f"{HOOK_SENTINEL_END}\n"
+)
+
+
+def _get_hook_version(hook_content: str) -> int:
+    """Find the cerebrofy sentinel block and return the version number.
+
+    Returns 0 if no block or no version marker is found.
+    """
+    if HOOK_SENTINEL_BEGIN not in hook_content:
+        return 0
+    start_idx = hook_content.index(HOOK_SENTINEL_BEGIN)
+    end_idx = hook_content.find(HOOK_SENTINEL_END, start_idx)
+    if end_idx == -1:
+        return 0
+    block = hook_content[start_idx:end_idx]
+    for line in block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(HOOK_VERSION_MARKER):
+            try:
+                return int(stripped[len(HOOK_VERSION_MARKER):].strip())
+            except ValueError:
+                return 0
+    return 0
+
+
+def _replace_hook_block(hook_content: str, new_block: str) -> str:
+    """Replace the cerebrofy sentinel block with new_block.
+
+    If no block exists, appends new_block at the end.
+    """
+    if HOOK_SENTINEL_BEGIN not in hook_content:
+        return hook_content.rstrip("\n") + "\n" + new_block
+
+    start_idx = hook_content.index(HOOK_SENTINEL_BEGIN)
+    end_idx = hook_content.find(HOOK_SENTINEL_END, start_idx)
+    if end_idx == -1:
+        # Malformed — just replace from start marker to end
+        return hook_content[:start_idx] + new_block
+
+    end_idx += len(HOOK_SENTINEL_END)
+    # Consume trailing newline after END sentinel if present
+    if end_idx < len(hook_content) and hook_content[end_idx] == "\n":
+        end_idx += 1
+
+    return hook_content[:start_idx] + new_block + hook_content[end_idx:]
+
+
+def upgrade_hook(hook_path: Path) -> None:
+    """Upgrade the cerebrofy pre-push hook to version 2 (hard-block).
+
+    Idempotent: no-op if already version 2. Replaces the entire sentinel block.
+    """
+    if not hook_path.exists():
+        return
+    content = hook_path.read_text(encoding="utf-8")
+    if _get_hook_version(content) >= 2:
+        return
+    hook_path.write_text(_replace_hook_block(content, HOOK_SCRIPT_V2), encoding="utf-8")
 
 
 def has_cerebrofy_marker(hook_path: Path) -> bool:
