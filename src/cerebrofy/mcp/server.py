@@ -272,7 +272,6 @@ async def run_mcp_server() -> None:
 
     @app.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        no_index_msg = "No Cerebrofy index found. Run 'cerebrofy build' first."
         schema_mismatch_msg = "Schema version mismatch. Run 'cerebrofy migrate' to update."
         embed_mismatch_msg = "Embedding model mismatch. Run 'cerebrofy build' to rebuild."
         no_config_msg = "No Cerebrofy index found. Run 'cerebrofy build' first."
