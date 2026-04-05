@@ -1,0 +1,322 @@
+name: Release
+
+# Triggers only on semantic version tags: v1.2.3
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Gate: every build job waits for this to pass.
+  # ───────────────────────────────────────────────────────────────────────────
+  test:
+    name: Test gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra mcp
+
+      - name: Lint
+        run: uv run ruff check src/ tests/
+
+      - name: Tests
+        run: uv run pytest tests/ -v --tb=short
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # PyPI wheel + sdist
+  # ───────────────────────────────────────────────────────────────────────────
+  build-pypi:
+    name: Build PyPI distribution
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" src/cerebrofy/__init__.py
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+          if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # macOS — PyInstaller self-contained binary tarball for Homebrew
+  # Builds on macos-13 (Intel x86_64) for broadest compatibility;
+  # Apple Silicon users run the Intel binary under Rosetta 2.
+  # ───────────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS binary
+    needs: test
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
+          sed -i '' "s/__version__ = \".*\"/__version__ = \"${VERSION}\"/" src/cerebrofy/__init__.py
+
+      - name: Install build deps (from source, not PyPI)
+        run: pip install pyinstaller -e ".[mcp]"
+
+      - name: Build binary with PyInstaller
+        run: |
+          pyinstaller \
+            --onefile \
+            --name cerebrofy \
+            --add-data "src/cerebrofy/queries:cerebrofy/queries" \
+            src/cerebrofy/__main__.py
+
+      - name: Package tarball and checksum
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARTIFACT="cerebrofy-${VERSION}-macos-x86_64.tar.gz"
+          tar czf "${ARTIFACT}" -C dist cerebrofy
+          shasum -a 256 "${ARTIFACT}" | awk '{print $1}' > "${ARTIFACT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifact
+          path: |
+            cerebrofy-*-macos-x86_64.tar.gz
+            cerebrofy-*-macos-x86_64.tar.gz.sha256
+          if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Linux — Snap package (classic confinement, amd64)
+  # Uses --destructive-mode to build directly on the runner without LXD/Multipass.
+  # snapcraft.yaml base: core22 matches the ubuntu-22.04 runner.
+  # ───────────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux Snap
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Replace `version: git` with the exact release version.
+          sed -i "s/^version: git$/version: '${VERSION}'/" packaging/snap/snapcraft.yaml
+          # snapcraft reads snapcraft.yaml from the project root.
+          cp packaging/snap/snapcraft.yaml snapcraft.yaml
+
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+
+      - name: Build snap
+        run: snapcraft --destructive-mode
+
+      - name: Rename and checksum
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SNAP_FILE=$(ls cerebrofy_*.snap 2>/dev/null | head -1)
+          ARTIFACT="cerebrofy-${VERSION}-linux-amd64.snap"
+          mv "${SNAP_FILE}" "${ARTIFACT}"
+          sha256sum "${ARTIFACT}" > "${ARTIFACT}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-artifact
+          path: |
+            cerebrofy-*-linux-amd64.snap
+            cerebrofy-*-linux-amd64.snap.sha256
+          if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Windows — Nuitka onefile exe + NSIS installer
+  # ───────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows installer
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Sync version from tag
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          (Get-Content pyproject.toml) `
+            -replace '^version = ".*"', "version = `"$version`"" |
+            Set-Content pyproject.toml
+          (Get-Content src\cerebrofy\__init__.py) `
+            -replace '__version__ = ".*"', "__version__ = `"$version`"" |
+            Set-Content src\cerebrofy\__init__.py
+          (Get-Content packaging\windows\installer.nsi) `
+            -replace '!define APP_VERSION ".*"', "!define APP_VERSION `"$version`"" |
+            Set-Content packaging\windows\installer.nsi
+
+      - name: Install build deps (from source, not PyPI)
+        run: pip install nuitka -e ".[mcp]"
+
+      - name: Build exe with Nuitka
+        run: packaging\windows\nuitka_build.bat
+
+      - name: Install NSIS
+        run: choco install nsis --yes --no-progress
+
+      - name: Build NSIS installer
+        run: makensis packaging\windows\installer.nsi
+
+      - name: Rename and checksum
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          Rename-Item -Path cerebrofy-setup.exe `
+            -NewName "cerebrofy-${version}-windows-x64-setup.exe"
+          $hash = (Get-FileHash "cerebrofy-${version}-windows-x64-setup.exe" `
+            -Algorithm SHA256).Hash.ToLower()
+          "$hash  cerebrofy-${version}-windows-x64-setup.exe" |
+            Out-File -FilePath "cerebrofy-${version}-windows-x64-setup.exe.sha256" -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact
+          path: |
+            cerebrofy-*-windows-x64-setup.exe
+            cerebrofy-*-windows-x64-setup.exe.sha256
+          if-no-files-found: error
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Publish: create GitHub Release + attach all assets + push to PyPI
+  #
+  # PyPI uses OIDC Trusted Publisher — no static token needed.
+  # One-time setup at pypi.org → your project → Publishing → Add a publisher:
+  #   Owner: mm0rsy  |  Repo: cerebrofy  |  Workflow: Release  |  Job: publish
+  # ───────────────────────────────────────────────────────────────────────────
+  publish:
+    name: Publish release
+    needs: [build-pypi, build-macos, build-linux, build-windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write   # create GitHub Release and upload release assets
+      id-token: write   # PyPI OIDC Trusted Publisher (no static token)
+    steps:
+      - name: Download PyPI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: pypi-dist
+          path: dist/
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-artifact"
+          merge-multiple: true
+          path: release-assets/
+
+      - name: Create GitHub Release and attach assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            release-assets/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Update Homebrew tap formula
+  # Requires secret: HOMEBREW_TAP_TOKEN (PAT with contents:write on mm0rsy/homebrew-tap)
+  # Tap name in Homebrew: mm0rsy/tap  →  repo: mm0rsy/homebrew-tap
+  # ───────────────────────────────────────────────────────────────────────────
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    needs: publish
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging/homebrew
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-artifact
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: mm0rsy/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+
+      - name: Update formula and push
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          ARTIFACT="cerebrofy-${VERSION}-macos-x86_64.tar.gz"
+          URL="https://github.com/mm0rsy/cerebrofy/releases/download/${TAG_NAME}/${ARTIFACT}"
+          SHA256=$(cat "${ARTIFACT}.sha256")
+          cd homebrew-tap
+          VERSION="${VERSION}" URL="${URL}" SHA256="${SHA256}" \
+            bash ../packaging/homebrew/update_formula.sh
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Submit winget PR
+  # Requires secret: WINGET_TOKEN (PAT with public_repo on microsoft/winget-pkgs)
+  # ───────────────────────────────────────────────────────────────────────────
+  submit-winget-pr:
+    name: Submit winget PR
+    needs: publish
+    runs-on: windows-latest
+    steps:
+      - name: Download wingetcreate
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://aka.ms/wingetcreate/latest/wingetcreate.exe `
+            -OutFile wingetcreate.exe -UseBasicParsing
+
+      - name: Submit PR to winget-pkgs
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $VERSION = $env:GITHUB_REF_NAME -replace '^v', ''
+          $TAG = $env:GITHUB_REF_NAME
+          $INSTALLER_URL = "https://github.com/mm0rsy/cerebrofy/releases/download/${TAG}/cerebrofy-${VERSION}-windows-x64-setup.exe"
+          .\wingetcreate.exe update cerebrofy.cerebrofy `
+            --version $VERSION `
+            --urls $INSTALLER_URL `
+            --submit `
+            --token $env:WINGET_TOKEN
