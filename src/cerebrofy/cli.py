@@ -3,6 +3,7 @@
 import click
 
 from cerebrofy import __version__
+from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.parse import cerebrofy_parse
 
@@ -13,5 +14,6 @@ def main() -> None:
     """Cerebrofy — AI-powered codebase intelligence."""
 
 
+main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_parse)
