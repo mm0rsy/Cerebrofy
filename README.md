@@ -32,6 +32,7 @@ Cerebrofy solves this by pre-computing a structural + semantic index of your cod
 ### How Cerebrofy Grounds the LLM
 
 ```mermaid
+
 graph TD
     A[Your Codebase<br/>~600,000 tokens] -->|cerebrofy build| B[(cerebrofy.db)]
 
@@ -44,6 +45,7 @@ graph TD
 
     H --> P[LLM Prompt<br/>~10,000 tokens<br/>real names · real paths · real call chains]
     P --> S[Grounded Spec]
+
 ```
 
 The call graph answers the question an LLM cannot answer from code alone: **"if I change this function, what else breaks?"** Cerebrofy computes this once at build time with O(1) edge lookups — no approximation, no guessing.
@@ -406,6 +408,84 @@ llm_timeout: 60
 | `docs/cerebrofy/specs/<ts>_spec.md` | `cerebrofy specify` | AI-generated feature spec |
 
 The lobe `.md` and map files are committed to git (not gitignored). They form the human-readable index of your codebase and serve as LLM context for `cerebrofy specify`.
+
+---
+
+## Workflow: Cerebrofy + Speckit
+
+[Speckit](https://speckit.dev) is a structured spec-driven development tool. Cerebrofy and Speckit complement each other directly: Cerebrofy grounds specs in your real codebase; Speckit structures them into an executable implementation plan.
+
+```
+Idea
+ │
+ ├─ cerebrofy specify "add OAuth2 login"
+ │       └─ docs/cerebrofy/specs/<timestamp>_spec.md
+ │              (grounded: real function names, real file paths, real call chains)
+ │
+ ├─ cerebrofy plan --json "add OAuth2 login"
+ │       └─ matched neurons + blast radius + affected lobes
+ │              (feeds data-model.md and contracts/)
+ │
+ ├─ cerebrofy tasks "add OAuth2 login"
+ │       └─ numbered task list with file:line references
+ │              (seeds tasks.md)
+ │
+ └─ /speckit-implement specs/<feature>/tasks.md
+         └─ AI agent implements with full codebase context
+```
+
+### Step-by-step
+
+**1. Generate a grounded spec**
+
+```bash
+cerebrofy specify "add OAuth2 login with GitHub and Google providers"
+# → docs/cerebrofy/specs/2026-04-05T12-00-00_spec.md
+```
+
+The output is a Markdown spec that already references the real functions, modules, and call paths in your codebase — not invented names. Open the file and review it.
+
+**2. Get the structural context**
+
+```bash
+cerebrofy plan --json "add OAuth2 login" > /tmp/oauth_plan.json
+cerebrofy tasks "add OAuth2 login"
+```
+
+`plan --json` tells you which code units are affected and their blast radius. `tasks` gives you a numbered list anchored to real file:line locations. Use both when filling in the speckit spec.
+
+**3. Create the speckit spec**
+
+```bash
+speckit create "oauth2-login"
+# → specs/006-oauth2-login/spec.md  (from template)
+```
+
+Copy the grounded content from the cerebrofy spec into the speckit template sections:
+
+| Cerebrofy output | Maps to speckit section |
+|-----------------|------------------------|
+| Feature narrative from `specify` | `spec.md` — User Scenarios & Requirements |
+| Affected neurons from `plan` | `data-model.md` — Key Entities |
+| Blast radius from `plan --json` | `contracts/` — interface boundaries |
+| Numbered task list from `tasks` | `tasks.md` — implementation tasks with file:line anchors |
+
+**4. Implement**
+
+```bash
+/speckit-implement specs/006-oauth2-login/tasks.md
+```
+
+The AI agent executing the implementation now has:
+- A spec grounded in real function names (not hallucinated)
+- Tasks pointing to exact file:line locations
+- Blast radius awareness — it knows what else might break
+
+### Why this matters
+
+Without Cerebrofy, a speckit spec is written from memory or by manually reading files. The LLM generating the spec guesses at function names, import paths, and dependencies. With Cerebrofy, the spec is derived from the actual call graph — every function name, file path, and dependency edge is verified against the live index before the spec is written.
+
+See [docs/speckit-workflow.md](docs/speckit-workflow.md) for a complete walkthrough with a real example.
 
 ---
 
