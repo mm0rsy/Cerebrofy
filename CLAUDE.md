@@ -106,6 +106,7 @@ ruff check src/ tests/
 cerebrofy --help
 cerebrofy init
 cerebrofy init --force
+cerebrofy build
 cerebrofy parse <file-or-dir>
 cerebrofy plan "add OAuth2 login"
 cerebrofy plan --json "add OAuth2 login"
