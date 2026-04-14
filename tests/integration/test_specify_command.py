@@ -17,21 +17,42 @@ from cerebrofy.cli import main
 # ---------------------------------------------------------------------------
 
 
-def _make_db(tmp_path: Path, embed_dim: int = 2) -> Path:
+def _write_indexed_files(tmp_path: Path) -> None:
+    """Write tracked source files that match the indexed nodes."""
+    auth_dir = tmp_path / "auth"
+    auth_dir.mkdir(parents=True, exist_ok=True)
+    (auth_dir / "login.py").write_text(
+        "def validate_token(token):\n    return token\n",
+        encoding="utf-8",
+    )
+    (auth_dir / "session.py").write_text(
+        "def create_session(user):\n    return user\n",
+        encoding="utf-8",
+    )
+
+
+def _make_db(tmp_path: Path, embed_dim: int = 2, state_hash: str | None = None) -> Path:
     """Create a minimal valid cerebrofy.db with 2 nodes and their vectors."""
     from cerebrofy.db.connection import open_db
     from cerebrofy.db.schema import create_schema
+    from cerebrofy.db.writer import collect_tracked_file_hashes, compute_state_hash
+    from cerebrofy.ignore.ruleset import IgnoreRuleSet
     import sqlite_vec  # type: ignore[import-untyped]
 
     db_dir = tmp_path / ".cerebrofy" / "db"
     db_dir.mkdir(parents=True)
     db_path = db_dir / "cerebrofy.db"
 
+    if state_hash is None:
+        ignore_rules = IgnoreRuleSet.from_directory(tmp_path)
+        file_hash_map = collect_tracked_file_hashes(tmp_path, [".py"], ignore_rules)
+        state_hash = compute_state_hash(file_hash_map)
+
     conn = open_db(db_path)
     create_schema(conn, embed_dim=embed_dim)
     conn.execute("INSERT INTO meta VALUES (?, ?)", ("schema_version", "1"))
     conn.execute("INSERT INTO meta VALUES (?, ?)", ("embed_model", "local"))
-    conn.execute("INSERT INTO meta VALUES (?, ?)", ("state_hash", "abc123"))
+    conn.execute("INSERT INTO meta VALUES (?, ?)", ("state_hash", state_hash))
     conn.execute(
         "INSERT INTO nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ("auth/login.py::validate_token", "validate_token", "auth/login.py",
@@ -79,6 +100,7 @@ def _fake_embedding() -> bytes:
 def test_specify_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """specify writes spec file, last stdout line is file path, exit 0."""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -112,6 +134,7 @@ def test_specify_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_specify_sc002_grounding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """SC-002: LLM response referencing real neuron names → all names exist in nodes table."""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -155,6 +178,7 @@ def test_specify_sc002_grounding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 def test_specify_missing_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Missing API key → exit 1, message names the env var."""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -169,6 +193,7 @@ def test_specify_missing_api_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 def test_specify_empty_description(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Empty description → exit 1 with 'Description must not be empty.'"""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -182,6 +207,7 @@ def test_specify_empty_description(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def test_specify_zero_knn_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Zero KNN results → exit 0, no spec file written."""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -205,6 +231,7 @@ def test_specify_zero_knn_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 def test_specify_llm_timeout_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """LLM timeout → exit 1, no spec file written."""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -228,11 +255,33 @@ def test_specify_llm_timeout_no_file(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert not specs_dir.exists() or len(list(specs_dir.glob("*.md"))) == 0
 
 
+def test_specify_current_state_hash_stays_quiet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Matching state hash → no false out-of-sync warning."""
+    monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
+    _make_db(tmp_path)
+    _make_config(tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    runner = CliRunner()
+    with (
+        patch("cerebrofy.search.hybrid._embed_query", return_value=_fake_embedding()),
+        patch("cerebrofy.llm.client.LLMClient.call", return_value="spec content"),
+    ):
+        result = runner.invoke(main, ["specify", "add auth"])
+
+    assert result.exit_code == 0
+    assert "out of sync" not in (result.stderr or "")
+
+
 def test_specify_state_hash_mismatch_still_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """State hash mismatch → warning on stderr, spec still written, exit 0."""
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -268,6 +317,7 @@ def test_specify_first_token_within_3s(tmp_path: Path, monkeypatch: pytest.Monke
     Verifies streaming path only; excludes cold embedder load per SC-004 exemption.
     """
     monkeypatch.chdir(tmp_path)
+    _write_indexed_files(tmp_path)
     _make_db(tmp_path)
     _make_config(tmp_path)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")

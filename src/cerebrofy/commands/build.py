@@ -16,7 +16,7 @@ from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
     build_neuron_text,
-    compute_file_hash,
+    collect_tracked_file_hashes,
     compute_state_hash,
     insert_meta,
     upsert_vectors,
@@ -104,17 +104,11 @@ def build_step5_commit(
     ignore_rules: IgnoreRuleSet,
 ) -> str:
     """Step 5: Compute file hashes, write state_hash + last_build, commit."""
-    file_hash_map: dict[str, str] = {}
-    for file_path in sorted(root.rglob("*")):
-        if not file_path.is_file():
-            continue
-        rel_path = str(file_path.relative_to(root)).replace("\\", "/")
-        if ignore_rules.matches(rel_path):
-            continue
-        if file_path.suffix.lower() not in config.tracked_extensions:
-            continue
-        file_hash_map[rel_path] = compute_file_hash(file_path)
-
+    file_hash_map = collect_tracked_file_hashes(
+        root,
+        config.tracked_extensions,
+        ignore_rules,
+    )
     write_file_hashes(conn, file_hash_map)
     state_hash = compute_state_hash(file_hash_map)
     write_build_meta(conn, state_hash)

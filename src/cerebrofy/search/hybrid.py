@@ -7,6 +7,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
+import click
 import sqlite_vec  # type: ignore[import-untyped]
 
 from cerebrofy.graph.edges import RUNTIME_BOUNDARY
@@ -217,21 +218,15 @@ def _count_bfs_neighbors(conn: sqlite3.Connection, seed_id: str) -> int:
 
 def _embed_query(description: str, config: object) -> bytes:
     """Embed description using the configured embedder; return serialized float32 bytes."""
-    from cerebrofy.embedder.base import Embedder
+    from cerebrofy.embedder import MissingOptionalDependencyError, get_embedder
 
     embedding_model: str = getattr(config, "embedding_model", "local")
-    if embedding_model == "local":
-        from cerebrofy.embedder.local import LocalEmbedder
-        embedder: Embedder = LocalEmbedder()
-    elif embedding_model == "openai":
-        from cerebrofy.embedder.openai_emb import OpenAIEmbedder
-        embedder = OpenAIEmbedder()
-    elif embedding_model == "cohere":
-        from cerebrofy.embedder.cohere_emb import CohereEmbedder
-        embedder = CohereEmbedder()
-    else:
-        from cerebrofy.embedder.local import LocalEmbedder
-        embedder = LocalEmbedder()
+    try:
+        embedder = get_embedder(embedding_model)
+    except MissingOptionalDependencyError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except ValueError:
+        embedder = get_embedder("local")
 
     vector = embedder.embed([description])[0]
     result: bytes = sqlite_vec.serialize_float32(vector)
