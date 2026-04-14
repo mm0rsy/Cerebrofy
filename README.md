@@ -68,13 +68,26 @@ No cloud index. No code upload. One file, one connection.
 
 ## Installation
 
-### PyPI (recommended)
+### PyPI / isolated CLI installs
 
 ```bash
-pip install cerebrofy
-# or with MCP server support:
-pip install cerebrofy[mcp]
+pip install "cerebrofy[local]"
+pipx install "cerebrofy[local]"
+uv tool install "cerebrofy[local]"
 ```
+
+`[local]` is the practical default: it installs the local embedding backend used by
+`build`, `update`, `plan`, and `tasks`. The lighter base install (`cerebrofy` with no
+extras) is still available for non-embedding workflows such as `init`, `parse`,
+`validate`, and `migrate`.
+
+Optional extras:
+
+- `local` — local/offline embeddings via `sentence-transformers`
+- `openai` — OpenAI-compatible LLM + embedding provider support
+- `cohere` — Cohere embedding provider support
+- `mcp` — MCP server support
+- `full` — installs `local`, `openai`, `cohere`, and `mcp`
 
 ### Platform bundles
 
@@ -89,7 +102,27 @@ pip install cerebrofy[mcp]
 ```bash
 git clone https://github.com/mm0rsy/cerebrofy
 cd cerebrofy
-uv pip install -e ".[dev]"
+uv pip install -e ".[dev,local]"
+```
+
+For the basic offline test surface (`dev + local`, no MCP/LLM extras):
+
+```bash
+uv run pytest tests/unit/ tests/integration/test_update_command.py tests/integration/test_validate_command.py tests/integration/test_migrate_command.py tests/integration/test_plan_command.py tests/integration/test_tasks_command.py tests/integration/test_parse_command.py
+```
+
+For full test coverage including LLM and MCP integration tests:
+
+```bash
+uv pip install -e ".[dev,local,openai,mcp]"
+uv run pytest
+```
+
+Or use the convenience alias:
+
+```bash
+uv pip install -e ".[dev,full]"
+uv run pytest
 ```
 
 ---
@@ -270,7 +303,7 @@ cerebrofy specify "add OAuth2 login"
 cerebrofy specify --top-k 5 "add rate limiting"
 ```
 
-Requires `llm_endpoint` and `llm_model` in `.cerebrofy/config.yaml` and the appropriate API key in the environment (e.g. `OPENAI_API_KEY`). Streams the LLM response to stdout. Writes the complete spec to `docs/cerebrofy/specs/<timestamp>_spec.md`.
+Requires the optional `openai` extra: `pip install cerebrofy[openai]`. Also requires `llm_endpoint` and `llm_model` in `.cerebrofy/config.yaml` and the appropriate API key in the environment (e.g. `OPENAI_API_KEY`). Streams the LLM response to stdout. Writes the complete spec to `docs/cerebrofy/specs/<timestamp>_spec.md`.
 
 See [docs/configuration.md](docs/configuration.md#llm-settings) for LLM setup.
 
@@ -494,9 +527,11 @@ See [docs/speckit-workflow.md](docs/speckit-workflow.md) for a complete walkthro
 Cerebrofy ships an MCP stdio server that exposes `plan`, `tasks`, and `specify` as callable tools for AI assistants (Claude Desktop, Cursor, etc.).
 
 ```bash
-pip install cerebrofy[mcp]
+pip install "cerebrofy[mcp]"
 cerebrofy init    # auto-registers the MCP entry
 ```
+
+The `specify` tool within MCP also requires the optional `openai` extra for LLM functionality: `pip install "cerebrofy[mcp,openai]"` or use the `full` extra: `pip install "cerebrofy[full]"`.
 
 See [docs/mcp-integration.md](docs/mcp-integration.md) for detailed setup.
 
@@ -532,7 +567,7 @@ See [docs/mcp-integration.md](docs/mcp-integration.md) for detailed setup.
 
 - [Architecture guide](docs/architecture.md) — module map, data flow, invariants, database schema
 - [Adding language support](docs/architecture.md#adding-language-support) — `.scm` query file authoring
-- Tests: `uv run pytest`
+- Tests: `uv run pytest` after installing the extras needed by the suites you want to run
 - Lint: `uv run ruff check src/ tests/`
 - Type check: `uv run mypy src/`
 

@@ -81,6 +81,31 @@ def _validate_specify_prerequisites(config: object, db_meta: dict[str, str]) -> 
         )
 
 
+def _warn_if_index_out_of_sync(root: Path, config: object, db_meta: dict[str, str]) -> None:
+    """Warn when the working tree no longer matches the indexed state hash."""
+    current_state_hash = db_meta.get("state_hash", "")
+    if not current_state_hash:
+        return
+
+    from cerebrofy.db.writer import collect_tracked_file_hashes, compute_state_hash
+    from cerebrofy.ignore.ruleset import IgnoreRuleSet
+
+    try:
+        ignore_rules = IgnoreRuleSet.from_directory(root)
+        file_hash_map = collect_tracked_file_hashes(
+            root,
+            getattr(config, "tracked_extensions", ()),
+            ignore_rules,
+        )
+        if compute_state_hash(file_hash_map) != current_state_hash:
+            click.echo(
+                "Warning: Index may be out of sync. Run 'cerebrofy update' for current results.",
+                err=True,
+            )
+    except Exception:
+        pass
+
+
 @click.command("specify")
 @click.argument("description")
 @click.option("--top-k", default=None, type=int, help="Override KNN top-k for this run.")
@@ -120,29 +145,7 @@ def cerebrofy_specify(description: str, top_k: int | None) -> None:
         conn.close()
 
     _validate_specify_prerequisites(config, db_meta)
-
-    current_state_hash = db_meta.get("state_hash", "")
-    if current_state_hash:
-        import hashlib
-        from cerebrofy.ignore.ruleset import IgnoreRuleSet
-        ignore_rules = IgnoreRuleSet.from_directory(root)
-        try:
-            file_hashes: list[str] = []
-            for fp in sorted(root.rglob("*")):
-                if not fp.is_file():
-                    continue
-                rel = str(fp.relative_to(root)).replace("\\", "/")
-                if not ignore_rules.matches(rel) and fp.suffix.lower() in config.tracked_extensions:
-                    h = hashlib.sha256(fp.read_bytes()).hexdigest()
-                    file_hashes.append(f"{rel}:{h}\n")
-            computed = hashlib.sha256("".join(file_hashes).encode()).hexdigest()
-            if computed != current_state_hash:
-                click.echo(
-                    "Warning: Index may be out of sync. Run 'cerebrofy update' for current results.",
-                    err=True,
-                )
-        except Exception:
-            pass
+    _warn_if_index_out_of_sync(root, config, db_meta)
 
     effective_top_k = top_k or config.top_k or 10
 
@@ -173,7 +176,7 @@ def cerebrofy_specify(description: str, top_k: int | None) -> None:
     else:
         api_key = _os.environ.get("LLM_API_KEY", "")
 
-    from cerebrofy.llm.client import LLMClient
+    from cerebrofy.llm.client import LLMClient, is_rate_limit_error
     client = LLMClient(
         base_url=config.llm_endpoint,
         api_key=api_key,
@@ -181,18 +184,17 @@ def cerebrofy_specify(description: str, top_k: int | None) -> None:
         timeout=config.llm_timeout,
     )
 
-    import openai as _openai
     try:
         full_response = client.call(payload)
     except TimeoutError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
-    except _openai.RateLimitError:
-        click.echo(
-            "Error: LLM rate limit exceeded (HTTP 429). Wait and retry.", err=True
-        )
-        sys.exit(1)
     except Exception as exc:
+        if is_rate_limit_error(exc):
+            click.echo(
+                "Error: LLM rate limit exceeded (HTTP 429). Wait and retry.", err=True
+            )
+            sys.exit(1)
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
 

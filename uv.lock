@@ -44,49 +44,65 @@ wheels = [
 
 [[package]]
 name = "cerebrofy"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
-    { name = "cohere" },
-    { name = "openai" },
     { name = "pathspec" },
     { name = "pyyaml" },
-    { name = "sentence-transformers" },
     { name = "sqlite-vec" },
     { name = "tree-sitter" },
     { name = "tree-sitter-languages" },
 ]
 
 [package.optional-dependencies]
+cohere = [
+    { name = "cohere" },
+]
 dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
+full = [
+    { name = "cohere" },
+    { name = "mcp" },
+    { name = "openai" },
+    { name = "sentence-transformers" },
+]
+local = [
+    { name = "sentence-transformers" },
+]
 mcp = [
     { name = "mcp" },
+]
+openai = [
+    { name = "openai" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
-    { name = "cohere", specifier = ">=4.0" },
+    { name = "cohere", marker = "extra == 'cohere'", specifier = ">=4.0" },
+    { name = "cohere", marker = "extra == 'full'", specifier = ">=4.0" },
+    { name = "mcp", marker = "extra == 'full'", specifier = ">=1.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0" },
-    { name = "openai", specifier = ">=1.0" },
+    { name = "openai", marker = "extra == 'full'", specifier = ">=1.0" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=1.0" },
     { name = "pathspec", specifier = ">=0.12" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1" },
-    { name = "sentence-transformers", specifier = ">=2.2" },
+    { name = "sentence-transformers", marker = "extra == 'full'", specifier = ">=2.2" },
+    { name = "sentence-transformers", marker = "extra == 'local'", specifier = ">=2.2" },
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "tree-sitter", specifier = ">=0.21,<0.22" },
     { name = "tree-sitter-languages", specifier = ">=1.10,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
-provides-extras = ["mcp", "dev"]
+provides-extras = ["local", "openai", "cohere", "mcp", "full", "dev"]
 
 [[package]]
 name = "certifi"
