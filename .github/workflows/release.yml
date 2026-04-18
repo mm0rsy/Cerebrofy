@@ -27,13 +27,16 @@ jobs:
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: uv sync --extra dev --extra mcp
+        run: uv sync --group dev --extra mcp
 
       - name: Lint
         run: uv run ruff check src/ tests/
 
-      - name: Tests with coverage
-        run: uv run pytest tests/ -v --tb=short
+      - name: Unit & integration tests
+        run: uv run pytest tests/unit/ tests/integration/ -v --tb=short --no-cov
+
+      - name: Tests with combined coverage
+        run: uv run pytest tests/unit/ tests/integration/ --tb=short --cov=src/cerebrofy --cov-report=term-missing
 
   # ─────────────────────────────────────────────────────────────────────────
   # Build: wheel + sdist from the tagged commit
