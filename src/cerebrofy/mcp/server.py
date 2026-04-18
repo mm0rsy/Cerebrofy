@@ -395,14 +395,22 @@ async def run_mcp_server() -> None:
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         args = arguments or {}
         try:
-            if name == "search_code":       return _handle_search_code(args)
-            elif name == "get_neuron":      return _handle_get_neuron(args)
-            elif name == "list_lobes":      return _handle_list_lobes(args)
-            elif name == "plan":            return _handle_plan(args)
-            elif name == "tasks":           return _handle_tasks(args)
-            elif name == "cerebrofy_build":     return _handle_build(args)
-            elif name == "cerebrofy_update":    return _handle_update(args)
-            elif name == "cerebrofy_validate":  return _handle_validate(args)
+            if name == "search_code":
+                return _handle_search_code(args)
+            elif name == "get_neuron":
+                return _handle_get_neuron(args)
+            elif name == "list_lobes":
+                return _handle_list_lobes(args)
+            elif name == "plan":
+                return _handle_plan(args)
+            elif name == "tasks":
+                return _handle_tasks(args)
+            elif name == "cerebrofy_build":
+                return _handle_build(args)
+            elif name == "cerebrofy_update":
+                return _handle_update(args)
+            elif name == "cerebrofy_validate":
+                return _handle_validate(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
         except FileNotFoundError as exc:

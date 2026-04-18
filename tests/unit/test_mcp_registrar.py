@@ -120,14 +120,12 @@ def test_fallback_snippet_is_valid_json() -> None:
 
 def test_find_writable_mcp_config_returns_existing_file(tmp_path: Path) -> None:
     """If a file from the priority list exists and is writable, it should be returned."""
-    from cerebrofy.mcp.registrar import MCP_CONFIG_PATHS
     from unittest.mock import patch
 
     fake_path = tmp_path / "mcp.json"
     fake_path.write_text("{}", encoding="utf-8")
 
     # find_writable_mcp_config() takes no args; patch the priority list
-    from unittest.mock import patch
     with patch("cerebrofy.mcp.registrar.MCP_CONFIG_PRIORITY_LIST", [fake_path]):
         result = find_writable_mcp_config()
 

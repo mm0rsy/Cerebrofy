@@ -7,10 +7,9 @@ import os
 import sqlite3
 from pathlib import Path
 
-import pytest
 import sqlite_vec  # type: ignore[import-untyped]
 
-from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
+from cerebrofy.db.lock import acquire, is_stale, release
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
     build_neuron_text,
