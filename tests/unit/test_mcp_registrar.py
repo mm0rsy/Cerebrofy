@@ -98,7 +98,9 @@ def test_write_mcp_entry_stores_correct_command(tmp_path: Path) -> None:
     write_mcp_entry(cfg)
     data = json.loads(cfg.read_text(encoding="utf-8"))
     entry = data["mcpServers"]["cerebrofy"]
-    assert entry["command"] == "cerebrofy"
+    # write_mcp_entry stores the absolute binary path (not a bare name) so that
+    # AI clients launching with a minimal PATH can still find the binary.
+    assert entry["command"].endswith("cerebrofy")
     assert "mcp" in entry["args"]
 
 
