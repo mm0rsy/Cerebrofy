@@ -58,10 +58,13 @@ jobs:
         run: uv sync --group dev
 
       - name: Unit tests
-        run: uv run pytest tests/unit/ -v --tb=short
+        run: uv run pytest tests/unit/ -v --tb=short --no-cov
 
       - name: Integration tests (excluding MCP)
-        run: uv run pytest tests/integration/ --ignore=tests/integration/test_mcp_command.py -v --tb=short
+        run: uv run pytest tests/integration/ --ignore=tests/integration/test_mcp_command.py -v --tb=short --no-cov
+
+      - name: Coverage (combined unit + integration)
+        run: uv run pytest tests/unit/ tests/integration/ --ignore=tests/integration/test_mcp_command.py -q
 
   # ───────────────────────────────────────────────────────────────────────────
   # MCP extra — separate job so it doesn't slow down the main matrix
