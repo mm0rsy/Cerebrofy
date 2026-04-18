@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import click
+import rich_click as click
 
 
 @dataclass(frozen=True)

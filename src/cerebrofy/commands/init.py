@@ -6,14 +6,20 @@ import shutil
 import sys
 from pathlib import Path
 
-import click
+import rich_click as click
 
 from cerebrofy.config.loader import build_default_config, write_config
 from cerebrofy.hooks.installer import add_gitignore_entry, install_hooks
 from cerebrofy.ignore.ruleset import DEFAULT_IGNORE_CONTENT
+from cerebrofy.skills.installer import (
+    AI_SKILL_ROOTS,
+    SUPPORTED_AI_CLIENTS,
+    install_instructions,
+    install_skills,
+    installed_skills,
+)
 from cerebrofy.mcp.registrar import (
     MCP_FALLBACK_SNIPPET,
-    find_writable_mcp_config,
     has_cerebrofy_mcp_entry,
     warn_if_multiple_installations,
     write_mcp_entry,
@@ -88,14 +94,32 @@ def write_cerebrofy_ignore(root: Path) -> None:
 
 
 @click.command("init")
+@click.option("--here", is_flag=True, default=False,
+              help="Initialize in the current working directory (explicit alias for default behaviour).")
 @click.option("--global", "global_mcp", is_flag=True, default=False,
               help="Register MCP entry globally (~/.config/mcp/servers.json).")
 @click.option("--no-mcp", is_flag=True, default=False,
               help="Skip MCP registration entirely.")
 @click.option("--force", is_flag=True, default=False,
               help="Re-initialize an already-initialized repo.")
-def cerebrofy_init(global_mcp: bool, no_mcp: bool, force: bool) -> None:
+@click.option("--ai", "ai_client", default=None,
+              type=click.Choice(SUPPORTED_AI_CLIENTS, case_sensitive=False),
+              help=(
+                  "Install Cerebrofy skill files for the given AI assistant. "
+                  f"Supported: {', '.join(SUPPORTED_AI_CLIENTS)}. "
+                  "Skills are written to .<ai>/skills/<skill-name>/SKILL.md."
+              ))
+def cerebrofy_init(
+    here: bool,
+    global_mcp: bool,
+    no_mcp: bool,
+    force: bool,
+    ai_client: str | None,
+) -> None:
     """Scaffold .cerebrofy/, install git hooks, and register the MCP server."""
+    # --here is an explicit alias for the current directory (matches 'cerebrofy init --here')
+    # behaviour is identical to omitting the flag — both operate on Path.cwd().
+    _ = here  # consumed; kept for CLI ergonomics only
     root = Path.cwd()
 
     # Guard: must be a git repo
@@ -143,9 +167,12 @@ def cerebrofy_init(global_mcp: bool, no_mcp: bool, force: bool) -> None:
                 mcp_path = _Path("~/.config/mcp/servers.json").expanduser()
                 mcp_path.parent.mkdir(parents=True, exist_ok=True)
             else:
-                mcp_path = find_writable_mcp_config()
+                # Default: local project MCP config (.mcp.json in repo root).
+                # This scopes the MCP entry to this project only.
+                from pathlib import Path as _Path
+                mcp_path = root / ".mcp.json"
 
-            if has_cerebrofy_mcp_entry(mcp_path):
+            if has_cerebrofy_mcp_entry(mcp_path) and not force:
                 click.echo(f"Cerebrofy: MCP server already registered at {mcp_path}")
             else:
                 write_mcp_entry(mcp_path)
@@ -160,4 +187,34 @@ def cerebrofy_init(global_mcp: bool, no_mcp: bool, force: bool) -> None:
             )
             click.echo(MCP_FALLBACK_SNIPPET, err=True)
 
+    if ai_client:
+        _install_ai_skills(root, ai_client, force)
+
     click.echo("Cerebrofy initialized. Run `cerebrofy build` to index your codebase.")
+
+
+def _install_ai_skills(root: Path, ai_client: str, force: bool) -> None:
+    """Install skill templates and navigation instructions for the requested AI client."""
+    client_lower = ai_client.lower()
+    click.echo(f"Cerebrofy: Installing skills for {client_lower}...")
+    warnings = install_skills(root, client_lower, force=force)
+    for w in warnings:
+        click.echo(w, err=True)
+
+    skills = installed_skills(root, client_lower)
+    dest_root = root / AI_SKILL_ROOTS[client_lower] / "skills"
+    if skills:
+        skill_names = ", ".join(p.parent.name for p in skills)
+        click.echo(
+            f"Cerebrofy: Skills written to {dest_root}/ "
+            f"({len(skills)} skills: {skill_names})"
+        )
+    else:
+        click.echo(f"Cerebrofy: No new skills installed (all already exist at {dest_root}/).")
+
+    # Layer 1 enforcement: write navigation rules into the client's global instructions
+    # file (.github/copilot-instructions.md, CLAUDE.md, etc.).  These are read on every
+    # AI interaction — much stronger than SKILL.md which is only loaded per-skill.
+    instr_path = install_instructions(root, client_lower, force=force)
+    if instr_path:
+        click.echo(f"Cerebrofy: Navigation rules written to {instr_path}")

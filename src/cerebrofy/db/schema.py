@@ -61,8 +61,9 @@ def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
     conn.executescript(EDGES_INDEX_DDL)
     conn.executescript(META_DDL)
     conn.executescript(FILE_HASHES_DDL)
-    vec_neurons_ddl = (
-        f"CREATE VIRTUAL TABLE vec_neurons USING vec0("
-        f"id TEXT PRIMARY KEY, embedding FLOAT[{embed_dim}])"
-    )
-    conn.execute(vec_neurons_ddl)
+    if embed_dim > 0:
+        vec_neurons_ddl = (
+            f"CREATE VIRTUAL TABLE vec_neurons USING vec0("
+            f"id TEXT PRIMARY KEY, embedding FLOAT[{embed_dim}])"
+        )
+        conn.execute(vec_neurons_ddl)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,35 +36,8 @@ def test_mcp_import_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# T078b: plan tool returns schema_version: 1 (mocked transport)
+# T078b: build tool returns [success] prefix
 # ---------------------------------------------------------------------------
-
-
-def _make_db(tmp_path: Path, embed_dim: int = 2) -> Path:
-    """Create a minimal valid cerebrofy.db."""
-    import sqlite_vec  # type: ignore[import-untyped]
-    from cerebrofy.db.connection import open_db
-    from cerebrofy.db.schema import create_schema
-
-    db_dir = tmp_path / ".cerebrofy" / "db"
-    db_dir.mkdir(parents=True)
-    db_path = db_dir / "cerebrofy.db"
-
-    conn = open_db(db_path)
-    create_schema(conn, embed_dim=embed_dim)
-    conn.execute("INSERT INTO meta VALUES (?, ?)", ("schema_version", "1"))
-    conn.execute("INSERT INTO meta VALUES (?, ?)", ("embed_model", "local"))
-    conn.execute("INSERT INTO meta VALUES (?, ?)", ("state_hash", "abc123"))
-    conn.execute(
-        "INSERT INTO nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("auth/login.py::login", "login", "auth/login.py",
-         "function", 1, 10, "def login(user):", None, "h1"),
-    )
-    v = sqlite_vec.serialize_float32([1.0, 0.0])
-    conn.execute("INSERT INTO vec_neurons VALUES (?, ?)", ("auth/login.py::login", v))
-    conn.commit()
-    conn.close()
-    return db_path
 
 
 def _make_config(tmp_path: Path) -> None:
@@ -80,46 +52,147 @@ def _make_config(tmp_path: Path) -> None:
     )
 
 
-def test_mcp_plan_tool_schema_version(
+def test_mcp_build_tool_returns_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MCP plan tool response contains schema_version: 1."""
-    import sqlite_vec  # type: ignore[import-untyped]
-
+    """MCP cerebrofy_build tool returns [success] or [error] prefix."""
     monkeypatch.chdir(tmp_path)
-    _make_db(tmp_path)
     _make_config(tmp_path)
 
-    fake_embedding = sqlite_vec.serialize_float32([1.0, 0.0])
+    # Simulate a fast successful subprocess run
+    fake_result = type("R", (), {"returncode": 0, "stdout": "Build complete.", "stderr": ""})()
 
-    with patch("cerebrofy.search.hybrid._embed_query", return_value=fake_embedding):
-        from cerebrofy.mcp.server import _handle_plan
-        result = _handle_plan({"description": "add login", "top_k": 2})
+    with patch("subprocess.run", return_value=fake_result):
+        from cerebrofy.mcp.server import _handle_build
+        result = _handle_build({})
 
     assert len(result) == 1
-    data = json.loads(result[0].text)
-    assert data["schema_version"] == 1
-    assert "matched_neurons" in data
-    assert "blast_radius" in data
+    assert result[0].text.startswith("[success]")
 
 
-def test_mcp_tasks_tool_returns_tasks(
+def test_mcp_build_tool_returns_error_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MCP tasks tool returns a JSON object with 'tasks' array."""
-    import sqlite_vec  # type: ignore[import-untyped]
-
+    """MCP cerebrofy_build tool returns [error] prefix when cerebrofy exits non-zero."""
     monkeypatch.chdir(tmp_path)
-    _make_db(tmp_path)
     _make_config(tmp_path)
 
-    fake_embedding = sqlite_vec.serialize_float32([1.0, 0.0])
+    fake_result = type("R", (), {"returncode": 1, "stdout": "", "stderr": "Build failed."})()
 
-    with patch("cerebrofy.search.hybrid._embed_query", return_value=fake_embedding):
-        from cerebrofy.mcp.server import _handle_tasks
-        result = _handle_tasks({"description": "add login"})
+    with patch("subprocess.run", return_value=fake_result):
+        from cerebrofy.mcp.server import _handle_build
+        result = _handle_build({})
 
     assert len(result) == 1
-    data = json.loads(result[0].text)
-    assert "tasks" in data
-    assert isinstance(data["tasks"], list)
+    assert result[0].text.startswith("[error]")
+
+
+# ---------------------------------------------------------------------------
+# T078c: update tool with and without path argument
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_update_tool_no_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP cerebrofy_update tool auto-detects when no path argument given."""
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+
+    fake_result = type("R", (), {"returncode": 0, "stdout": "Nothing to update.", "stderr": ""})()
+
+    calls: list[list[str]] = []
+
+    def capture_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(cmd)
+        return fake_result
+
+    with patch("subprocess.run", side_effect=capture_run):
+        from cerebrofy.mcp.server import _handle_update
+        result = _handle_update({})
+
+    assert result[0].text.startswith("[success]")
+    # No explicit path — command should be ["...", "update"]
+    assert calls[0][-1] == "update"
+
+
+def test_mcp_update_tool_with_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP cerebrofy_update tool passes path arg to CLI when provided."""
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+
+    fake_result = type("R", (), {"returncode": 0, "stdout": "Updated.", "stderr": ""})()
+
+    calls: list[list[str]] = []
+
+    def capture_run(cmd: list[str], **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(cmd)
+        return fake_result
+
+    with patch("subprocess.run", side_effect=capture_run):
+        from cerebrofy.mcp.server import _handle_update
+        result = _handle_update({"path": "src/foo.py"})
+
+    assert result[0].text.startswith("[success]")
+    assert "src/foo.py" in calls[0]
+
+
+# ---------------------------------------------------------------------------
+# T078d: validate tool returns drift label
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_validate_tool_returns_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP cerebrofy_validate tool returns [clean] when exit code is 0."""
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+
+    fake_result = type("R", (), {"returncode": 0, "stdout": "No drift.", "stderr": ""})()
+
+    with patch("subprocess.run", return_value=fake_result):
+        from cerebrofy.mcp.server import _handle_validate
+        result = _handle_validate({})
+
+    assert result[0].text.startswith("[clean]")
+
+
+def test_mcp_validate_tool_returns_structural_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP cerebrofy_validate tool returns [structural_drift] when exit code is 2."""
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+
+    fake_result = type("R", (), {"returncode": 2, "stdout": "Structural drift.", "stderr": ""})()
+
+    with patch("subprocess.run", return_value=fake_result):
+        from cerebrofy.mcp.server import _handle_validate
+        result = _handle_validate({})
+
+    assert result[0].text.startswith("[structural_drift]")
+
+
+# ---------------------------------------------------------------------------
+# T078e: error when no cerebrofy config found
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_handle_build_no_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """_handle_build returns error message when no .cerebrofy/config.yaml is found."""
+    # Start in a directory with no cerebrofy config
+    monkeypatch.chdir(tmp_path)
+
+    from cerebrofy.mcp.server import _handle_build
+    result = _handle_build({})
+
+    assert len(result) == 1
+    assert "[error]" in result[0].text
+    assert "cerebrofy init" in result[0].text.lower()
+
+
+
+# ---------------------------------------------------------------------------

@@ -4,9 +4,35 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
 import tempfile
 from pathlib import Path
 
+
+def _resolve_mcp_command() -> dict:  # type: ignore[type-arg]
+    """Return the MCP entry dict with the absolute path to the cerebrofy binary.
+
+    Resolution order:
+    1. The script that is currently running (sys.argv[0]) if it looks like cerebrofy.
+    2. ``shutil.which("cerebrofy")`` — first match on PATH.
+    3. Fallback: ``python -m cerebrofy mcp`` using the current interpreter.
+    """
+    # Prefer the running executable itself — it's guaranteed to have mcp installed.
+    running = Path(sys.argv[0]).resolve()
+    if running.name.startswith("cerebrofy") and running.exists():
+        return {"command": str(running), "args": ["mcp"], "env": {}}
+
+    which = shutil.which("cerebrofy")
+    if which:
+        return {"command": which, "args": ["mcp"], "env": {}}
+
+    # Last resort: use the current Python interpreter.
+    return {"command": sys.executable, "args": ["-m", "cerebrofy", "mcp"], "env": {}}
+
+
+# Static entry used for the fallback snippet printed to the user.
+# The real entry written to disk is always resolved dynamically via _resolve_mcp_command().
 MCP_ENTRY: dict = {  # type: ignore[type-arg]
     "command": "cerebrofy",
     "args": ["mcp"],
@@ -65,30 +91,6 @@ MCP_CONFIG_PATHS: list[tuple[str, Path]] = [
 ]
 
 
-def find_writable_mcp_path(global_mode: bool) -> Path | None:
-    """Return the first writable MCP config path, or None if none found."""
-    if global_mode:
-        p = Path("~/.config/mcp/servers.json").expanduser()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
-
-    for _tool_name, path in MCP_CONFIG_PATHS:
-        if not path or not path.name:
-            continue
-        if path.exists() and os.access(path, os.W_OK):
-            return path
-        if path.parent.exists() and os.access(path.parent, os.W_OK):
-            return path
-
-    # Fallback: create ~/.config/mcp/ and return the generic path.
-    fallback = Path("~/.config/mcp/servers.json").expanduser()
-    try:
-        fallback.parent.mkdir(parents=True, exist_ok=True)
-        return fallback
-    except OSError:
-        return None
-
-
 def has_cerebrofy_mcp_entry(config_path: Path) -> bool:
     """Return True if mcpServers.cerebrofy key is already present in the config."""
     if not config_path.exists():
@@ -110,7 +112,7 @@ def write_mcp_entry(config_path: Path) -> None:
     else:
         data = {}
 
-    data.setdefault("mcpServers", {})["cerebrofy"] = MCP_ENTRY
+    data.setdefault("mcpServers", {})["cerebrofy"] = _resolve_mcp_command()
 
     tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, suffix=".tmp")
     try:
@@ -178,7 +180,7 @@ def detect_multiple_installations() -> list[str]:
     return paths
 
 
-def warn_if_multiple_installations(existing_entry: dict | None = None) -> None:  # type: ignore[type-arg]
+def warn_if_multiple_installations() -> None:
     """Print a warning if more than one cerebrofy binary is found on PATH (FR-018)."""
     paths = detect_multiple_installations()
     if len(paths) <= 1:
@@ -187,16 +189,3 @@ def warn_if_multiple_installations(existing_entry: dict | None = None) -> None: 
     for p in paths:
         print(f"  {p}")
     print("To fix: remove the older installation or update the MCP entry manually.")
-
-
-def register_mcp(global_mode: bool) -> tuple[bool, str]:
-    """Register the cerebrofy MCP entry. Returns (success, message)."""
-    path = find_writable_mcp_path(global_mode)
-    if path is None:
-        return False, MCP_FALLBACK_SNIPPET
-
-    if has_cerebrofy_mcp_entry(path):
-        return True, f"already registered at {path}"
-
-    write_mcp_entry(path)
-    return True, f"registered at {path}"

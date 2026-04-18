@@ -18,6 +18,10 @@ from cerebrofy.embedder.base import Embedder
 class _FakeEmbedder(Embedder):
     """Returns zero vectors of dim 768 — avoids loading sentence-transformers."""
 
+    @property
+    def dim(self) -> int:
+        return 768
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [[0.0] * 768 for _ in texts]
 

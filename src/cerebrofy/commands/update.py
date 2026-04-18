@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import click
+import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db
@@ -89,7 +89,12 @@ def _run_update_transaction(
         conn.execute("BEGIN IMMEDIATE")
         deleted_ids = delete_nodes_for_files(conn, target_files)
         delete_edges_for_files(conn, target_files, deleted_ids)
-        delete_vec_neurons(conn, deleted_ids)
+        # vec_neurons table only exists when embedding_model != "none"
+        _vec_table_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_neurons'"
+        ).fetchone() is not None
+        if _vec_table_exists:
+            delete_vec_neurons(conn, deleted_ids)
         delete_file_hashes(conn, target_files)
 
         write_nodes(conn, new_neurons)
@@ -98,7 +103,7 @@ def _run_update_transaction(
         # Insert vectors for new neurons (pre-computed outside the lock)
         new_ids_with_embs = [n.id for n in new_neurons if n.id in new_vectors]
         new_embs = [new_vectors[nid] for nid in new_ids_with_embs]
-        if new_ids_with_embs:
+        if new_ids_with_embs and _vec_table_exists:
             upsert_vectors(conn, new_ids_with_embs, new_embs)
 
         write_file_hashes(conn, file_hash_map)
@@ -128,7 +133,12 @@ def _rewrite_markdown_after_update(
 
 @click.command("update")
 @click.argument("files", nargs=-1, type=click.Path())
-def cerebrofy_update(files: tuple[str, ...]) -> None:
+@click.option(
+    "--all", "update_all",
+    is_flag=True, default=False,
+    help="Auto-detect and re-index all changed files (default behaviour with no path given).",
+)
+def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
     """Partially re-index changed files without a full rebuild."""
     root = Path.cwd()
     config_path = root / ".cerebrofy" / "config.yaml"
@@ -166,7 +176,8 @@ def cerebrofy_update(files: tuple[str, ...]) -> None:
         click.echo("Cerebrofy: Starting update...")
 
         # Step 1: Detect
-        explicit: list[str] | None = list(files) if files else None
+        # --all flag forces auto-detect even if paths were given explicitly
+        explicit: list[str] | None = None if (update_all or not files) else list(files)
         changeset: ChangeSet = detect_changes(root, conn, config, explicit)
 
         if not changeset.changes:
@@ -255,18 +266,19 @@ def cerebrofy_update(files: tuple[str, ...]) -> None:
         total_neurons = len(new_neurons)
         new_vectors: dict[str, list[float]] = {}
 
-        if new_neurons:
+        if new_neurons and config.embedding_model != "none":
             try:
                 click.echo("Cerebrofy: Loading embedding model (first invocation may be slow)...")
                 embedder = get_embedder(config.embedding_model)
-                texts = [build_neuron_text(n) for n in new_neurons]
-                click.echo(f"Cerebrofy: Generating embeddings (0 / {total_neurons} neurons)")
-                embeddings = embedder.embed(texts)
-                click.echo(
-                    f"Cerebrofy: Generating embeddings ({total_neurons} / {total_neurons} neurons)"
-                )
-                for n, emb in zip(new_neurons, embeddings):
-                    new_vectors[n.id] = emb
+                if embedder is not None:
+                    texts = [build_neuron_text(n) for n in new_neurons]
+                    click.echo(f"Cerebrofy: Generating embeddings (0 / {total_neurons} neurons)")
+                    embeddings = embedder.embed(texts)
+                    click.echo(
+                        f"Cerebrofy: Generating embeddings ({total_neurons} / {total_neurons} neurons)"
+                    )
+                    for n, emb in zip(new_neurons, embeddings):
+                        new_vectors[n.id] = emb
             except Exception as exc:
                 click.echo(
                     f"Error: Embedding model unavailable: {exc}. Update aborted.", err=True
@@ -293,13 +305,6 @@ def cerebrofy_update(files: tuple[str, ...]) -> None:
         conn.close()
 
         elapsed = time.monotonic() - start
-
-        # Upgrade pre-push hook to hard-block once update is verified fast enough (FR-003/FR-014).
-        # upgrade_hook() is idempotent — no-op if already version 2.
-        if elapsed < 2.0:
-            from cerebrofy.hooks.installer import upgrade_hook
-            pre_push = root / ".git" / "hooks" / "pre-push"
-            upgrade_hook(pre_push)
 
         click.echo(
             f"Cerebrofy: Update complete. Re-indexed {nodes_reindexed} neurons "
