@@ -86,7 +86,7 @@ def _handle_search_code(arguments: dict[str, Any]) -> list[Any]:
         return _make_error_content("Index not found. Run 'cerebrofy build' first.")
 
     from cerebrofy.config.loader import load_config
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search
+    from cerebrofy.search.hybrid import _embed_query, hybrid_search  # type: ignore[import-untyped]
 
     config = load_config(root / ".cerebrofy" / "config.yaml")
     embedding = _embed_query(query, config)
@@ -242,8 +242,8 @@ def _handle_plan(arguments: dict[str, Any]) -> list[Any]:
         return _make_error_content("Index not found. Run 'cerebrofy build' first.")
 
     from cerebrofy.config.loader import load_config
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search
-    from cerebrofy.commands.plan import _format_plan_json
+    from cerebrofy.search.hybrid import _embed_query, hybrid_search  # type: ignore[import-untyped]
+    from cerebrofy.commands.plan import _format_plan_json  # type: ignore[import-untyped]
 
     config = load_config(root / ".cerebrofy" / "config.yaml")
     embedding = _embed_query(description, config)
@@ -272,8 +272,8 @@ def _handle_tasks(arguments: dict[str, Any]) -> list[Any]:
         return _make_error_content("Index not found. Run 'cerebrofy build' first.")
 
     from cerebrofy.config.loader import load_config
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search
-    from cerebrofy.commands.tasks import _build_task_items
+    from cerebrofy.search.hybrid import _embed_query, hybrid_search  # type: ignore[import-untyped]
+    from cerebrofy.commands.tasks import _build_task_items  # type: ignore[import-untyped]
 
     config = load_config(root / ".cerebrofy" / "config.yaml")
     embedding = _embed_query(description, config)
