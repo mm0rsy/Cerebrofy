@@ -2,6 +2,12 @@
 
 > Full atomic re-index of the codebase into a local graph + vector database.
 
+## ⚠️ Navigation rule
+
+Once the index is built, **do not glob-read source files** to understand the codebase.
+Always use `cerebrofy search "<query>"` or the Cerebrofy MCP tools first.
+Only open a file after cerebrofy has returned its exact path and line number.
+
 ## When to use
 
 - The repository has just been cloned and has no `.cerebrofy/db/cerebrofy.db` yet.

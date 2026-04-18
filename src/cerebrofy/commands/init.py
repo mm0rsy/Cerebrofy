@@ -11,7 +11,13 @@ import rich_click as click
 from cerebrofy.config.loader import build_default_config, write_config
 from cerebrofy.hooks.installer import add_gitignore_entry, install_hooks
 from cerebrofy.ignore.ruleset import DEFAULT_IGNORE_CONTENT
-from cerebrofy.skills.installer import AI_SKILL_ROOTS, SUPPORTED_AI_CLIENTS, install_skills, installed_skills
+from cerebrofy.skills.installer import (
+    AI_SKILL_ROOTS,
+    SUPPORTED_AI_CLIENTS,
+    install_instructions,
+    install_skills,
+    installed_skills,
+)
 from cerebrofy.mcp.registrar import (
     MCP_FALLBACK_SNIPPET,
     find_writable_mcp_config,
@@ -189,7 +195,7 @@ def cerebrofy_init(
 
 
 def _install_ai_skills(root: Path, ai_client: str, force: bool) -> None:
-    """Install skill templates for the requested AI client and report results."""
+    """Install skill templates and navigation instructions for the requested AI client."""
     client_lower = ai_client.lower()
     click.echo(f"Cerebrofy: Installing skills for {client_lower}...")
     warnings = install_skills(root, client_lower, force=force)
@@ -206,3 +212,10 @@ def _install_ai_skills(root: Path, ai_client: str, force: bool) -> None:
         )
     else:
         click.echo(f"Cerebrofy: No new skills installed (all already exist at {dest_root}/).")
+
+    # Layer 1 enforcement: write navigation rules into the client's global instructions
+    # file (.github/copilot-instructions.md, CLAUDE.md, etc.).  These are read on every
+    # AI interaction — much stronger than SKILL.md which is only loaded per-skill.
+    instr_path = install_instructions(root, client_lower, force=force)
+    if instr_path:
+        click.echo(f"Cerebrofy: Navigation rules written to {instr_path}")

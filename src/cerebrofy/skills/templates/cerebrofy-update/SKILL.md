@@ -2,6 +2,12 @@
 
 > Partially re-index only changed files — fast incremental update.
 
+## ⚠️ Navigation rule
+
+**Do not glob-read source files** to understand the codebase.
+Use `cerebrofy search "<query>"` or the Cerebrofy MCP tools. Only open a file
+after cerebrofy has pointed you to it by file path and line number.
+
 ## When to use
 
 - After editing source files and before running `cerebrofy plan`, `tasks`, or `specify`.
