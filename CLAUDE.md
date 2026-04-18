@@ -84,44 +84,35 @@ pyproject.toml
 ## Commands
 
 ```sh
-# Install in dev mode
-pip install -e ".[dev]"
+# Install in dev mode (syncs all deps including dev group)
+uv sync --group dev
 
 # Run all tests
-pytest
+uv run pytest
 
 # Run unit tests only
-pytest tests/unit/
+uv run pytest tests/unit/
 
 # Run integration tests
-pytest tests/integration/
+uv run pytest tests/integration/
 
 # Type check
-mypy src/
+uv run mypy src/
 
 # Lint
-ruff check src/ tests/
+uv run ruff check src/ tests/
 
 # Run the CLI locally
 cerebrofy --help
-cerebrofy init
-cerebrofy init --force
+cerebrofy init .
+cerebrofy init --here
+cerebrofy init --here --ai [claude|copilot|opencode|vscode]
+cerebrofy init --here --no-mcp
 cerebrofy build
-cerebrofy parse <file-or-dir>
-cerebrofy plan "add OAuth2 login"
-cerebrofy plan --json "add OAuth2 login"
-cerebrofy plan --top-k 20 "add rate limiting"
-cerebrofy tasks "add OAuth2 login"
-cerebrofy tasks --top-k 5 "add rate limiting"
-cerebrofy specify "add OAuth2 login"
-cerebrofy specify --top-k 5 "add OAuth2 login"
-cerebrofy parse src/auth/login.py      # NDJSON Neuron output, read-only
-cerebrofy parse src/                   # Parse entire directory
-cerebrofy mcp                          # Start MCP stdio server (for AI tools)
+cerebrofy update --all
+cerebrofy update <path>
+cerebrofy validate
 
-# Install with MCP support
-pip install cerebrofy[mcp]
-```
 
 ## Code Style
 

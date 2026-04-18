@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-import click
+import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db
