@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import click
+import rich_click as click
 
 from cerebrofy.db.connection import check_schema_version
 from cerebrofy.validate.drift_classifier import DriftRecord, classify_drift

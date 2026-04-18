@@ -5,11 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 
 from cerebrofy.graph.edges import Edge
 from cerebrofy.parser.neuron import Neuron
+
+
+class IgnoreMatcher(Protocol):
+    def matches(self, path: str) -> bool: ...
 
 
 def insert_meta(conn: sqlite3.Connection, embed_model: str, embed_dim: int) -> None:
@@ -56,6 +62,26 @@ def compute_state_hash(file_hash_map: dict[str, str]) -> str:
     """
     joined = "\n".join(sorted(file_hash_map.values()))
     return hashlib.sha256(joined.encode()).hexdigest()
+
+
+def collect_tracked_file_hashes(
+    root: Path,
+    tracked_extensions: Iterable[str],
+    ignore_rules: IgnoreMatcher,
+) -> dict[str, str]:
+    """Collect tracked file hashes using the canonical build/update rules."""
+    normalized_extensions = set(tracked_extensions)
+    file_hash_map: dict[str, str] = {}
+    for file_path in sorted(root.rglob("*")):
+        if not file_path.is_file():
+            continue
+        rel_path = str(file_path.relative_to(root)).replace("\\", "/")
+        if ignore_rules.matches(rel_path):
+            continue
+        if file_path.suffix.lower() not in normalized_extensions:
+            continue
+        file_hash_map[rel_path] = compute_file_hash(file_path)
+    return file_hash_map
 
 
 def write_file_hashes(conn: sqlite3.Connection, file_hash_map: dict[str, str]) -> None:

@@ -15,6 +15,8 @@ HOOK_SENTINEL_END = HOOK_MARKER_END
 HOOK_VERSION_MARKER = "# cerebrofy-hook-version:"
 
 # Version 1 = warn-only (Phase 1). Version 2 = hard-block (Phase 3 upgrade).
+# Shell block written into pre-push hook at install time.
+# Use {hook_name} placeholder — filled by create_hook_file() / append_to_hook().
 HOOK_SCRIPT_BLOCK = """\
 {marker_start}
 # cerebrofy-hook-version: 1
@@ -22,15 +24,8 @@ cerebrofy validate --hook {{hook_name}}
 {marker_end}
 """.format(marker_start=HOOK_MARKER_START, marker_end=HOOK_MARKER_END)
 
-
-HOOK_SCRIPT_V1: str = (
-    f"{HOOK_SENTINEL_BEGIN}\n"
-    f"{HOOK_VERSION_MARKER} 1\n"
-    "cerebrofy validate --hook pre-push\n"
-    f"{HOOK_SENTINEL_END}\n"
-)
-
-HOOK_SCRIPT_V2: str = (
+# Hard-block block used by upgrade_hook() when update latency target is met.
+_HOOK_SCRIPT_V2: str = (
     f"{HOOK_SENTINEL_BEGIN}\n"
     f"{HOOK_VERSION_MARKER} 2\n"
     "if ! cerebrofy validate --hook pre-push; then\n"
@@ -95,7 +90,7 @@ def upgrade_hook(hook_path: Path) -> None:
     content = hook_path.read_text(encoding="utf-8")
     if _get_hook_version(content) >= 2:
         return
-    hook_path.write_text(_replace_hook_block(content, HOOK_SCRIPT_V2), encoding="utf-8")
+    hook_path.write_text(_replace_hook_block(content, _HOOK_SCRIPT_V2), encoding="utf-8")
 
 
 def has_cerebrofy_marker(hook_path: Path) -> bool:
@@ -105,21 +100,21 @@ def has_cerebrofy_marker(hook_path: Path) -> bool:
     return HOOK_MARKER_START in hook_path.read_text(encoding="utf-8")
 
 
-def create_hook_file(hook_path: Path, hook_name: str) -> None:
+def create_hook_file(hook_path: Path, hook_name: str, block: str | None = None) -> None:
     """Create a new executable hook file with the cerebrofy block."""
-    block = HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
-    hook_path.write_text(f"#!/bin/sh\n{block}", encoding="utf-8")
+    b = block if block is not None else HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
+    hook_path.write_text(f"#!/bin/sh\n{b}", encoding="utf-8")
     try:
         os.chmod(hook_path, 0o755)
     except (NotImplementedError, OSError):
         pass  # Windows — executability handled by git's hook runner
 
 
-def append_to_hook(hook_path: Path, hook_name: str) -> str:
+def append_to_hook(hook_path: Path, hook_name: str, block: str | None = None) -> str:
     """Append the cerebrofy block to an existing hook file. Returns a warning string."""
-    block = HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
+    b = block if block is not None else HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
     existing = hook_path.read_text(encoding="utf-8")
-    hook_path.write_text(existing.rstrip("\n") + "\n" + block, encoding="utf-8")
+    hook_path.write_text(existing.rstrip("\n") + "\n" + b, encoding="utf-8")
     return f"Warning: Pre-existing hook at {hook_path} — appending Cerebrofy call."
 
 
@@ -160,20 +155,46 @@ CEREBROFY_PM_CHECK
 """
 
 
+def _is_cerebrofy_db_gitignored(root: Path) -> bool:
+    """Return True if .cerebrofy/db/ is covered by a .gitignore entry.
+
+    When True, the DB is not tracked by git, so a warn-only hook is appropriate.
+    When False (not gitignored), the DB may be tracked, so a hard-block is used.
+    """
+    gitignore = root / ".gitignore"
+    if not gitignore.exists():
+        return False
+    content = gitignore.read_text(encoding="utf-8")
+    return any(
+        pat in content
+        for pat in (".cerebrofy/", ".cerebrofy/db", ".cerebrofy\\")
+    )
+
+
 def install_hooks(root: Path, config: object = None) -> list[str]:
     """Install cerebrofy pre-push and post-merge hooks. Returns any warning messages.
+
+    Chooses the hook blocking mode based on .gitignore state:
+    - If .cerebrofy/ is gitignored → warn-only (v1): DB drift won't corrupt git state.
+    - If .cerebrofy/ is tracked by git → hard-block (v2): stale DB in commits breaks state.
 
     config is accepted for forward compatibility but paths are derived from root.
     """
     hooks_dir = root / ".git" / "hooks"
     warnings: list[str] = []
 
-    # Pre-push hook: calls cerebrofy validate (warn-only by default)
+    # Choose pre-push blocking mode based on gitignore state.
+    if _is_cerebrofy_db_gitignored(root):
+        pre_push_block = HOOK_SCRIPT_BLOCK.format(hook_name="pre-push")
+    else:
+        pre_push_block = _HOOK_SCRIPT_V2
+
+    # Pre-push hook: warn-only if DB is gitignored, hard-block if tracked
     pre_push = hooks_dir / "pre-push"
     if not pre_push.exists():
-        create_hook_file(pre_push, "pre-push")
+        create_hook_file(pre_push, "pre-push", block=pre_push_block)
     elif not has_cerebrofy_marker(pre_push):
-        warnings.append(append_to_hook(pre_push, "pre-push"))
+        warnings.append(append_to_hook(pre_push, "pre-push", block=pre_push_block))
 
     # Post-merge hook: state_hash sync check (always exits 0 — never blocks)
     map_md_path = str(root / "docs" / "cerebrofy" / "cerebrofy_map.md")
@@ -195,62 +216,15 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
     return warnings
 
 
-def upgrade_to_hard_block(hook_path: Path) -> None:
-    """Upgrade the cerebrofy pre-push hook from warn-only (v1) to hard-block (v2).
-
-    Replaces version marker and adds explicit exit-code propagation.
-    Emits a warning if sentinels are absent (manually edited hook).
-    """
-    if not hook_path.exists():
-        return
-    content = hook_path.read_text(encoding="utf-8")
-    if HOOK_MARKER_START not in content or HOOK_MARKER_END not in content:
-        import click
-        click.echo(
-            "Warning: Git hook not managed by Cerebrofy — manual upgrade to hard-block required.",
-            err=True,
-        )
-        return
-    # Replace version marker and add exit-code propagation
-    content = content.replace(
-        "# cerebrofy-hook-version: 1", "# cerebrofy-hook-version: 2"
-    )
-    # Replace warn-only call with hard-block call
-    content = content.replace(
-        "cerebrofy validate --hook pre-push\n",
-        "cerebrofy validate --hook pre-push\nexit_code=$?\nif [ $exit_code -ne 0 ]; then exit 1; fi\n",
-    )
-    hook_path.write_text(content, encoding="utf-8")
-
-
-def downgrade_to_warn_only(hook_path: Path) -> None:
-    """Downgrade the cerebrofy pre-push hook from hard-block (v2) to warn-only (v1).
-
-    Inverse of upgrade_to_hard_block.
-    """
-    if not hook_path.exists():
-        return
-    content = hook_path.read_text(encoding="utf-8")
-    if HOOK_MARKER_START not in content or HOOK_MARKER_END not in content:
-        return
-    content = content.replace(
-        "# cerebrofy-hook-version: 2", "# cerebrofy-hook-version: 1"
-    )
-    content = content.replace(
-        "cerebrofy validate --hook pre-push\nexit_code=$?\nif [ $exit_code -ne 0 ]; then exit 1; fi\n",
-        "cerebrofy validate --hook pre-push\n",
-    )
-    hook_path.write_text(content, encoding="utf-8")
-
-
 def add_gitignore_entry(repo_root: Path) -> None:
-    """Append .cerebrofy/db/ to .gitignore if not already present (FR-019)."""
-    entry = ".cerebrofy/db/"
+    """Append .cerebrofy/db/ and .mcp.json to .gitignore if not already present (FR-019)."""
     gitignore = repo_root / ".gitignore"
+    entries = [".cerebrofy/db/", ".mcp.json"]
     if gitignore.exists():
         content = gitignore.read_text(encoding="utf-8")
-        if entry in content:
-            return
-        gitignore.write_text(content.rstrip("\n") + f"\n{entry}\n", encoding="utf-8")
     else:
-        gitignore.write_text(f"{entry}\n", encoding="utf-8")
+        content = ""
+    to_add = [e for e in entries if e not in content]
+    if not to_add:
+        return
+    gitignore.write_text(content.rstrip("\n") + "\n" + "\n".join(to_add) + "\n", encoding="utf-8")

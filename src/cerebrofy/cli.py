@@ -1,33 +1,46 @@
 """Cerebrofy CLI entry point."""
 
-import click
+import rich_click as click
 
 from cerebrofy import __version__
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
-from cerebrofy.commands.parse import cerebrofy_parse
-from cerebrofy.commands.plan import cerebrofy_plan
-from cerebrofy.commands.specify import cerebrofy_specify
-from cerebrofy.commands.tasks import cerebrofy_tasks
 from cerebrofy.commands.update import cerebrofy_update
 from cerebrofy.commands.validate import cerebrofy_validate
+
+click.rich_click.USE_RICH_MARKUP = True
+click.rich_click.USE_MARKDOWN = False
+click.rich_click.SHOW_ARGUMENTS = True
+click.rich_click.GROUP_ARGUMENTS_OPTIONS = False
+click.rich_click.STYLE_COMMANDS_TABLE_COLUMN_WIDTH_RATIO = (1, 3)
+click.rich_click.HEADER_TEXT = (
+    "[bold cyan]"
+    " \u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557   \u2588\u2588\u2557\n"
+    "\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255d\u255a\u2588\u2588\u2557 \u2588\u2588\u2554\u255d\n"
+    "\u2588\u2588\u2551     \u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557   \u255a\u2588\u2588\u2588\u2588\u2554\u255d \n"
+    "\u2588\u2588\u2551     \u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u255d  \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255d    \u255a\u2588\u2588\u2554\u255d  \n"
+    "\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551  \u2588\u2588\u2551\u255a\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255d\u2588\u2588\u2551        \u2588\u2588\u2551   \n"
+    " \u255a\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u255d  \u255a\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u2550\u255d\u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d  \u255a\u2550\u255d \u255a\u2550\u2550\u2550\u2550\u2550\u255d \u255a\u2550\u255d        \u255a\u2550\u255d[/bold cyan]\n\n"
+    "[dim]AI-powered codebase intelligence \u2014 zero code upload, ~97% token reduction[/dim]"
+)
 
 
 @click.group()
 @click.version_option(version=__version__, prog_name="cerebrofy")
 def main() -> None:
-    """Cerebrofy — AI-powered codebase intelligence."""
+    pass
 
 
+# Public commands (shown in --help)
 main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_init)
-main.add_command(cerebrofy_mcp)
-main.add_command(cerebrofy_migrate)
-main.add_command(cerebrofy_parse)
-main.add_command(cerebrofy_plan)
-main.add_command(cerebrofy_specify)
-main.add_command(cerebrofy_tasks)
 main.add_command(cerebrofy_update)
 main.add_command(cerebrofy_validate)
+
+# Hidden/internal commands (not shown in --help)
+cerebrofy_mcp.hidden = True
+cerebrofy_migrate.hidden = True
+main.add_command(cerebrofy_mcp)
+main.add_command(cerebrofy_migrate)

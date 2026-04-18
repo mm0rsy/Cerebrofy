@@ -1,7 +1,8 @@
 .vscode/
 .specify/
 .claude/
-specs/BLUEPRINT_REVIEW.md
+.copilot/
+
 
 # Python
 __pycache__/
@@ -16,3 +17,14 @@ venv/
 
 # Cerebrofy index (local artifact — never commit)
 .cerebrofy/db/
+
+# Squad: ignore runtime state (logs, inbox, sessions)
+.squad/
+
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.*
+# Squad: ignore runtime state (logs, inbox, sessions)
+.squad/
