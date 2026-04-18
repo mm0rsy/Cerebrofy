@@ -65,30 +65,6 @@ MCP_CONFIG_PATHS: list[tuple[str, Path]] = [
 ]
 
 
-def find_writable_mcp_path(global_mode: bool) -> Path | None:
-    """Return the first writable MCP config path, or None if none found."""
-    if global_mode:
-        p = Path("~/.config/mcp/servers.json").expanduser()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
-
-    for _tool_name, path in MCP_CONFIG_PATHS:
-        if not path or not path.name:
-            continue
-        if path.exists() and os.access(path, os.W_OK):
-            return path
-        if path.parent.exists() and os.access(path.parent, os.W_OK):
-            return path
-
-    # Fallback: create ~/.config/mcp/ and return the generic path.
-    fallback = Path("~/.config/mcp/servers.json").expanduser()
-    try:
-        fallback.parent.mkdir(parents=True, exist_ok=True)
-        return fallback
-    except OSError:
-        return None
-
-
 def has_cerebrofy_mcp_entry(config_path: Path) -> bool:
     """Return True if mcpServers.cerebrofy key is already present in the config."""
     if not config_path.exists():
@@ -178,7 +154,7 @@ def detect_multiple_installations() -> list[str]:
     return paths
 
 
-def warn_if_multiple_installations(existing_entry: dict | None = None) -> None:  # type: ignore[type-arg]
+def warn_if_multiple_installations() -> None:
     """Print a warning if more than one cerebrofy binary is found on PATH (FR-018)."""
     paths = detect_multiple_installations()
     if len(paths) <= 1:
@@ -187,16 +163,3 @@ def warn_if_multiple_installations(existing_entry: dict | None = None) -> None: 
     for p in paths:
         print(f"  {p}")
     print("To fix: remove the older installation or update the MCP entry manually.")
-
-
-def register_mcp(global_mode: bool) -> tuple[bool, str]:
-    """Register the cerebrofy MCP entry. Returns (success, message)."""
-    path = find_writable_mcp_path(global_mode)
-    if path is None:
-        return False, MCP_FALLBACK_SNIPPET
-
-    if has_cerebrofy_mcp_entry(path):
-        return True, f"already registered at {path}"
-
-    write_mcp_entry(path)
-    return True, f"registered at {path}"

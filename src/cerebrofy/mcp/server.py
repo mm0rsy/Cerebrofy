@@ -1,11 +1,165 @@
-"""MCP stdio server for cerebrofy — exposes plan, tasks, specify as MCP tools."""
+"""MCP stdio server for cerebrofy — exposes build, update, validate as MCP tools."""
 
 from __future__ import annotations
 
-import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+
+def _find_repo_root(start: Path) -> Path:
+    """Walk up from start searching for .cerebrofy/config.yaml.
+
+    Raises FileNotFoundError if not found at filesystem root.
+    """
+    current = start if start.is_dir() else start.parent
+    for candidate in [current, *current.parents]:
+        if (candidate / ".cerebrofy" / "config.yaml").exists():
+            return candidate
+    raise FileNotFoundError(
+        "No Cerebrofy config found in current directory or any parent. "
+        "Run 'cerebrofy init' first."
+    )
+
+
+def _run_cerebrofy(args: list[str], cwd: str, timeout: int = 300) -> tuple[int, str]:
+    """Run ``cerebrofy <args>`` in *cwd*. Returns (returncode, combined output)."""
+    result = subprocess.run(
+        [sys.executable, "-m", "cerebrofy"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    stderr = result.stderr.strip()
+    output = result.stdout + (("\n" + stderr) if stderr else "")
+    return result.returncode, output.strip()
+
+
+def _make_error_content(message: str) -> list[Any]:
+    """Return a TextContent list for MCP error responses."""
+    from mcp.types import TextContent
+    return [TextContent(type="text", text=message)]
+
+
+def _handle_build(arguments: dict[str, Any]) -> list[Any]:
+    """Trigger a full atomic re-index and return status as TextContent."""
+    from mcp.types import TextContent
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' to set up the repository.")
+    code, output = _run_cerebrofy(["build"], str(root))
+    status = "success" if code == 0 else "error"
+    return [TextContent(type="text", text=f"[{status}]\n{output}")]
+
+
+def _handle_update(arguments: dict[str, Any]) -> list[Any]:
+    """Trigger a partial re-index and return status as TextContent."""
+    from mcp.types import TextContent
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' to set up the repository.")
+    path: str | None = arguments.get("path")
+    cmd = ["update", path] if path else ["update"]
+    code, output = _run_cerebrofy(cmd, str(root))
+    status = "success" if code == 0 else "error"
+    return [TextContent(type="text", text=f"[{status}]\n{output}")]
+
+
+def _handle_validate(arguments: dict[str, Any]) -> list[Any]:
+    """Run drift validation and return status as TextContent."""
+    from mcp.types import TextContent
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' to set up the repository.")
+    code, output = _run_cerebrofy(["validate"], str(root))
+    drift_label = {0: "clean", 1: "minor_drift", 2: "structural_drift"}.get(code, "error")
+    return [TextContent(type="text", text=f"[{drift_label}]\n{output}")]
+
+
+async def run_mcp_server() -> None:
+    """Start the cerebrofy MCP stdio server."""
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import Tool, TextContent
+
+    app = Server("cerebrofy")
+
+    _EMPTY_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+    _PATH_SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "path": {
+                "type": "string",
+                "description": "Specific file path to re-index (omit to auto-detect changed files)",
+            }
+        },
+    }
+
+    @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def list_tools() -> list[Tool]:
+        return [
+            Tool(
+                name="cerebrofy_build",
+                description=(
+                    "Full atomic re-index of the entire repository. "
+                    "Use when the index is missing or fundamentally out of date. "
+                    "Takes longer than update; prefer cerebrofy_update for incremental changes."
+                ),
+                inputSchema=_EMPTY_SCHEMA,
+            ),
+            Tool(
+                name="cerebrofy_update",
+                description=(
+                    "Partial re-index of changed files (auto-detected via git diff or hash comparison). "
+                    "Pass 'path' to limit to a specific file. Preferred for day-to-day sync."
+                ),
+                inputSchema=_PATH_SCHEMA,
+            ),
+            Tool(
+                name="cerebrofy_validate",
+                description=(
+                    "Check for drift between the current source and the index. "
+                    "Returns 'clean', 'minor_drift', or 'structural_drift'. "
+                    "Makes zero writes — safe to call at any time."
+                ),
+                inputSchema=_EMPTY_SCHEMA,
+            ),
+        ]
+
+    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
+        try:
+            if name == "cerebrofy_build":
+                return _handle_build(arguments or {})
+            elif name == "cerebrofy_update":
+                return _handle_update(arguments or {})
+            elif name == "cerebrofy_validate":
+                return _handle_validate(arguments or {})
+            else:
+                return _make_error_content(f"Unknown tool: {name}")
+        except FileNotFoundError as exc:
+            return _make_error_content(
+                f"[error] {exc}\nRun 'cerebrofy init' to set up the repository."
+            )
+        except subprocess.TimeoutExpired:
+            return _make_error_content(
+                "[error] Command timed out after 300 seconds."
+            )
+        except Exception as exc:
+            print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
+            return _make_error_content(f"[error] {exc}")
+
+    async with stdio_server() as (read_stream, write_stream):
+        await app.run(read_stream, write_stream, app.create_initialization_options())
+
 
 
 def _find_repo_root(start: Path) -> Path:

@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import click
+import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db
@@ -128,7 +128,12 @@ def _rewrite_markdown_after_update(
 
 @click.command("update")
 @click.argument("files", nargs=-1, type=click.Path())
-def cerebrofy_update(files: tuple[str, ...]) -> None:
+@click.option(
+    "--all", "update_all",
+    is_flag=True, default=False,
+    help="Auto-detect and re-index all changed files (default behaviour with no path given).",
+)
+def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
     """Partially re-index changed files without a full rebuild."""
     root = Path.cwd()
     config_path = root / ".cerebrofy" / "config.yaml"
@@ -166,7 +171,8 @@ def cerebrofy_update(files: tuple[str, ...]) -> None:
         click.echo("Cerebrofy: Starting update...")
 
         # Step 1: Detect
-        explicit: list[str] | None = list(files) if files else None
+        # --all flag forces auto-detect even if paths were given explicitly
+        explicit: list[str] | None = None if (update_all or not files) else list(files)
         changeset: ChangeSet = detect_changes(root, conn, config, explicit)
 
         if not changeset.changes:
@@ -293,13 +299,6 @@ def cerebrofy_update(files: tuple[str, ...]) -> None:
         conn.close()
 
         elapsed = time.monotonic() - start
-
-        # Upgrade pre-push hook to hard-block once update is verified fast enough (FR-003/FR-014).
-        # upgrade_hook() is idempotent — no-op if already version 2.
-        if elapsed < 2.0:
-            from cerebrofy.hooks.installer import upgrade_hook
-            pre_push = root / ".git" / "hooks" / "pre-push"
-            upgrade_hook(pre_push)
 
         click.echo(
             f"Cerebrofy: Update complete. Re-indexed {nodes_reindexed} neurons "
