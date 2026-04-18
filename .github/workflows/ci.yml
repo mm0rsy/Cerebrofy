@@ -84,4 +84,4 @@ jobs:
         run: uv sync --group dev --extra mcp
 
       - name: MCP integration tests
-        run: uv run pytest tests/integration/test_mcp_command.py -v --tb=short
+        run: uv run pytest tests/integration/test_mcp_command.py -v --tb=short --no-cov
