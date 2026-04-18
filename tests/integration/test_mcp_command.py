@@ -60,7 +60,6 @@ def test_mcp_build_tool_returns_success(
     _make_config(tmp_path)
 
     # Simulate a fast successful subprocess run
-    import subprocess
     fake_result = type("R", (), {"returncode": 0, "stdout": "Build complete.", "stderr": ""})()
 
     with patch("subprocess.run", return_value=fake_result):
@@ -78,7 +77,6 @@ def test_mcp_build_tool_returns_error_on_failure(
     monkeypatch.chdir(tmp_path)
     _make_config(tmp_path)
 
-    import subprocess
     fake_result = type("R", (), {"returncode": 1, "stdout": "", "stderr": "Build failed."})()
 
     with patch("subprocess.run", return_value=fake_result):
@@ -101,7 +99,6 @@ def test_mcp_update_tool_no_path(
     monkeypatch.chdir(tmp_path)
     _make_config(tmp_path)
 
-    import subprocess
     fake_result = type("R", (), {"returncode": 0, "stdout": "Nothing to update.", "stderr": ""})()
 
     calls: list[list[str]] = []
@@ -126,7 +123,6 @@ def test_mcp_update_tool_with_path(
     monkeypatch.chdir(tmp_path)
     _make_config(tmp_path)
 
-    import subprocess
     fake_result = type("R", (), {"returncode": 0, "stdout": "Updated.", "stderr": ""})()
 
     calls: list[list[str]] = []
@@ -155,7 +151,6 @@ def test_mcp_validate_tool_returns_clean(
     monkeypatch.chdir(tmp_path)
     _make_config(tmp_path)
 
-    import subprocess
     fake_result = type("R", (), {"returncode": 0, "stdout": "No drift.", "stderr": ""})()
 
     with patch("subprocess.run", return_value=fake_result):
@@ -172,7 +167,6 @@ def test_mcp_validate_tool_returns_structural_drift(
     monkeypatch.chdir(tmp_path)
     _make_config(tmp_path)
 
-    import subprocess
     fake_result = type("R", (), {"returncode": 2, "stdout": "Structural drift.", "stderr": ""})()
 
     with patch("subprocess.run", return_value=fake_result):

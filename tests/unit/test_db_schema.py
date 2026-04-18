@@ -10,10 +10,6 @@ import sqlite_vec  # type: ignore[import-untyped]
 
 from cerebrofy.db.connection import check_schema_version, open_db
 from cerebrofy.db.schema import (
-    EDGES_DDL,
-    FILE_HASHES_DDL,
-    META_DDL,
-    NODES_DDL,
     create_schema,
 )
 

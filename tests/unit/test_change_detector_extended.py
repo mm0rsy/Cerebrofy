@@ -12,9 +12,7 @@ from cerebrofy.update.change_detector import (
     ChangeSet,
     FileChange,
     _detect_via_hash,
-    _has_commits,
     _is_git_repo,
-    _parse_name_status,
     _run_git_cmd,
     detect_changes,
 )

@@ -9,7 +9,6 @@ import sqlite_vec  # type: ignore[import-untyped]
 from cerebrofy.update.change_detector import ChangeSet, FileChange
 from cerebrofy.update.scope_resolver import (
     UpdateScope,
-    _bfs_depth2,
     _get_files_for_node_ids,
     _get_node_ids_for_files,
     resolve_scope,

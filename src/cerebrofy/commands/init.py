@@ -20,7 +20,6 @@ from cerebrofy.skills.installer import (
 )
 from cerebrofy.mcp.registrar import (
     MCP_FALLBACK_SNIPPET,
-    find_writable_mcp_config,
     has_cerebrofy_mcp_entry,
     warn_if_multiple_installations,
     write_mcp_entry,
