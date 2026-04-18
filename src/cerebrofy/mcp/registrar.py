@@ -8,8 +8,8 @@ import tempfile
 from pathlib import Path
 
 MCP_ENTRY: dict = {  # type: ignore[type-arg]
-    "command": "cerebrofy",
-    "args": ["mcp"],
+    "command": "python",
+    "args": ["-m", "cerebrofy", "mcp"],
     "env": {},
 }
 
