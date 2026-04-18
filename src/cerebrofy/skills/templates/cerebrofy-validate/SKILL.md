@@ -2,6 +2,12 @@
 
 Classify drift between the Cerebrofy index and the current source code.
 
+## ⚠️ Navigation rule
+
+**Do not glob-read source files** to understand the codebase.
+Use `cerebrofy search "<query>"` or the Cerebrofy MCP tools. Only open a file
+after cerebrofy has pointed you to it by file path and line number.
+
 ## When to use
 
 - To check if the index is out of date before running `plan` or `specify`
