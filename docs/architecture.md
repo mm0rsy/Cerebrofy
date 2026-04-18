@@ -113,55 +113,6 @@ config.yaml + .cerebrofy-ignore
    write_map_md()                 ← cerebrofy_map.md
 ```
 
-### `cerebrofy plan` / `cerebrofy tasks`
-
-```
-DESCRIPTION (string)
-        │
-        ▼
-   _embed_query()                 ← same embedder as build
-        │
-        ▼
-   hybrid_search()                ← one read-only SQLite connection
-        │
-        ├── _run_knn_query()      ← vec_neurons KNN (cosine similarity)
-        ├── _run_bfs()            ← depth-2 from matched neurons (excludes RUNTIME_BOUNDARY)
-        ├── _resolve_affected_lobes()
-        └── _count_bfs_neighbors() × N  ← per-neuron blast_count
-        │
-        ▼
-   HybridSearchResult
-        │
-        ├── plan: _format_plan_markdown() or _format_plan_json()
-        └── tasks: _build_task_items() → _format_tasks_markdown()
-```
-
-### `cerebrofy specify`
-
-```
-DESCRIPTION
-        │
-        ▼
-   Pre-flight connection (read meta only) → check schema + embed model match → close
-        │
-        ▼
-   _embed_query()                 ← embed before opening main DB connection
-        │
-        ▼
-   hybrid_search()                ← same as plan/tasks
-        │
-        ▼
-   build_llm_context()            ← load lobe .md files → LLMContextPayload
-        │
-        ▼
-   LLMClient.call()               ← stream=True, retry once on 5xx, wall-clock timeout
-        │
-        ▼
-   collect full response → write to docs/cerebrofy/specs/<timestamp>_spec.md
-```
-
----
-
 ## Database Schema
 
 Single file: `.cerebrofy/db/cerebrofy.db`
@@ -230,8 +181,6 @@ These rules are architectural constraints. No PR may violate them.
 | V | Zero language-specific logic in `parser/engine.py` or `graph/resolver.py`. All language rules live in `.scm` files. |
 | — | `cerebrofy build` writes to `cerebrofy.db.tmp`; swaps via `os.replace()` on success only. |
 | — | `cerebrofy update` wraps all DML in `BEGIN IMMEDIATE`. `vec0` does not support UPDATE — always DELETE+INSERT within same transaction. |
-| — | `cerebrofy specify`, `plan`, `tasks`, `parse` MUST NOT write to `cerebrofy.db` or any tracked source file. |
-| — | `cerebrofy plan` and `tasks` MUST make zero network calls even if `llm_endpoint` is configured. |
 | — | Every `open_db()` call loads sqlite-vec and sets WAL mode. Read-only commands open with `?mode=ro` directly (skipping WAL) and load sqlite-vec manually. |
 | — | `blast_count` per task item = depth-2 BFS neighbors reachable from **that specific Neuron** (not total across all matched Neurons). |
 | — | `schema_version` in `plan --json` output is always `1`. All four top-level arrays (`matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope`) are always present, even if empty. |

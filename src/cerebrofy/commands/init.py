@@ -162,7 +162,10 @@ def cerebrofy_init(
                 mcp_path = _Path("~/.config/mcp/servers.json").expanduser()
                 mcp_path.parent.mkdir(parents=True, exist_ok=True)
             else:
-                mcp_path = find_writable_mcp_config()
+                # Default: local project MCP config (.mcp.json in repo root).
+                # This scopes the MCP entry to this project only.
+                from pathlib import Path as _Path
+                mcp_path = root / ".mcp.json"
 
             if has_cerebrofy_mcp_entry(mcp_path):
                 click.echo(f"Cerebrofy: MCP server already registered at {mcp_path}")

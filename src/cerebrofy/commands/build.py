@@ -220,9 +220,18 @@ def cerebrofy_build() -> None:
     click.echo("Cerebrofy: Starting build...")
     start = time.monotonic()
 
+    try:
+        embedder = get_embedder(config.embedding_model)
+    except (ValueError, Exception) as exc:
+        click.echo(f"Error: Could not initialize embedder: {exc}", err=True)
+        sys.exit(1)
+
     conn: sqlite3.Connection | None = None
     try:
-        conn = build_step0_create_db(db_path, config.embedding_model, config.embed_dim)
+        conn = build_step0_create_db(
+            db_path, config.embedding_model,
+            embedder.dim if embedder is not None else 0,
+        )
 
         parse_results = build_step1_parse(root, config, ignore_rules)
 
@@ -233,11 +242,10 @@ def cerebrofy_build() -> None:
         build_step2_local_graph(conn, parse_results, name_registry)
         build_step3_cross_module_graph(conn, parse_results, name_registry)
 
-        try:
-            embedder = get_embedder(config.embedding_model)
-        except (ValueError, Exception) as exc:
-            raise RuntimeError(f"Could not initialize embedder: {exc}") from exc
-        build_step4_vectors(conn, all_neurons, embedder)
+        if embedder is not None:
+            build_step4_vectors(conn, all_neurons, embedder)
+        else:
+            click.echo("Cerebrofy: Step 4/6 — Skipping embeddings (embedding_model: none)")
 
         state_hash = build_step5_commit(conn, root, config, ignore_rules)
 

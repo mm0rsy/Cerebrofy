@@ -4,9 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cerebrofy"
-version = "1.0.0"
+version = "1.0.4"
 description = "AI-powered codebase intelligence CLI"
 readme = "README.md"
+Home-page = "https://github.com/mm0rsy/Cerebrofy"
+license = { file = "LICENSE" }
+authors = [{ name = "Mohamed Morsy"}]
 requires-python = ">=3.11"
 dependencies = [
     "tree-sitter>=0.21,<0.22",
@@ -16,19 +19,11 @@ dependencies = [
     "click>=8.1",
     "sqlite-vec>=0.1.6",
     "rich-click>=1.9.7",
+    "fastembed>=0.3",
 ]
 
 [project.optional-dependencies]
-local = ["sentence-transformers>=2.2"]
-openai = ["openai>=1.0"]
-cohere = ["cohere>=4.0"]
 mcp = ["mcp>=1.0"]
-full = [
-    "sentence-transformers>=2.2",
-    "openai>=1.0",
-    "cohere>=4.0",
-    "mcp>=1.0",
-]
 
 [project.scripts]
 cerebrofy = "cerebrofy.cli:main"
@@ -36,9 +31,26 @@ cerebrofy = "cerebrofy.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.0",
     "mypy>=1.0",
     "ruff>=0.1",
     "types-PyYAML>=6.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--cov=cerebrofy --cov-report=term-missing --cov-report=xml --cov-fail-under=70"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["cerebrofy"]
+omit = ["*/mcp/server.py"]  # optional MCP server — heavy I/O, covered by integration tests
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
 ]
 
 [tool.uv]
