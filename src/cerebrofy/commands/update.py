@@ -89,7 +89,12 @@ def _run_update_transaction(
         conn.execute("BEGIN IMMEDIATE")
         deleted_ids = delete_nodes_for_files(conn, target_files)
         delete_edges_for_files(conn, target_files, deleted_ids)
-        delete_vec_neurons(conn, deleted_ids)
+        # vec_neurons table only exists when embedding_model != "none"
+        _vec_table_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_neurons'"
+        ).fetchone() is not None
+        if _vec_table_exists:
+            delete_vec_neurons(conn, deleted_ids)
         delete_file_hashes(conn, target_files)
 
         write_nodes(conn, new_neurons)
@@ -98,7 +103,7 @@ def _run_update_transaction(
         # Insert vectors for new neurons (pre-computed outside the lock)
         new_ids_with_embs = [n.id for n in new_neurons if n.id in new_vectors]
         new_embs = [new_vectors[nid] for nid in new_ids_with_embs]
-        if new_ids_with_embs:
+        if new_ids_with_embs and _vec_table_exists:
             upsert_vectors(conn, new_ids_with_embs, new_embs)
 
         write_file_hashes(conn, file_hash_map)
@@ -261,18 +266,19 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         total_neurons = len(new_neurons)
         new_vectors: dict[str, list[float]] = {}
 
-        if new_neurons:
+        if new_neurons and config.embedding_model != "none":
             try:
                 click.echo("Cerebrofy: Loading embedding model (first invocation may be slow)...")
                 embedder = get_embedder(config.embedding_model)
-                texts = [build_neuron_text(n) for n in new_neurons]
-                click.echo(f"Cerebrofy: Generating embeddings (0 / {total_neurons} neurons)")
-                embeddings = embedder.embed(texts)
-                click.echo(
-                    f"Cerebrofy: Generating embeddings ({total_neurons} / {total_neurons} neurons)"
-                )
-                for n, emb in zip(new_neurons, embeddings):
-                    new_vectors[n.id] = emb
+                if embedder is not None:
+                    texts = [build_neuron_text(n) for n in new_neurons]
+                    click.echo(f"Cerebrofy: Generating embeddings (0 / {total_neurons} neurons)")
+                    embeddings = embedder.embed(texts)
+                    click.echo(
+                        f"Cerebrofy: Generating embeddings ({total_neurons} / {total_neurons} neurons)"
+                    )
+                    for n, emb in zip(new_neurons, embeddings):
+                        new_vectors[n.id] = emb
             except Exception as exc:
                 click.echo(
                     f"Error: Embedding model unavailable: {exc}. Update aborted.", err=True

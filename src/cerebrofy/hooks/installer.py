@@ -217,13 +217,14 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
 
 
 def add_gitignore_entry(repo_root: Path) -> None:
-    """Append .cerebrofy/db/ to .gitignore if not already present (FR-019)."""
-    entry = ".cerebrofy/db/"
+    """Append .cerebrofy/db/ and .mcp.json to .gitignore if not already present (FR-019)."""
     gitignore = repo_root / ".gitignore"
+    entries = [".cerebrofy/db/", ".mcp.json"]
     if gitignore.exists():
         content = gitignore.read_text(encoding="utf-8")
-        if entry in content:
-            return
-        gitignore.write_text(content.rstrip("\n") + f"\n{entry}\n", encoding="utf-8")
     else:
-        gitignore.write_text(f"{entry}\n", encoding="utf-8")
+        content = ""
+    to_add = [e for e in entries if e not in content]
+    if not to_add:
+        return
+    gitignore.write_text(content.rstrip("\n") + "\n" + "\n".join(to_add) + "\n", encoding="utf-8")

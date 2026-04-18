@@ -15,7 +15,6 @@ class CerebrоfyConfig:
     lobes: dict[str, str]
     tracked_extensions: list[str]
     embedding_model: str = "local"
-    embed_dim: int = 768
     llm_endpoint: str = ""
     llm_model: str = ""
     llm_timeout: int = 60
@@ -28,13 +27,6 @@ DEFAULT_TRACKED_EXTENSIONS: list[str] = [
     ".go", ".rs", ".java", ".rb",
     ".cpp", ".c", ".h",
 ]
-
-
-_EMBED_DIM_EXPECTED: dict[str, int] = {
-    "local": 768,
-    "openai": 1536,
-    "cohere": 1024,
-}
 
 
 def validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]:
@@ -61,13 +53,6 @@ def validate_config(config: CerebrоfyConfig, queries_dir: Path) -> list[str]:
                 f"files with this extension will be skipped."
             )
 
-    expected_dim = _EMBED_DIM_EXPECTED.get(config.embedding_model)
-    if expected_dim is not None and config.embed_dim != expected_dim:
-        warnings.append(
-            f"config.yaml: embed_dim={config.embed_dim} does not match "
-            f"embedding_model='{config.embedding_model}' (expected {expected_dim})."
-        )
-
     return warnings
 
 
@@ -77,7 +62,6 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "lobes": lobes,
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
-        "embed_dim": 768,
         "llm_endpoint": "",
         "llm_model": "",
         "top_k": 10,
@@ -106,7 +90,6 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         lobes=data["lobes"],
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),
-        embed_dim=data.get("embed_dim", 768),
         llm_endpoint=data.get("llm_endpoint", ""),
         llm_model=data.get("llm_model", ""),
         llm_timeout=data.get("llm_timeout", 60),

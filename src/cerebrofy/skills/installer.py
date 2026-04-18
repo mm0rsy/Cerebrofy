@@ -13,6 +13,18 @@ AI_SKILL_ROOTS: dict[str, str] = {
     "vscode": ".vscode",
 }
 
+# AI clients that also support .github/prompts/ slash commands.
+AI_PROMPT_CLIENTS: set[str] = {"copilot"}
+
+# Map of --ai flag value → (prompt dest dir, prompt file suffix).
+# Only clients whose slash-command convention is known are listed.
+AI_PROMPT_DIRS: dict[str, tuple[str, str]] = {
+    "copilot":  (".github/prompts",   ".prompt.md"),
+    "vscode":   (".github/prompts",   ".prompt.md"),
+    "claude":   (".claude/commands",  ".md"),
+    "opencode": (".opencode/commands", ".md"),
+}
+
 # All supported --ai values.
 SUPPORTED_AI_CLIENTS = list(AI_SKILL_ROOTS.keys())
 
@@ -67,6 +79,22 @@ def install_skills(root: Path, ai_client: str, force: bool = False) -> list[str]
             continue
 
         shutil.copy2(src_skill, dest_skill)
+
+        # Install slash-command prompt files for clients that support them.
+        if ai_client in AI_PROMPT_DIRS:
+            prompts_subdir, suffix = AI_PROMPT_DIRS[ai_client]
+            for prompt_src in skill_dir.glob("*.prompt.md"):
+                prompts_dir = root / prompts_subdir
+                prompts_dir.mkdir(parents=True, exist_ok=True)
+                # Rewrite the filename extension to match the client's convention.
+                stem = prompt_src.stem.removesuffix(".prompt")  # e.g. cerebrofy-build
+                prompt_dest = prompts_dir / (stem + suffix)
+                if prompt_dest.exists() and not force:
+                    warnings.append(
+                        f"Cerebrofy: {prompt_dest} already exists — skipping (use --force to overwrite)."
+                    )
+                    continue
+                shutil.copy2(prompt_src, prompt_dest)
 
     return warnings
 
