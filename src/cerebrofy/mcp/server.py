@@ -1,18 +1,32 @@
-"""MCP stdio server for cerebrofy — exposes build, update, validate as MCP tools."""
+"""MCP stdio server for cerebrofy.
+
+Exposes eight tools:
+  search_code         — hybrid semantic + keyword search (primary navigation)
+  get_neuron          — fetch a single Neuron by name or file:line
+  list_lobes          — return available lobes with summary file paths
+  plan                — blast-radius analysis for a feature description
+  tasks               — structured task list for a feature description
+  cerebrofy_build     — full atomic re-index
+  cerebrofy_update    — incremental re-index of changed files
+  cerebrofy_validate  — drift check (zero writes)
+"""
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 
-def _find_repo_root(start: Path) -> Path:
-    """Walk up from start searching for .cerebrofy/config.yaml.
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    Raises FileNotFoundError if not found at filesystem root.
-    """
+def _find_repo_root(start: Path) -> Path:
+    """Walk up from *start* searching for .cerebrofy/config.yaml."""
     current = start if start.is_dir() else start.parent
     for candidate in [current, *current.parents]:
         if (candidate / ".cerebrofy" / "config.yaml").exists():
@@ -24,7 +38,7 @@ def _find_repo_root(start: Path) -> Path:
 
 
 def _run_cerebrofy(args: list[str], cwd: str, timeout: int = 300) -> tuple[int, str]:
-    """Run ``cerebrofy <args>`` in *cwd*. Returns (returncode, combined output)."""
+    """Run ``python -m cerebrofy <args>`` in *cwd*. Returns (returncode, output)."""
     result = subprocess.run(
         [sys.executable, "-m", "cerebrofy"] + args,
         cwd=cwd,
@@ -38,32 +52,166 @@ def _run_cerebrofy(args: list[str], cwd: str, timeout: int = 300) -> tuple[int, 
 
 
 def _make_error_content(message: str) -> list[Any]:
-    """Return a TextContent list for MCP error responses."""
     from mcp.types import TextContent
     return [TextContent(type="text", text=message)]
 
 
-def _handle_build(arguments: dict[str, Any]) -> list[Any]:
-    """Trigger a full atomic re-index and return status as TextContent."""
+def _open_db_ro(root: Path) -> sqlite3.Connection:
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        raise FileNotFoundError(
+            f"Index not found at {db_path}. Run 'cerebrofy build' first."
+        )
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
+# ---------------------------------------------------------------------------
+# Tool handlers
+# ---------------------------------------------------------------------------
+
+def _handle_search_code(arguments: dict[str, Any]) -> list[Any]:
+    """Hybrid semantic + keyword search — primary navigation tool."""
     from mcp.types import TextContent
 
+    query: str = arguments.get("query", "")
+    top_k: int = int(arguments.get("top_k", 10))
+    lobe_filter: str | None = arguments.get("lobe")
+
+    if not query:
+        return _make_error_content("[error] 'query' is required.")
+
+    root = _find_repo_root(Path.cwd())
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
+
+    from cerebrofy.config.loader import load_config
+    from cerebrofy.search.hybrid import _embed_query, hybrid_search
+
+    config = load_config(root / ".cerebrofy" / "config.yaml")
+    embedding = _embed_query(query, config)
+    lobe_dir = str(root / ".cerebrofy" / "lobes")
+
+    result = hybrid_search(
+        query=query,
+        db_path=str(db_path),
+        embedding=embedding,
+        top_k=top_k,
+        config_embed_model=config.embedding_model,
+        lobe_dir=lobe_dir,
+    )
+
+    neurons = result.matched_neurons
+    if lobe_filter:
+        neurons = [n for n in neurons if lobe_filter.lower() in (n.lobe or "").lower()]
+
+    if not neurons:
+        return [TextContent(type="text", text=json.dumps({"results": [], "count": 0}))]
+
+    hits = [
+        {
+            "name": n.name,
+            "type": n.node_type,
+            "file": n.file,
+            "line": n.start_line,
+            "lobe": n.lobe,
+            "similarity": round(n.similarity, 3),
+            "summary": (n.docstring or "")[:200],
+        }
+        for n in neurons
+    ]
+    return [TextContent(type="text", text=json.dumps({"results": hits, "count": len(hits)}, indent=2))]
+
+
+def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
+    """Fetch a single Neuron by name, or by file + optional line number."""
+    from mcp.types import TextContent
+
+    name: str | None = arguments.get("name")
+    file: str | None = arguments.get("file")
+    line: int | None = arguments.get("line")
+
+    if not name and not file:
+        return _make_error_content("[error] Provide 'name' or 'file'.")
+
+    root = _find_repo_root(Path.cwd())
+    conn = _open_db_ro(root)
+    try:
+        if name:
+            rows = conn.execute(
+                "SELECT id, name, node_type, file, start_line, end_line, lobe, docstring "
+                "FROM neurons WHERE name = ? LIMIT 5",
+                (name,),
+            ).fetchall()
+        else:
+            q = (
+                "SELECT id, name, node_type, file, start_line, end_line, lobe, docstring "
+                "FROM neurons WHERE file LIKE ?"
+            )
+            params: list[Any] = [f"%{file}%"]
+            if line is not None:
+                q += " AND start_line <= ? AND end_line >= ?"
+                params += [line, line]
+            rows = conn.execute(q, params).fetchmany(5)
+    finally:
+        conn.close()
+
+    if not rows:
+        return [TextContent(type="text", text=json.dumps({"neurons": [], "message": "Not found."}))]
+
+    cols = ("id", "name", "node_type", "file", "start_line", "end_line", "lobe", "docstring")
+    neurons = [dict(zip(cols, row)) for row in rows]
+    return [TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))]
+
+
+def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
+    """Return available lobes with neuron counts and summary file paths."""
+    from mcp.types import TextContent
+
+    root = _find_repo_root(Path.cwd())
+    conn = _open_db_ro(root)
+    try:
+        rows = conn.execute(
+            "SELECT lobe, COUNT(*) as count FROM neurons "
+            "WHERE lobe IS NOT NULL GROUP BY lobe ORDER BY count DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    lobes_dir = root / ".cerebrofy" / "lobes"
+    lobes = []
+    for lobe_name, count in rows:
+        summary_file = lobes_dir / f"{lobe_name}_lobe.md"
+        lobes.append({
+            "name": lobe_name,
+            "neuron_count": count,
+            "summary_file": str(summary_file.relative_to(root)) if summary_file.exists() else None,
+        })
+
+    map_file = root / ".cerebrofy" / "cerebrofy_map.md"
+    return [TextContent(type="text", text=json.dumps({
+        "lobes": lobes,
+        "full_map": str(map_file.relative_to(root)) if map_file.exists() else None,
+    }, indent=2))]
+
+
+def _handle_build(arguments: dict[str, Any]) -> list[Any]:
+    from mcp.types import TextContent
     try:
         root = _find_repo_root(Path.cwd())
     except FileNotFoundError as exc:
-        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' to set up the repository.")
+        return _make_error_content(f"[error] {exc}")
     code, output = _run_cerebrofy(["build"], str(root))
     status = "success" if code == 0 else "error"
     return [TextContent(type="text", text=f"[{status}]\n{output}")]
 
 
 def _handle_update(arguments: dict[str, Any]) -> list[Any]:
-    """Trigger a partial re-index and return status as TextContent."""
     from mcp.types import TextContent
-
     try:
         root = _find_repo_root(Path.cwd())
     except FileNotFoundError as exc:
-        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' to set up the repository.")
+        return _make_error_content(f"[error] {exc}")
     path: str | None = arguments.get("path")
     cmd = ["update", path] if path else ["update"]
     code, output = _run_cerebrofy(cmd, str(root))
@@ -72,158 +220,40 @@ def _handle_update(arguments: dict[str, Any]) -> list[Any]:
 
 
 def _handle_validate(arguments: dict[str, Any]) -> list[Any]:
-    """Run drift validation and return status as TextContent."""
     from mcp.types import TextContent
-
     try:
         root = _find_repo_root(Path.cwd())
     except FileNotFoundError as exc:
-        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' to set up the repository.")
+        return _make_error_content(f"[error] {exc}")
     code, output = _run_cerebrofy(["validate"], str(root))
     drift_label = {0: "clean", 1: "minor_drift", 2: "structural_drift"}.get(code, "error")
     return [TextContent(type="text", text=f"[{drift_label}]\n{output}")]
 
 
-async def run_mcp_server() -> None:
-    """Start the cerebrofy MCP stdio server."""
-    from mcp.server import Server
-    from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent
-
-    app = Server("cerebrofy")
-
-    _EMPTY_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
-    _PATH_SCHEMA: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "path": {
-                "type": "string",
-                "description": "Specific file path to re-index (omit to auto-detect changed files)",
-            }
-        },
-    }
-
-    @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
-    async def list_tools() -> list[Tool]:
-        return [
-            Tool(
-                name="cerebrofy_build",
-                description=(
-                    "Full atomic re-index of the entire repository. "
-                    "Use when the index is missing or fundamentally out of date. "
-                    "Takes longer than update; prefer cerebrofy_update for incremental changes."
-                ),
-                inputSchema=_EMPTY_SCHEMA,
-            ),
-            Tool(
-                name="cerebrofy_update",
-                description=(
-                    "Partial re-index of changed files (auto-detected via git diff or hash comparison). "
-                    "Pass 'path' to limit to a specific file. Preferred for day-to-day sync."
-                ),
-                inputSchema=_PATH_SCHEMA,
-            ),
-            Tool(
-                name="cerebrofy_validate",
-                description=(
-                    "Check for drift between the current source and the index. "
-                    "Returns 'clean', 'minor_drift', or 'structural_drift'. "
-                    "Makes zero writes — safe to call at any time."
-                ),
-                inputSchema=_EMPTY_SCHEMA,
-            ),
-        ]
-
-    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        try:
-            if name == "cerebrofy_build":
-                return _handle_build(arguments or {})
-            elif name == "cerebrofy_update":
-                return _handle_update(arguments or {})
-            elif name == "cerebrofy_validate":
-                return _handle_validate(arguments or {})
-            else:
-                return _make_error_content(f"Unknown tool: {name}")
-        except FileNotFoundError as exc:
-            return _make_error_content(
-                f"[error] {exc}\nRun 'cerebrofy init' to set up the repository."
-            )
-        except subprocess.TimeoutExpired:
-            return _make_error_content(
-                "[error] Command timed out after 300 seconds."
-            )
-        except Exception as exc:
-            print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
-            return _make_error_content(f"[error] {exc}")
-
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
-
-
-
-def _find_repo_root(start: Path) -> Path:
-    """Walk up from start searching for .cerebrofy/config.yaml.
-
-    Raises FileNotFoundError if not found at filesystem root.
-    """
-    current = start if start.is_dir() else start.parent
-    for candidate in [current, *current.parents]:
-        if (candidate / ".cerebrofy" / "config.yaml").exists():
-            return candidate
-    raise FileNotFoundError(
-        "No Cerebrofy config found in current directory or any parent. "
-        "Run 'cerebrofy init' first."
-    )
-
-
-def _make_error_content(message: str) -> list[Any]:
-    """Return a TextContent list with isError=True for MCP error responses."""
-    from mcp.types import TextContent
-    return [TextContent(type="text", text=message)]
-
-
-def _make_error_result(message: str) -> list[Any]:
-    """Build an error CallToolResult-compatible list."""
-    return _make_error_content(message)
-
-
 def _handle_plan(arguments: dict[str, Any]) -> list[Any]:
-    """Run hybrid search and return plan JSON as TextContent."""
     from mcp.types import TextContent
 
     description: str = arguments.get("description", "")
-    top_k_arg: int | None = arguments.get("top_k")
+    top_k: int = int(arguments.get("top_k", 10))
 
     root = _find_repo_root(Path.cwd())
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
 
     from cerebrofy.config.loader import load_config
-    from cerebrofy.db.connection import check_schema_version
-    import sqlite3
-
-    config = load_config(root / ".cerebrofy" / "config.yaml")
-    effective_top_k = top_k_arg or config.top_k or 10
-
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        check_schema_version(conn)
-    except ValueError as exc:
-        conn.close()
-        raise exc
-    conn.close()
-
     from cerebrofy.search.hybrid import _embed_query, hybrid_search
     from cerebrofy.commands.plan import _format_plan_json
 
+    config = load_config(root / ".cerebrofy" / "config.yaml")
     embedding = _embed_query(description, config)
-    lobe_dir = str(root / "docs" / "cerebrofy")
+    lobe_dir = str(root / ".cerebrofy" / "lobes")
 
     result = hybrid_search(
         query=description,
         db_path=str(db_path),
         embedding=embedding,
-        top_k=effective_top_k,
+        top_k=top_k,
         config_embed_model=config.embedding_model,
         lobe_dir=lobe_dir,
     )
@@ -231,51 +261,39 @@ def _handle_plan(arguments: dict[str, Any]) -> list[Any]:
 
 
 def _handle_tasks(arguments: dict[str, Any]) -> list[Any]:
-    """Run hybrid search and return structured tasks JSON as TextContent."""
     from mcp.types import TextContent
 
     description: str = arguments.get("description", "")
-    top_k_arg: int | None = arguments.get("top_k")
+    top_k: int = int(arguments.get("top_k", 10))
 
     root = _find_repo_root(Path.cwd())
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
 
     from cerebrofy.config.loader import load_config
-    from cerebrofy.db.connection import check_schema_version
-    import sqlite3
-
-    config = load_config(root / ".cerebrofy" / "config.yaml")
-    effective_top_k = top_k_arg or config.top_k or 10
-
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        check_schema_version(conn)
-    except ValueError as exc:
-        conn.close()
-        raise exc
-    conn.close()
-
     from cerebrofy.search.hybrid import _embed_query, hybrid_search
     from cerebrofy.commands.tasks import _build_task_items
 
+    config = load_config(root / ".cerebrofy" / "config.yaml")
     embedding = _embed_query(description, config)
-    lobe_dir = str(root / "docs" / "cerebrofy")
+    lobe_dir = str(root / ".cerebrofy" / "lobes")
 
     result = hybrid_search(
         query=description,
         db_path=str(db_path),
         embedding=embedding,
-        top_k=effective_top_k,
+        top_k=top_k,
         config_embed_model=config.embedding_model,
         lobe_dir=lobe_dir,
     )
-
     items, _ = _build_task_items(result)
     tasks_list = [
         {
             "number": item.index,
             "neuron_name": item.neuron.name,
             "neuron_file": item.neuron.file,
+            "line": item.neuron.start_line,
             "lobe": item.lobe_name,
             "blast_count": item.blast_count,
             "similarity": round(item.neuron.similarity, 3),
@@ -285,176 +303,122 @@ def _handle_tasks(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=json.dumps({"tasks": tasks_list}, indent=2))]
 
 
-def _handle_specify(arguments: dict[str, Any]) -> list[Any]:
-    """Run hybrid search + LLM and return spec file path + content as TextContent."""
-    from mcp.types import TextContent
-
-    description: str = arguments.get("description", "")
-    top_k_arg: int | None = arguments.get("top_k")
-
-    root = _find_repo_root(Path.cwd())
-    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
-
-    from cerebrofy.config.loader import load_config
-    from cerebrofy.db.connection import check_schema_version
-    import sqlite3
-
-    config = load_config(root / ".cerebrofy" / "config.yaml")
-    effective_top_k = top_k_arg or config.top_k or 10
-
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        check_schema_version(conn)
-        meta_rows = conn.execute("SELECT key, value FROM meta").fetchall()
-        db_meta = {row[0]: row[1] for row in meta_rows}
-    except ValueError:
-        conn.close()
-        raise
-    else:
-        conn.close()
-
-    from cerebrofy.commands.specify import _validate_specify_prerequisites
-    _validate_specify_prerequisites(config, db_meta)
-
-    import os
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search
-    from cerebrofy.llm.prompt_builder import build_llm_context
-    from cerebrofy.llm.client import LLMClient
-    from datetime import datetime
-    from cerebrofy.commands.specify import _resolve_output_path
-
-    embedding = _embed_query(description, config)
-    lobe_dir = str(root / "docs" / "cerebrofy")
-
-    result = hybrid_search(
-        query=description,
-        db_path=str(db_path),
-        embedding=embedding,
-        top_k=effective_top_k,
-        config_embed_model=config.embedding_model,
-        lobe_dir=lobe_dir,
-    )
-
-    if not result.matched_neurons:
-        return [TextContent(type="text", text="No relevant code units found for this description.")]
-
-    payload = build_llm_context(result, config.system_prompt_template or None, str(root))
-
-    if "openai" in config.llm_endpoint.lower():
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-    else:
-        api_key = os.environ.get("LLM_API_KEY", "")
-
-    client = LLMClient(
-        base_url=config.llm_endpoint,
-        api_key=api_key,
-        model=config.llm_model,
-        timeout=config.llm_timeout,
-    )
-
-    full_response = client.call(payload)
-
-    specs_dir = root / "docs" / "cerebrofy" / "specs"
-    specs_dir.mkdir(parents=True, exist_ok=True)
-    output_path = _resolve_output_path(specs_dir, datetime.now())
-    output_path.write_text(full_response, encoding="utf-8")
-
-    rel_path = str(output_path.relative_to(root))
-    return [TextContent(type="text", text=json.dumps({
-        "output_file": rel_path,
-        "content": full_response,
-    }, indent=2))]
-
+# ---------------------------------------------------------------------------
+# Server entrypoint
+# ---------------------------------------------------------------------------
 
 async def run_mcp_server() -> None:
     """Start the cerebrofy MCP stdio server."""
     from mcp.server import Server
     from mcp.server.stdio import stdio_server
-    from mcp.types import Tool, TextContent
+    from mcp.types import Tool
 
     app = Server("cerebrofy")
 
-    _TOOL_SCHEMA: dict[str, Any] = {
+    _EMPTY: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+
+    _SEARCH_SCHEMA: dict[str, Any] = {
         "type": "object",
         "properties": {
-            "description": {
-                "type": "string",
-                "description": "Natural-language description of the feature or change",
-            },
-            "top_k": {
-                "type": "integer",
-                "description": "Number of KNN search results (default: 10, range: 1–100)",
-                "minimum": 1,
-                "maximum": 100,
-                "default": 10,
-            },
+            "query": {"type": "string", "description": "Natural-language search query"},
+            "top_k": {"type": "integer", "description": "Max results (default: 10)", "default": 10, "minimum": 1, "maximum": 50},
+            "lobe": {"type": "string", "description": "Filter to a specific lobe/module (optional)"},
+        },
+        "required": ["query"],
+    }
+
+    _NEURON_SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Exact function/class name"},
+            "file": {"type": "string", "description": "Source file path (partial match)"},
+            "line": {"type": "integer", "description": "Line number within the file (requires 'file')"},
+        },
+    }
+
+    _FEATURE_SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "description": {"type": "string", "description": "Natural-language description of the feature"},
+            "top_k": {"type": "integer", "description": "Number of results (default: 10)", "default": 10, "minimum": 1, "maximum": 100},
         },
         "required": ["description"],
     }
 
-    @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]  # mcp has no stubs
+    _UPDATE_SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Specific file to re-index (omit for auto-detect)"},
+        },
+    }
+
+    @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
     async def list_tools() -> list[Tool]:
         return [
-            Tool(
-                name="plan",
-                description=(
-                    "Analyze which parts of the codebase would be affected by a feature. "
-                    "Returns matched Neurons, blast radius, affected lobes, and re-index scope. "
-                    "Makes zero network calls — safe offline and in CI."
-                ),
-                inputSchema=_TOOL_SCHEMA,
-            ),
-            Tool(
-                name="tasks",
-                description=(
-                    "Generate a numbered implementation task list for a feature. "
-                    "Each task identifies the exact code unit to modify, its module, and structural risk. "
-                    "Makes zero network calls — safe offline and in CI."
-                ),
-                inputSchema=_TOOL_SCHEMA,
-            ),
-            Tool(
-                name="specify",
-                description=(
-                    "Generate an AI-grounded feature specification using the codebase as context. "
-                    "The spec is written to docs/cerebrofy/specs/ and the full content is returned. "
-                    "Requires an LLM endpoint configured in .cerebrofy/config.yaml."
-                ),
-                inputSchema=_TOOL_SCHEMA,
-            ),
+            Tool(name="search_code", description=(
+                "Hybrid semantic + keyword search over the Cerebrofy index. "
+                "ALWAYS call this first when asked about code structure or behaviour. "
+                "Returns ranked Neurons with file path and line number. "
+                "Never glob-read source files — use this instead."
+            ), inputSchema=_SEARCH_SCHEMA),
+            Tool(name="get_neuron", description=(
+                "Fetch details for a specific Neuron by name or file path. "
+                "Use after search_code to get the full signature, docstring, and location."
+            ), inputSchema=_NEURON_SCHEMA),
+            Tool(name="list_lobes", description=(
+                "List all indexed lobes (modules/packages) with neuron counts and summary paths. "
+                "Use for high-level orientation before searching."
+            ), inputSchema=_EMPTY),
+            Tool(name="plan", description=(
+                "Analyse which parts of the codebase are affected by a feature. "
+                "Returns matched Neurons, blast radius, and affected lobes. Zero network calls."
+            ), inputSchema=_FEATURE_SCHEMA),
+            Tool(name="tasks", description=(
+                "Generate a numbered implementation task list for a feature. "
+                "Each task identifies the exact code unit, module, and structural risk."
+            ), inputSchema=_FEATURE_SCHEMA),
+            Tool(name="cerebrofy_build", description=(
+                "Full atomic re-index of the entire repository. "
+                "Use when the index is missing or a full rebuild is needed."
+            ), inputSchema=_EMPTY),
+            Tool(name="cerebrofy_update", description=(
+                "Incremental re-index of changed files (auto-detected via git diff). "
+                "Pass 'path' to limit to a specific file."
+            ), inputSchema=_UPDATE_SCHEMA),
+            Tool(name="cerebrofy_validate", description=(
+                "Check for drift between source code and the index. "
+                "Returns 'clean', 'minor_drift', or 'structural_drift'. Zero writes."
+            ), inputSchema=_EMPTY),
         ]
 
-    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]  # mcp has no stubs
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
-        schema_mismatch_msg = "Schema version mismatch. Run 'cerebrofy migrate' to update."
-        embed_mismatch_msg = "Embedding model mismatch. Run 'cerebrofy build' to rebuild."
-        no_config_msg = "No Cerebrofy index found. Run 'cerebrofy build' first."
-
+    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
+        args = arguments or {}
         try:
-            if name == "plan":
-                return _handle_plan(arguments)
-            elif name == "tasks":
-                return _handle_tasks(arguments)
-            elif name == "specify":
-                return _handle_specify(arguments)
+            if name == "search_code":       return _handle_search_code(args)
+            elif name == "get_neuron":      return _handle_get_neuron(args)
+            elif name == "list_lobes":      return _handle_list_lobes(args)
+            elif name == "plan":            return _handle_plan(args)
+            elif name == "tasks":           return _handle_tasks(args)
+            elif name == "cerebrofy_build":     return _handle_build(args)
+            elif name == "cerebrofy_update":    return _handle_update(args)
+            elif name == "cerebrofy_validate":  return _handle_validate(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
-        except FileNotFoundError:
-            return _make_error_content(no_config_msg)
+        except FileNotFoundError as exc:
+            return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' first.")
         except ValueError as exc:
             msg = str(exc)
             if "schema" in msg.lower():
-                return _make_error_content(schema_mismatch_msg)
-            if "embedding" in msg.lower() or "embed" in msg.lower():
-                return _make_error_content(embed_mismatch_msg)
-            return _make_error_content(f"Error: {msg}")
-        except TimeoutError:
-            return _make_error_content(
-                "LLM request timed out. Increase 'llm_timeout' in config.yaml."
-            )
+                return _make_error_content("Schema version mismatch. Run 'cerebrofy migrate'.")
+            if "embed" in msg.lower():
+                return _make_error_content("Embedding model mismatch. Run 'cerebrofy build'.")
+            return _make_error_content(f"[error] {msg}")
+        except subprocess.TimeoutExpired:
+            return _make_error_content("[error] Command timed out after 300 seconds.")
         except Exception as exc:
             print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
-            return _make_error_content(f"Error: {exc}")
+            return _make_error_content(f"[error] {exc}")
 
     async with stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, app.create_initialization_options())
