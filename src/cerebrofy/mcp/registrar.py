@@ -4,12 +4,38 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import sys
 import tempfile
 from pathlib import Path
 
+
+def _resolve_mcp_command() -> dict:  # type: ignore[type-arg]
+    """Return the MCP entry dict with the absolute path to the cerebrofy binary.
+
+    Resolution order:
+    1. The script that is currently running (sys.argv[0]) if it looks like cerebrofy.
+    2. ``shutil.which("cerebrofy")`` — first match on PATH.
+    3. Fallback: ``python -m cerebrofy mcp`` using the current interpreter.
+    """
+    # Prefer the running executable itself — it's guaranteed to have mcp installed.
+    running = Path(sys.argv[0]).resolve()
+    if running.name.startswith("cerebrofy") and running.exists():
+        return {"command": str(running), "args": ["mcp"], "env": {}}
+
+    which = shutil.which("cerebrofy")
+    if which:
+        return {"command": which, "args": ["mcp"], "env": {}}
+
+    # Last resort: use the current Python interpreter.
+    return {"command": sys.executable, "args": ["-m", "cerebrofy", "mcp"], "env": {}}
+
+
+# Static entry used for the fallback snippet printed to the user.
+# The real entry written to disk is always resolved dynamically via _resolve_mcp_command().
 MCP_ENTRY: dict = {  # type: ignore[type-arg]
-    "command": "python",
-    "args": ["-m", "cerebrofy", "mcp"],
+    "command": "cerebrofy",
+    "args": ["mcp"],
     "env": {},
 }
 
@@ -86,7 +112,7 @@ def write_mcp_entry(config_path: Path) -> None:
     else:
         data = {}
 
-    data.setdefault("mcpServers", {})["cerebrofy"] = MCP_ENTRY
+    data.setdefault("mcpServers", {})["cerebrofy"] = _resolve_mcp_command()
 
     tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, suffix=".tmp")
     try:

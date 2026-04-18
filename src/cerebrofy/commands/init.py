@@ -173,7 +173,7 @@ def cerebrofy_init(
                 from pathlib import Path as _Path
                 mcp_path = root / ".mcp.json"
 
-            if has_cerebrofy_mcp_entry(mcp_path):
+            if has_cerebrofy_mcp_entry(mcp_path) and not force:
                 click.echo(f"Cerebrofy: MCP server already registered at {mcp_path}")
             else:
                 write_mcp_entry(mcp_path)
