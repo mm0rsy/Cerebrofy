@@ -28,7 +28,6 @@ def test_build_default_config_returns_dict() -> None:
     assert result["lobes"] == {"src": "src/"}
     assert result["tracked_extensions"] == DEFAULT_TRACKED_EXTENSIONS
     assert result["embedding_model"] == "local"
-    assert result["embed_dim"] == 768
     assert result["top_k"] == 10
 
 
@@ -51,7 +50,6 @@ def test_write_and_load_config_roundtrip(tmp_path: Path) -> None:
     loaded = load_config(cfg_path)
     assert loaded.lobes == {"app": "src/app/"}
     assert loaded.embedding_model == "local"
-    assert loaded.embed_dim == 768
     assert loaded.top_k == 10
 
 
@@ -71,7 +69,6 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
         "lobes": {"api": "src/api/"},
         "tracked_extensions": [".py", ".ts"],
         "embedding_model": "openai",
-        "embed_dim": 1536,
         "llm_endpoint": "https://api.openai.com/v1",
         "llm_model": "gpt-4",
         "top_k": 5,
@@ -84,7 +81,6 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
     assert loaded.lobes == {"api": "src/api/"}
     assert loaded.tracked_extensions == [".py", ".ts"]
     assert loaded.embedding_model == "openai"
-    assert loaded.embed_dim == 1536
     assert loaded.llm_model == "gpt-4"
     assert loaded.top_k == 5
 
@@ -135,16 +131,15 @@ def test_validate_config_missing_scm_warning(tmp_path: Path) -> None:
 
 
 def test_validate_config_embed_dim_mismatch_warning(tmp_path: Path) -> None:
+    # embed_dim is not a CerebrофyConfig field; validate_config warns about unknown extensions
     queries_dir = tmp_path / "queries"
     queries_dir.mkdir()
     cfg = CerebrоfyConfig(
         lobes={"src": "src/"},
-        tracked_extensions=[],
-        embedding_model="openai",
-        embed_dim=999,  # Wrong for openai (expected 1536)
+        tracked_extensions=[".unknown_ext"],
     )
     warnings = validate_config(cfg, queries_dir)
-    assert any("embed_dim" in w for w in warnings)
+    assert any(".unknown_ext" in w for w in warnings)
 
 
 def test_validate_config_no_warnings_for_valid_config(tmp_path: Path) -> None:
@@ -155,10 +150,7 @@ def test_validate_config_no_warnings_for_valid_config(tmp_path: Path) -> None:
         lobes={"src": "src/"},
         tracked_extensions=[".py"],
         embedding_model="local",
-        embed_dim=768,
     )
     warnings = validate_config(cfg, queries_dir)
-    # No embed_dim mismatch, no lobes/extensions warning
-    assert not any("embed_dim" in w for w in warnings)
     assert not any("lobes" in w for w in warnings)
     assert not any("tracked_extensions" in w for w in warnings)
