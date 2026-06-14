@@ -1,6 +1,6 @@
 # Cerebrofy Development Guidelines
 
-Auto-generated from feature plans. Last updated: 2026-04-04
+Last updated: 2026-06-14
 
 ## Active Technologies
 
@@ -46,19 +46,12 @@ src/
     ├── commands/validate.py     ← cerebrofy validate: drift classification command
     ├── commands/migrate.py      ← cerebrofy migrate: sequential schema migration runner
     ├── commands/mcp.py          ← cerebrofy mcp: MCP stdio server entry point
-    └── mcp/server.py            ← MCPServer: 8 registered tools; 3 operational (cerebrofy_build,
-                                    cerebrofy_update, cerebrofy_validate); 5 WIP stubs
-                                    (search_code, get_neuron, list_lobes, plan, tasks —
-                                    require search/hybrid.py and commands/plan.py etc.)
+    └── mcp/server.py            ← MCPServer: 6 registered tools; 5 operational (cerebrofy_build,
+                                    cerebrofy_update, cerebrofy_validate, get_neuron, list_lobes);
+                                    1 stub (search_code — requires search/hybrid.py)
     └── queries/                 ← Bundled default .scm files per language
-    # ⚠️ NOT YET IMPLEMENTED (referenced by MCP server stubs):
-    #   search/hybrid.py        ← HybridSearch: KNN + BFS
-    #   commands/plan.py        ← blast-radius reporter
-    #   commands/tasks.py       ← numbered task list
-    #   commands/specify.py     ← hybrid search + LLM spec writer
-    #   commands/parse.py       ← diagnostic NDJSON parser
-    #   llm/client.py           ← LLMClient: openai SDK wrapper
-    #   llm/prompt_builder.py   ← PromptBuilder: string.Template
+    # ⚠️ NOT YET IMPLEMENTED:
+    #   search/hybrid.py        ← HybridSearch: KNN + BFS (required by search_code MCP tool)
 src/cerebrofy/skills/
 ├── installer.py             ← install_skills() + install_instructions(): skill templates + AI client navigation rules
 └── templates/
@@ -74,10 +67,6 @@ tests/
     ├── test_update_command.py   ← Full cerebrofy update against tmp_path repos
     ├── test_validate_command.py ← Structural/minor drift scenarios
     ├── test_migrate_command.py  ← Schema migration with mock scripts
-    ├── test_specify_command.py  ← cerebrofy specify with mock LLM endpoint
-    ├── test_plan_command.py     ← cerebrofy plan: Markdown/JSON, --top-k, offline
-    ├── test_tasks_command.py    ← cerebrofy tasks: task list, RUNTIME_BOUNDARY notes
-    ├── test_parse_command.py    ← cerebrofy parse: NDJSON output, ignore rules, read-only
     └── test_mcp_command.py      ← cerebrofy mcp: tool call simulation, CWD routing, no-index error
 packaging/
 ├── snap/snapcraft.yaml           ← Snap package (classic confinement, core22)
@@ -150,37 +139,22 @@ cerebrofy validate
 - **cerebrofy_map.md on update**: `cerebrofy update` rewrites `cerebrofy_map.md` with new `state_hash` on every successful run (same as `cerebrofy build`).
 - **Hybrid search connection** (⚠️ NOT YET IMPLEMENTED): When implemented, `search/hybrid.py` will open `cerebrofy.db` via `open_db()` with `?mode=ro` URI. KNN query and BFS traversal MUST share the same `sqlite3.Connection` object — zero IPC, zero serialization.
 - **RUNTIME_BOUNDARY in BFS** (⚠️ NOT YET IMPLEMENTED): Phase 4 BFS will exclude `RUNTIME_BOUNDARY` edges from traversal. They are collected as `RuntimeBoundaryWarning` and displayed separately — never counted in blast radius.
-- **Embedding before LLM call** (⚠️ NOT YET IMPLEMENTED): `cerebrofy specify` will embed the description query (same as `cerebrofy plan`/`tasks`) BEFORE opening the DB connection. The embed model must match `embed_model` in `cerebrofy.db` meta (FR-018).
-- **Spec file atomicity** (⚠️ NOT YET IMPLEMENTED): `cerebrofy specify` will collect the full LLM response in memory before writing to disk. On timeout or error, no partial file is written.
-- **`cerebrofy plan --json` schema**: Stable field names `matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope` + `schema_version: 1`. All fields always present (empty `[]` if no results). No decorative text on stdout when `--json` is active.
-- **System prompt template**: Resolved via `string.Template.safe_substitute()` with `$lobe_context`. File override path resolved relative to repo root. Built-in default lives in `llm/prompt_builder.py`.
-- **Phase 4 read-only**: `cerebrofy specify`, `cerebrofy plan`, `cerebrofy tasks` MUST NOT write to `cerebrofy.db` or any tracked source file. The only permitted write is the spec output file in `docs/cerebrofy/specs/`.
-- **cerebrofy parse read-only**: `cerebrofy parse` MUST NOT create or modify `cerebrofy.db` or any file. It uses `parser/engine.py` and `ignore/ruleset.py` directly. Output is NDJSON to stdout (one Neuron JSON per line).
 - **MCP dispatcher**: `cerebrofy mcp` uses CWD routing — reads `os.getcwd()` at each tool call to find the active repo's `.cerebrofy/config.yaml`. Exactly one MCP entry (`mcpServers.cerebrofy`) per machine, shared across all repos.
-- **MCP plan/tasks offline** (⚠️ NOT YET IMPLEMENTED): The MCP `plan` and `tasks` tools MUST NOT make network calls even if `llm_endpoint` is in `config.yaml`. LLM config is silently ignored (FR-027).
-- **blast_count per-Neuron** (⚠️ NOT YET IMPLEMENTED): In `cerebrofy tasks` and `cerebrofy plan --json`, `blast_count` for each matched Neuron = count of BFS neighbors reachable from **that specific Neuron** (depth-2, excluding RUNTIME_BOUNDARY). NOT the total across all matched Neurons.
-- **schema_version in plan --json** (⚠️ NOT YET IMPLEMENTED): The `cerebrofy plan --json` output MUST include `"schema_version": 1` as the first top-level field. This is a breaking addition from Phase 5 (FR-023).
-- **Phase 4 read-only** (⚠️ NOT YET IMPLEMENTED): `cerebrofy specify`, `cerebrofy plan`, `cerebrofy tasks` MUST NOT write to `cerebrofy.db` or any tracked source file.
-- **cerebrofy parse read-only** (⚠️ NOT YET IMPLEMENTED): `cerebrofy parse` MUST NOT create or modify `cerebrofy.db` or any file. Output is NDJSON to stdout (one Neuron JSON per line).
-- **System prompt template** (⚠️ NOT YET IMPLEMENTED): Resolved via `string.Template.safe_substitute()` with `$lobe_context`. Built-in default lives in `llm/prompt_builder.py`.
 - **.gitignore on init**: `cerebrofy init` MUST append `.cerebrofy/db/` to the repository's `.gitignore` (creating the file if needed, no duplicate if already present). This prevents `cerebrofy.db` from being staged (FR-019).
 - **Hook sentinel format** (FR-020): The pre-push hook block MUST use `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` sentinels. The incorrect `# cerebrofy-hook-start` / `# cerebrofy-hook-end` format in earlier cli-init.md is superseded by this invariant.
 
 ## Recent Changes
 
-- **MCP server rewrite** (current): Rewrote `mcp/server.py` from scratch. Removed duplicate
-  `run_mcp_server()` definition (second silently shadowed first). Registers **8 tools** but
-  only 3 are fully operational: `cerebrofy_build`, `cerebrofy_update`, `cerebrofy_validate`
-  (these shell out to the CLI). Five tools are stubs that fail at runtime: `search_code`,
-  `get_neuron`, `list_lobes`, `plan`, `tasks` — they require `search/hybrid.py`,
-  `commands/plan.py`, `commands/tasks.py` (not yet implemented), and `get_neuron`/`list_lobes`
-  also query wrong table (`neurons` vs actual `nodes`) with wrong column names. Added
-  `_open_db_ro()` helper. `_run_cerebrofy()` uses `sys.executable -m cerebrofy` (never shell).
-  Added `_resolve_mcp_command()` to `mcp/registrar.py` — resolves absolute binary path at
-  registration time (sys.argv[0] → shutil.which → sys.executable fallback). `--force` in
-  `commands/init.py` now bypasses `has_cerebrofy_mcp_entry` check and always rewrites.
-  `has_cerebrofy_mcp_entry` check and always rewrites. MCP extra install: `uv tool install
-  "cerebrofy[mcp]"` (pip install also works).
+- **SpecKit removal** (2026-06-14): Removed dead plan/tasks/specify/parse/LLM coupling.
+  Deleted `_handle_plan()`, `_handle_tasks()`, `_FEATURE_SCHEMA` from `mcp/server.py`.
+  Fixed `_handle_get_neuron()` (table `neurons`→`nodes`, columns `node_type`→`type`,
+  `start_line`/`end_line`→`line_start`/`line_end`) and `_handle_list_lobes()` (replaced
+  crashing SQL with filesystem scan of `.cerebrofy/lobes/*_lobe.md`). Replaced
+  `_handle_search_code()` crash-import with honest "not yet available" stub. Removed
+  `llm_endpoint`/`llm_model`/`llm_timeout` from `CerebrофyConfig`. Archived
+  `specs/004-ai-bridge/` → `specs/_archive/`. MCP server now has 6 registered tools:
+  5 operational + 1 stub (search_code). `search/hybrid.py` is the sole remaining
+  NOT YET IMPLEMENTED item.
 
 - **AI enforcement layer** (current): Added `skills/installer.py` — `install_instructions()`
   writes a fenced navigation rules block (never glob-read, always use search_code, use
