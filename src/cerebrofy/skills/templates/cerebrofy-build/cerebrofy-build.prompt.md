@@ -16,4 +16,4 @@ This parses all tracked source files, builds the call graph, generates vector em
 - The index is corrupted or missing
 - A full rebuild is needed after changing `tracked_extensions` or `embedding_model` in config
 
-**After it completes**, the index is ready for `cerebrofy validate`, and the per-lobe Markdown docs in `docs/cerebrofy/` are updated.
+**After it completes**, the index is ready for `cerebrofy validate`, and the per-lobe Markdown docs in `.cerebrofy/lobes/` are updated.

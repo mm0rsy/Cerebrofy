@@ -19,4 +19,4 @@ This detects changed files, re-parses only those, runs a depth-2 BFS to find all
 - You've edited source files and want to sync the index before querying
 - The pre-push hook warns about a stale index
 
-**Do NOT use this if** the index doesn't exist yet — run `/cerebrofy-build` first.
+**Do NOT use this if** the index doesn't exist yet — run `/cerebrofy:build` first.

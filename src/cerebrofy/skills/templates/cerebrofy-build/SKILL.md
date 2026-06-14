@@ -5,7 +5,7 @@
 ## ⚠️ Navigation rule
 
 Once the index is built, **do not glob-read source files** to understand the codebase.
-Always use `cerebrofy search "<query>"` or the Cerebrofy MCP tools first.
+Always use the Cerebrofy MCP tools (`search_code`, `get_neuron`, `list_lobes`) first.
 Only open a file after cerebrofy has returned its exact path and line number.
 
 ## When to use
@@ -33,7 +33,7 @@ An interrupted build leaves **no corrupted state** — the swap only happens on 
 ## Prerequisites
 
 - `cerebrofy init` must have been run first (`.cerebrofy/` directory exists).
-- The `local` extra must be installed for offline embeddings: `pip install cerebrofy[local]`.
+- Offline embeddings are bundled — no extra install needed (fastembed is a base dependency).
 
 ## Output
 
