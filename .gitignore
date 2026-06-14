@@ -18,6 +18,9 @@ venv/
 # Cerebrofy index (local artifact — never commit)
 .cerebrofy/db/
 
+# Graphify knowledge graph output (local artifact — never commit)
+graphify-out/
+
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/
 
