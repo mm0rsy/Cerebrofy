@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from cerebrofy.commands.init import (
+    _auto_install_navigation_rules,
+    _detect_ai_clients,
     copy_query_files,
     create_scaffold_directories,
     detect_lobes,
@@ -158,3 +160,97 @@ def test_write_cerebrofy_ignore_does_not_overwrite(tmp_path: Path) -> None:
     target.write_text("CUSTOM IGNORE\n", encoding="utf-8")
     write_cerebrofy_ignore(tmp_path)
     assert target.read_text() == "CUSTOM IGNORE\n"
+
+
+# ---------------------------------------------------------------------------
+# _detect_ai_clients
+# ---------------------------------------------------------------------------
+
+
+def test_detect_ai_clients_empty_repo(tmp_path: Path) -> None:
+    """No AI config present → nothing detected."""
+    assert _detect_ai_clients(tmp_path) == []
+
+
+def test_detect_ai_clients_claude_via_dot_claude_dir(tmp_path: Path) -> None:
+    (tmp_path / ".claude").mkdir()
+    assert "claude" in _detect_ai_clients(tmp_path)
+
+
+def test_detect_ai_clients_claude_via_claude_md(tmp_path: Path) -> None:
+    (tmp_path / "CLAUDE.md").write_text("# Guide\n", encoding="utf-8")
+    assert "claude" in _detect_ai_clients(tmp_path)
+
+
+def test_detect_ai_clients_copilot_via_instructions_file(tmp_path: Path) -> None:
+    github = tmp_path / ".github"
+    github.mkdir()
+    (github / "copilot-instructions.md").write_text("", encoding="utf-8")
+    assert "copilot" in _detect_ai_clients(tmp_path)
+
+
+def test_detect_ai_clients_copilot_via_dot_copilot_dir(tmp_path: Path) -> None:
+    (tmp_path / ".copilot").mkdir()
+    assert "copilot" in _detect_ai_clients(tmp_path)
+
+
+def test_detect_ai_clients_vscode(tmp_path: Path) -> None:
+    (tmp_path / ".vscode").mkdir()
+    assert "vscode" in _detect_ai_clients(tmp_path)
+
+
+def test_detect_ai_clients_opencode(tmp_path: Path) -> None:
+    (tmp_path / ".opencode").mkdir()
+    assert "opencode" in _detect_ai_clients(tmp_path)
+
+
+def test_detect_ai_clients_multiple(tmp_path: Path) -> None:
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".vscode").mkdir()
+    detected = _detect_ai_clients(tmp_path)
+    assert "claude" in detected
+    assert "vscode" in detected
+
+
+def test_detect_ai_clients_github_dir_alone_not_copilot(tmp_path: Path) -> None:
+    """.github/ dir without copilot-instructions.md should NOT trigger copilot."""
+    (tmp_path / ".github").mkdir()
+    assert "copilot" not in _detect_ai_clients(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# _auto_install_navigation_rules
+# ---------------------------------------------------------------------------
+
+
+def test_auto_install_writes_rules_for_detected_claude(tmp_path: Path) -> None:
+    """CLAUDE.md present → rules block written automatically."""
+    (tmp_path / "CLAUDE.md").write_text("# Existing\n", encoding="utf-8")
+    _auto_install_navigation_rules(tmp_path, explicit_client=None, force=False)
+    content = (tmp_path / "CLAUDE.md").read_text()
+    assert "cerebrofy:start" in content
+    assert "search_code" in content
+
+
+def test_auto_install_skips_explicit_client(tmp_path: Path) -> None:
+    """If --ai claude was passed, auto-detect should not double-write for claude."""
+    (tmp_path / "CLAUDE.md").write_text("# Existing\n", encoding="utf-8")
+    _auto_install_navigation_rules(tmp_path, explicit_client="claude", force=False)
+    # Block should NOT be written (explicit client handles it)
+    content = (tmp_path / "CLAUDE.md").read_text()
+    assert "cerebrofy:start" not in content
+
+
+def test_auto_install_idempotent(tmp_path: Path) -> None:
+    """Running twice with same content should not duplicate the block."""
+    (tmp_path / "CLAUDE.md").write_text("# Existing\n", encoding="utf-8")
+    _auto_install_navigation_rules(tmp_path, explicit_client=None, force=False)
+    _auto_install_navigation_rules(tmp_path, explicit_client=None, force=False)
+    content = (tmp_path / "CLAUDE.md").read_text()
+    assert content.count("cerebrofy:start") == 1
+
+
+def test_auto_install_no_op_when_nothing_detected(tmp_path: Path) -> None:
+    """No AI config present → no files created."""
+    _auto_install_navigation_rules(tmp_path, explicit_client=None, force=False)
+    assert not (tmp_path / "CLAUDE.md").exists()

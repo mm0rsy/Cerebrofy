@@ -190,7 +190,50 @@ def cerebrofy_init(
     if ai_client:
         _install_ai_skills(root, ai_client, force)
 
+    # Layer 2: auto-detect AI clients and write navigation rules even without --ai.
+    _auto_install_navigation_rules(root, ai_client, force)
+
     click.echo("Cerebrofy initialized. Run `cerebrofy build` to index your codebase.")
+
+
+def _detect_ai_clients(root: Path) -> list[str]:
+    """Return names of AI clients that appear to be active in this repo.
+
+    Detection is conservative — a client is included only when a concrete
+    indicator (config directory or instructions file) already exists.
+    """
+    detected: list[str] = []
+    if (root / ".claude").is_dir() or (root / "CLAUDE.md").exists():
+        detected.append("claude")
+    if (root / ".github" / "copilot-instructions.md").exists() or (root / ".copilot").is_dir():
+        detected.append("copilot")
+    if (root / ".vscode").is_dir():
+        detected.append("vscode")
+    if (root / ".opencode").is_dir():
+        detected.append("opencode")
+    return detected
+
+
+def _auto_install_navigation_rules(
+    root: Path, explicit_client: str | None, force: bool
+) -> None:
+    """Write navigation rules to every detected AI client's instructions file.
+
+    Called on every ``cerebrofy init`` without requiring ``--ai``.
+    Only writes the ``<!-- cerebrofy:start/end -->`` instructions block —
+    never installs skills or slash commands (those still require ``--ai``).
+    Skips the explicitly-requested client (already handled by _install_ai_skills).
+    """
+    skip = (explicit_client or "").lower()
+    for client in _detect_ai_clients(root):
+        if client == skip:
+            continue
+        instr_path = install_instructions(root, client, force=force)
+        if instr_path:
+            click.echo(
+                f"Cerebrofy: Navigation rules written to {instr_path} "
+                f"(auto-detected {client})"
+            )
 
 
 def _install_ai_skills(root: Path, ai_client: str, force: bool) -> None:
