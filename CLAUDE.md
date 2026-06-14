@@ -46,12 +46,10 @@ src/
     ├── commands/validate.py     ← cerebrofy validate: drift classification command
     ├── commands/migrate.py      ← cerebrofy migrate: sequential schema migration runner
     ├── commands/mcp.py          ← cerebrofy mcp: MCP stdio server entry point
-    └── mcp/server.py            ← MCPServer: 6 registered tools; 5 operational (cerebrofy_build,
-                                    cerebrofy_update, cerebrofy_validate, get_neuron, list_lobes);
-                                    1 stub (search_code — requires search/hybrid.py)
+    └── mcp/server.py            ← MCPServer: 6 registered tools; all operational (cerebrofy_build,
+                                    cerebrofy_update, cerebrofy_validate, get_neuron, list_lobes, search_code)
+                                    — hybrid KNN + BFS search via search/hybrid.py
     └── queries/                 ← Bundled default .scm files per language
-    # ⚠️ NOT YET IMPLEMENTED:
-    #   search/hybrid.py        ← HybridSearch: KNN + BFS (required by search_code MCP tool)
 src/cerebrofy/skills/
 ├── installer.py             ← install_skills() + install_instructions(): skill templates + AI client navigation rules
 └── templates/
@@ -137,8 +135,8 @@ cerebrofy validate
 - **Drift classification**: `validate/drift_classifier.py` compares Neuron `name` + whitespace-normalized `signature`. Minor = no structural change. Structural = any Neuron added/removed/renamed/sig-changed, or import added/removed.
 - **Git detection**: `update/change_detector.py` uses `subprocess.run()` with explicit arg lists (never `shell=True`). Handle fresh-repo edge case: check `git rev-parse --verify HEAD` before running `git diff` commands.
 - **cerebrofy_map.md on update**: `cerebrofy update` rewrites `cerebrofy_map.md` with new `state_hash` on every successful run (same as `cerebrofy build`).
-- **Hybrid search connection** (⚠️ NOT YET IMPLEMENTED): When implemented, `search/hybrid.py` will open `cerebrofy.db` via `open_db()` with `?mode=ro` URI. KNN query and BFS traversal MUST share the same `sqlite3.Connection` object — zero IPC, zero serialization.
-- **RUNTIME_BOUNDARY in BFS** (⚠️ NOT YET IMPLEMENTED): Phase 4 BFS will exclude `RUNTIME_BOUNDARY` edges from traversal. They are collected as `RuntimeBoundaryWarning` and displayed separately — never counted in blast radius.
+- **Hybrid search connection**: `search/hybrid.py` opens `cerebrofy.db` via `?mode=ro` URI. KNN query and BFS traversal share the same `sqlite3.Connection` object — zero IPC, zero serialization.
+- **RUNTIME_BOUNDARY in BFS**: BFS exclude `RUNTIME_BOUNDARY` edges from traversal. They are collected as `RuntimeBoundaryWarning` and displayed separately — never counted in blast radius.
 - **MCP dispatcher**: `cerebrofy mcp` uses CWD routing — reads `os.getcwd()` at each tool call to find the active repo's `.cerebrofy/config.yaml`. Exactly one MCP entry (`mcpServers.cerebrofy`) per machine, shared across all repos.
 - **.gitignore on init**: `cerebrofy init` MUST append `.cerebrofy/db/` to the repository's `.gitignore` (creating the file if needed, no duplicate if already present). This prevents `cerebrofy.db` from being staged (FR-019).
 - **Hook sentinel format** (FR-020): The pre-push hook block MUST use `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` sentinels. The incorrect `# cerebrofy-hook-start` / `# cerebrofy-hook-end` format in earlier cli-init.md is superseded by this invariant.
