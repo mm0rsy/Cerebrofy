@@ -10,7 +10,7 @@ after cerebrofy has pointed you to it by file path and line number.
 
 ## When to use
 
-- After editing source files and before running `cerebrofy plan`, `tasks`, or `specify`.
+- After editing source files and before querying the index via MCP tools.
 - The git pre-push hook triggers this automatically, but you can run it manually.
 - The user says the index is "stale" or "out of date" for a few files.
 
