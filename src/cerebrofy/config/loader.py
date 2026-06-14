@@ -15,9 +15,6 @@ class CerebrоfyConfig:
     lobes: dict[str, str]
     tracked_extensions: list[str]
     embedding_model: str = "local"
-    llm_endpoint: str = ""
-    llm_model: str = ""
-    llm_timeout: int = 60
     system_prompt_template: str = ""
     top_k: int = 10
 
@@ -62,8 +59,6 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "lobes": lobes,
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
-        "llm_endpoint": "",
-        "llm_model": "",
         "top_k": 10,
     }
 
@@ -90,9 +85,6 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         lobes=data["lobes"],
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),
-        llm_endpoint=data.get("llm_endpoint", ""),
-        llm_model=data.get("llm_model", ""),
-        llm_timeout=data.get("llm_timeout", 60),
         system_prompt_template=data.get("system_prompt_template", ""),
         top_k=data.get("top_k", 10),
     )
