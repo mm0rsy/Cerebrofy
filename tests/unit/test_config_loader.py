@@ -69,8 +69,6 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
         "lobes": {"api": "src/api/"},
         "tracked_extensions": [".py", ".ts"],
         "embedding_model": "openai",
-        "llm_endpoint": "https://api.openai.com/v1",
-        "llm_model": "gpt-4",
         "top_k": 5,
     }
     cfg_path = tmp_path / "config.yaml"
@@ -81,7 +79,6 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
     assert loaded.lobes == {"api": "src/api/"}
     assert loaded.tracked_extensions == [".py", ".ts"]
     assert loaded.embedding_model == "openai"
-    assert loaded.llm_model == "gpt-4"
     assert loaded.top_k == 5
 
 
@@ -97,7 +94,6 @@ def test_load_config_default_optional_fields(tmp_path: Path) -> None:
 
     loaded = load_config(cfg_path)
     assert loaded.embedding_model == "local"
-    assert loaded.llm_endpoint == ""
     assert loaded.top_k == 10
 
 
