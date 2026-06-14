@@ -15,8 +15,6 @@ class CerebrоfyConfig:
     lobes: dict[str, str]
     tracked_extensions: list[str]
     embedding_model: str = "local"
-    system_prompt_template: str = ""
-    top_k: int = 10
 
 
 DEFAULT_TRACKED_EXTENSIONS: list[str] = [
@@ -59,7 +57,6 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "lobes": lobes,
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
-        "top_k": 10,
     }
 
 
@@ -85,8 +82,6 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         lobes=data["lobes"],
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),
-        system_prompt_template=data.get("system_prompt_template", ""),
-        top_k=data.get("top_k", 10),
     )
     if queries_dir is not None:
         for warning in validate_config(config, queries_dir):
