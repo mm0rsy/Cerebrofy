@@ -68,14 +68,59 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 def _handle_search_code(arguments: dict[str, Any]) -> list[Any]:
-    """Hybrid semantic + keyword search — not yet available."""
+    """Hybrid semantic + keyword search — primary navigation tool."""
     from mcp.types import TextContent
-    query = arguments.get("query", "")
-    text = (
-        f"[search_code] Query '{query}' — hybrid search is not yet available. "
-        "Run 'cerebrofy build' to index your repo — full search coming in the next release."
+
+    query: str = arguments.get("query", "")
+    top_k: int = int(arguments.get("top_k", 10))
+    lobe_filter: str | None = arguments.get("lobe")
+
+    if not query:
+        return _make_error_content("[error] 'query' is required.")
+
+    root = _find_repo_root(Path.cwd())
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
+
+    from cerebrofy.config.loader import load_config
+    from cerebrofy.search.hybrid import HybridSearchResult, embed_query, hybrid_search
+
+    config = load_config(root / ".cerebrofy" / "config.yaml")
+
+    try:
+        embedding = embed_query(query, config.embedding_model)
+    except ValueError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    result: HybridSearchResult = hybrid_search(
+        query=query,
+        db_path=db_path,
+        embedding=embedding,
+        top_k=top_k,
+        lobes=config.lobes,
+        repo_root=root,
     )
-    return [TextContent(type="text", text=text)]
+
+    neurons = result.matched_neurons
+    if lobe_filter:
+        neurons = [n for n in neurons if lobe_filter.lower() in (n.file or "").lower()]
+
+    if not neurons:
+        return [TextContent(type="text", text=json.dumps({"results": [], "count": 0}))]
+
+    hits = [
+        {
+            "name": n.name,
+            "type": n.type,
+            "file": n.file,
+            "line": n.line_start,
+            "similarity": n.similarity,
+            "summary": (n.docstring or n.signature or "")[:200],
+        }
+        for n in neurons
+    ]
+    return [TextContent(type="text", text=json.dumps({"results": hits, "count": len(hits)}, indent=2))]
 
 
 def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
