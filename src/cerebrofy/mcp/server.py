@@ -1,11 +1,9 @@
 """MCP stdio server for cerebrofy.
 
-Exposes eight tools:
-  search_code         — hybrid semantic + keyword search (primary navigation)
+Exposes six tools:
+  search_code         — stub: not yet available (requires search/hybrid.py)
   get_neuron          — fetch a single Neuron by name or file:line
   list_lobes          — return available lobes with summary file paths
-  plan                — blast-radius analysis for a feature description
-  tasks               — structured task list for a feature description
   cerebrofy_build     — full atomic re-index
   cerebrofy_update    — incremental re-index of changed files
   cerebrofy_validate  — drift check (zero writes)
@@ -70,57 +68,14 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 
 def _handle_search_code(arguments: dict[str, Any]) -> list[Any]:
-    """Hybrid semantic + keyword search — primary navigation tool."""
+    """Hybrid semantic + keyword search — not yet available."""
     from mcp.types import TextContent
-
-    query: str = arguments.get("query", "")
-    top_k: int = int(arguments.get("top_k", 10))
-    lobe_filter: str | None = arguments.get("lobe")
-
-    if not query:
-        return _make_error_content("[error] 'query' is required.")
-
-    root = _find_repo_root(Path.cwd())
-    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
-    if not db_path.exists():
-        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
-
-    from cerebrofy.config.loader import load_config
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search  # type: ignore[import-untyped]
-
-    config = load_config(root / ".cerebrofy" / "config.yaml")
-    embedding = _embed_query(query, config)
-    lobe_dir = str(root / ".cerebrofy" / "lobes")
-
-    result = hybrid_search(
-        query=query,
-        db_path=str(db_path),
-        embedding=embedding,
-        top_k=top_k,
-        config_embed_model=config.embedding_model,
-        lobe_dir=lobe_dir,
+    query = arguments.get("query", "")
+    text = (
+        f"[search_code] Query '{query}' — hybrid search is not yet available. "
+        "Run 'cerebrofy build' to index your repo — full search coming in the next release."
     )
-
-    neurons = result.matched_neurons
-    if lobe_filter:
-        neurons = [n for n in neurons if lobe_filter.lower() in (n.lobe or "").lower()]
-
-    if not neurons:
-        return [TextContent(type="text", text=json.dumps({"results": [], "count": 0}))]
-
-    hits = [
-        {
-            "name": n.name,
-            "type": n.node_type,
-            "file": n.file,
-            "line": n.start_line,
-            "lobe": n.lobe,
-            "similarity": round(n.similarity, 3),
-            "summary": (n.docstring or "")[:200],
-        }
-        for n in neurons
-    ]
-    return [TextContent(type="text", text=json.dumps({"results": hits, "count": len(hits)}, indent=2))]
+    return [TextContent(type="text", text=text)]
 
 
 def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
@@ -139,18 +94,18 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
     try:
         if name:
             rows = conn.execute(
-                "SELECT id, name, node_type, file, start_line, end_line, lobe, docstring "
-                "FROM neurons WHERE name = ? LIMIT 5",
+                "SELECT id, name, type, file, line_start, line_end, signature, docstring "
+                "FROM nodes WHERE name = ? LIMIT 5",
                 (name,),
             ).fetchall()
         else:
             q = (
-                "SELECT id, name, node_type, file, start_line, end_line, lobe, docstring "
-                "FROM neurons WHERE file LIKE ?"
+                "SELECT id, name, type, file, line_start, line_end, signature, docstring "
+                "FROM nodes WHERE file LIKE ?"
             )
             params: list[Any] = [f"%{file}%"]
             if line is not None:
-                q += " AND start_line <= ? AND end_line >= ?"
+                q += " AND line_start <= ? AND line_end >= ?"
                 params += [line, line]
             rows = conn.execute(q, params).fetchmany(5)
     finally:
@@ -159,36 +114,28 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
     if not rows:
         return [TextContent(type="text", text=json.dumps({"neurons": [], "message": "Not found."}))]
 
-    cols = ("id", "name", "node_type", "file", "start_line", "end_line", "lobe", "docstring")
+    cols = ("id", "name", "type", "file", "line_start", "line_end", "signature", "docstring")
     neurons = [dict(zip(cols, row)) for row in rows]
     return [TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))]
 
 
 def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
-    """Return available lobes with neuron counts and summary file paths."""
+    """Return available lobes by scanning the lobes markdown directory."""
     from mcp.types import TextContent
 
     root = _find_repo_root(Path.cwd())
-    conn = _open_db_ro(root)
-    try:
-        rows = conn.execute(
-            "SELECT lobe, COUNT(*) as count FROM neurons "
-            "WHERE lobe IS NOT NULL GROUP BY lobe ORDER BY count DESC"
-        ).fetchall()
-    finally:
-        conn.close()
-
     lobes_dir = root / ".cerebrofy" / "lobes"
-    lobes = []
-    for lobe_name, count in rows:
-        summary_file = lobes_dir / f"{lobe_name}_lobe.md"
-        lobes.append({
-            "name": lobe_name,
-            "neuron_count": count,
-            "summary_file": str(summary_file.relative_to(root)) if summary_file.exists() else None,
-        })
-
     map_file = root / ".cerebrofy" / "cerebrofy_map.md"
+
+    lobes = []
+    if lobes_dir.exists():
+        for md_file in sorted(lobes_dir.glob("*_lobe.md")):
+            lobe_name = md_file.stem.removesuffix("_lobe")
+            lobes.append({
+                "name": lobe_name,
+                "summary_file": str(md_file.relative_to(root)),
+            })
+
     return [TextContent(type="text", text=json.dumps({
         "lobes": lobes,
         "full_map": str(map_file.relative_to(root)) if map_file.exists() else None,
@@ -230,79 +177,6 @@ def _handle_validate(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=f"[{drift_label}]\n{output}")]
 
 
-def _handle_plan(arguments: dict[str, Any]) -> list[Any]:
-    from mcp.types import TextContent
-
-    description: str = arguments.get("description", "")
-    top_k: int = int(arguments.get("top_k", 10))
-
-    root = _find_repo_root(Path.cwd())
-    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
-    if not db_path.exists():
-        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
-
-    from cerebrofy.config.loader import load_config
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search  # type: ignore[import-untyped]
-    from cerebrofy.commands.plan import _format_plan_json  # type: ignore[import-untyped]
-
-    config = load_config(root / ".cerebrofy" / "config.yaml")
-    embedding = _embed_query(description, config)
-    lobe_dir = str(root / ".cerebrofy" / "lobes")
-
-    result = hybrid_search(
-        query=description,
-        db_path=str(db_path),
-        embedding=embedding,
-        top_k=top_k,
-        config_embed_model=config.embedding_model,
-        lobe_dir=lobe_dir,
-    )
-    return [TextContent(type="text", text=_format_plan_json(result))]
-
-
-def _handle_tasks(arguments: dict[str, Any]) -> list[Any]:
-    from mcp.types import TextContent
-
-    description: str = arguments.get("description", "")
-    top_k: int = int(arguments.get("top_k", 10))
-
-    root = _find_repo_root(Path.cwd())
-    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
-    if not db_path.exists():
-        return _make_error_content("Index not found. Run 'cerebrofy build' first.")
-
-    from cerebrofy.config.loader import load_config
-    from cerebrofy.search.hybrid import _embed_query, hybrid_search  # type: ignore[import-untyped]
-    from cerebrofy.commands.tasks import _build_task_items  # type: ignore[import-untyped]
-
-    config = load_config(root / ".cerebrofy" / "config.yaml")
-    embedding = _embed_query(description, config)
-    lobe_dir = str(root / ".cerebrofy" / "lobes")
-
-    result = hybrid_search(
-        query=description,
-        db_path=str(db_path),
-        embedding=embedding,
-        top_k=top_k,
-        config_embed_model=config.embedding_model,
-        lobe_dir=lobe_dir,
-    )
-    items, _ = _build_task_items(result)
-    tasks_list = [
-        {
-            "number": item.index,
-            "neuron_name": item.neuron.name,
-            "neuron_file": item.neuron.file,
-            "line": item.neuron.start_line,
-            "lobe": item.lobe_name,
-            "blast_count": item.blast_count,
-            "similarity": round(item.neuron.similarity, 3),
-        }
-        for item in items
-    ]
-    return [TextContent(type="text", text=json.dumps({"tasks": tasks_list}, indent=2))]
-
-
 # ---------------------------------------------------------------------------
 # Server entrypoint
 # ---------------------------------------------------------------------------
@@ -336,15 +210,6 @@ async def run_mcp_server() -> None:
         },
     }
 
-    _FEATURE_SCHEMA: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "description": {"type": "string", "description": "Natural-language description of the feature"},
-            "top_k": {"type": "integer", "description": "Number of results (default: 10)", "default": 10, "minimum": 1, "maximum": 100},
-        },
-        "required": ["description"],
-    }
-
     _UPDATE_SCHEMA: dict[str, Any] = {
         "type": "object",
         "properties": {
@@ -366,17 +231,9 @@ async def run_mcp_server() -> None:
                 "Use after search_code to get the full signature, docstring, and location."
             ), inputSchema=_NEURON_SCHEMA),
             Tool(name="list_lobes", description=(
-                "List all indexed lobes (modules/packages) with neuron counts and summary paths. "
+                "List all indexed lobes (modules/packages) with summary file paths. "
                 "Use for high-level orientation before searching."
             ), inputSchema=_EMPTY),
-            Tool(name="plan", description=(
-                "Analyse which parts of the codebase are affected by a feature. "
-                "Returns matched Neurons, blast radius, and affected lobes. Zero network calls."
-            ), inputSchema=_FEATURE_SCHEMA),
-            Tool(name="tasks", description=(
-                "Generate a numbered implementation task list for a feature. "
-                "Each task identifies the exact code unit, module, and structural risk."
-            ), inputSchema=_FEATURE_SCHEMA),
             Tool(name="cerebrofy_build", description=(
                 "Full atomic re-index of the entire repository. "
                 "Use when the index is missing or a full rebuild is needed."
@@ -401,10 +258,6 @@ async def run_mcp_server() -> None:
                 return _handle_get_neuron(args)
             elif name == "list_lobes":
                 return _handle_list_lobes(args)
-            elif name == "plan":
-                return _handle_plan(args)
-            elif name == "tasks":
-                return _handle_tasks(args)
             elif name == "cerebrofy_build":
                 return _handle_build(args)
             elif name == "cerebrofy_update":
