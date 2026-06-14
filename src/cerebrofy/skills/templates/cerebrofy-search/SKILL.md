@@ -7,49 +7,34 @@
 
 **Do NOT open or glob-read source files to understand the codebase.**
 
-This repo has a pre-built Cerebrofy index at `.cerebrofy/db/cerebrofy.db` that already contains
-every function, class, and module. Always query the index first.
+This repo has a pre-built Cerebrofy index. Always query it first via the MCP tools.
+Only open a specific source file *after* cerebrofy has returned its exact file path and line number.
 
-Only open a specific source file *after* cerebrofy has pointed you to it — and only to read or
-edit that exact file.
+## How to search
 
-## Command
+Use the `search_code` MCP tool — pass a plain-language question:
 
-```bash
-# Semantic + keyword hybrid search (default)
-cerebrofy search "<query>"
+- `search_code(query="authentication token validation")`
+- `search_code(query="database connection pool", top_k=5)`
+- `search_code(query="payment retry logic", lobe="billing")`
 
-# Limit to a specific lobe (module/package)
-cerebrofy search "<query>" --lobe auth
-
-# Return fewer results
-cerebrofy search "<query>" --limit 5
-```
+After getting results, use `get_neuron` to fetch full details on specific hits.
+Navigate only to the exact file:line returned.
 
 ## When to use
 
-- Any time you need to find a function, class, or module
+- Any time you need to find a function, class, or module by meaning
 - Before answering "how does X work?" or "where is Y implemented?"
-- Before making changes — find all call sites first so you know the blast radius
-
-## Output
-
-Returns a ranked list of Neurons (functions / classes / modules) with:
-
-- File path + line number
-- Neuron name and type
-- Relevance score
-- Short docstring / summary
-
-Navigate directly to the file:line cerebrofy returns. Do not read surrounding files.
+- Before making changes — find all call sites first to know the blast radius
 
 ## Quick reference
 
-| Goal | Command |
+| Goal | MCP call |
 |------|---------|
-| Find a function | `cerebrofy search "login handler"` |
-| Find all callers of a symbol | `cerebrofy search "calls:validate_token"` |
-| Find by file | `cerebrofy search "file:auth.py"` |
-| Module overview | Read `.cerebrofy/lobes/auth_lobe.md` |
+| Find by meaning | `search_code(query="...")` |
+| Fetch specific symbol | `get_neuron(name="MyClass")` |
+| Fetch by location | `get_neuron(file="auth.py", line=42)` |
+| List all modules | `list_lobes()` |
+| Module overview | Read `.cerebrofy/lobes/<name>_lobe.md` |
 | Full map | Read `.cerebrofy/cerebrofy_map.md` |
 ````
