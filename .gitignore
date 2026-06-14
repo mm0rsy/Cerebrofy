@@ -31,3 +31,4 @@ graphify-out/
 coverage.*
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/
+docs/competitive-landscape-2026-06.md
