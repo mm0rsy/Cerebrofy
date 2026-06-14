@@ -14,7 +14,7 @@
 
 4. **MCP native is no longer a differentiator** — it is the price of entry. Every serious competitor now ships an MCP server. The real differentiator is CWD routing (one server, many repos) which Cerebrofy has and most competitors do not clearly implement.
 
-5. **Critical gaps:** Cerebrofy's 5 stub MCP tools (search_code, get_neuron, list_lobes, plan, tasks) are unimplemented; competitors ship these capabilities today. Language support (~tree-sitter-languages coverage) needs explicit documentation; CodeGraph claims 20+ and Codebase-Memory claims 66 languages.
+5. **Critical gaps:** Cerebrofy's search_code, get_neuron, list_lobes are now operational; plan and tasks were removed; competitors ship these capabilities today. Language support (~tree-sitter-languages coverage) needs explicit documentation; CodeGraph claims 20+ and Codebase-Memory claims 66 languages.
 
 ---
 
@@ -298,7 +298,7 @@ FLAT-FILE PACK     Repomix            code2prompt    GitIngest
 SECURITY/SAST                         Semgrep       CodeQL
                                                     Snyk
 
-* Cerebrofy occupies the Hybrid (graph+vector) + Local quadrant once search/hybrid.py ships
+* Cerebrofy occupies the Hybrid (graph+vector) + Local quadrant — search/hybrid.py is now implemented
 ```
 
 ---

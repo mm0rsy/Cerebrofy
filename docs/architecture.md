@@ -16,10 +16,6 @@ src/cerebrofy/
 │   ├── update.py                 ← cerebrofy update: partial atomic re-index
 │   ├── validate.py               ← cerebrofy validate: drift classification
 │   ├── migrate.py                ← cerebrofy migrate: sequential schema migrations
-│   ├── plan.py                   ← cerebrofy plan: hybrid search → Markdown/JSON report
-│   ├── tasks.py                  ← cerebrofy tasks: hybrid search → numbered task list
-│   ├── specify.py                ← cerebrofy specify: hybrid search → LLM → spec file
-│   ├── parse.py                  ← cerebrofy parse: read-only diagnostic parser (NDJSON)
 │   └── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
 │
 ├── parser/
@@ -32,9 +28,7 @@ src/cerebrofy/
 │
 ├── embedder/
 │   ├── base.py                   ← Embedder ABC: embed(texts) -> list[list[float]]
-│   ├── local.py                  ← LocalEmbedder (sentence-transformers, batch 64)
-│   ├── openai_emb.py             ← OpenAIEmbedder (text-embedding-3-small, chunks 512)
-│   └── cohere_emb.py             ← CohereEmbedder (embed-english-v3.0, chunks 96)
+│   └── local.py                  ← LocalEmbedder (fastembed BAAI/bge-small-en-v1.5, batch 64)
 │
 ├── db/
 │   ├── connection.py             ← open_db(): load sqlite-vec + WAL; check_schema_version()
@@ -43,14 +37,10 @@ src/cerebrofy/
 │   └── lock.py                   ← BuildLock: PID file acquire/release/stale-check
 │
 ├── search/
-│   └── hybrid.py                 ← HybridSearch: KNN + BFS, single read-only connection
-│
-├── llm/
-│   ├── client.py                 ← LLMClient: streaming, retry on 5xx, wall-clock timeout
-│   └── prompt_builder.py         ← PromptBuilder: string.Template + lobe context injection
+│   └── hybrid.py                 ← hybrid_search(): KNN + BFS, single read-only connection
 │
 ├── markdown/
-│   ├── lobe.py                   ← write_lobe_md(): per-lobe Markdown file
+│   ├── lobe.py                   ← write_lobe_md(): per-lobe Markdown summary
 │   └── map.py                    ← write_map_md(): cerebrofy_map.md
 │
 ├── hooks/
@@ -61,14 +51,19 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: plan/tasks/specify tool handlers
+│   └── server.py                 ← MCPServer: 6 tools (search_code, get_neuron, list_lobes,
+│                                    cerebrofy_build, cerebrofy_update, cerebrofy_validate)
 │
 ├── config/
-│   └── loader.py                 ← CerebrоfyConfig dataclass + YAML I/O
+│   └── loader.py                 ← CerebrофyConfig dataclass + YAML I/O
 │
 ├── update/
 │   ├── change_detector.py        ← ChangeSet via git diff or hash comparison
 │   └── scope_resolver.py         ← UpdateScope via depth-2 BFS from changed nodes
+│
+├── skills/
+│   ├── installer.py              ← install_skills() + install_instructions()
+│   └── templates/                ← Bundled SKILL.md + slash-command templates per AI client
 │
 └── validate/
     └── drift_classifier.py       ← DriftRecord: hash scan → re-parse → Neuron diff
@@ -112,6 +107,8 @@ config.yaml + .cerebrofy-ignore
    write_lobe_md() × N            ← per-lobe Markdown (post-swap, fresh conn)
    write_map_md()                 ← cerebrofy_map.md
 ```
+
+---
 
 ## Database Schema
 
@@ -157,14 +154,14 @@ CREATE TABLE file_hashes (
   hash  TEXT NOT NULL             -- SHA-256 of file content at last build/update
 );
 
--- sqlite-vec virtual table for KNN search
+-- sqlite-vec virtual table for KNN search (384-dim for BAAI/bge-small-en-v1.5)
 CREATE VIRTUAL TABLE vec_neurons USING vec0(
   id          TEXT PRIMARY KEY,
-  embedding   FLOAT[768]          -- dimension from embed_dim in meta
+  embedding   FLOAT[384]
 );
 ```
 
-Every `nodes` row has a corresponding `vec_neurons` row after a completed build (Law III). The `vec_neurons` table cannot be updated in-place — the `cerebrofy update` command always DELETE+INSERT within the same transaction.
+Every `nodes` row has a corresponding `vec_neurons` row after a completed build (Law III). The `vec_neurons` table cannot be updated in-place — `cerebrofy update` always DELETE+INSERT within the same transaction.
 
 ---
 
@@ -175,15 +172,13 @@ These rules are architectural constraints. No PR may violate them.
 | # | Invariant |
 |---|-----------|
 | I | `cerebrofy init` MUST NOT create `cerebrofy.db`. The database is created exclusively by `cerebrofy build`. |
-| II | All call edges are stored in the `edges` table. `RUNTIME_BOUNDARY` edges are stored but NEVER traversed in BFS. They are collected as warnings and shown separately. |
+| II | All call edges are stored in the `edges` table. `RUNTIME_BOUNDARY` edges are stored but NEVER traversed in BFS. They are collected as `RuntimeBoundaryWarning` items and returned separately. |
 | III | Every Neuron in `nodes` MUST have a corresponding row in `vec_neurons` after a completed build. |
 | IV | Git hooks start warn-only (v1). Hard-block (v2) activates only after `cerebrofy update` is verified to run in < 2s. |
 | V | Zero language-specific logic in `parser/engine.py` or `graph/resolver.py`. All language rules live in `.scm` files. |
 | — | `cerebrofy build` writes to `cerebrofy.db.tmp`; swaps via `os.replace()` on success only. |
 | — | `cerebrofy update` wraps all DML in `BEGIN IMMEDIATE`. `vec0` does not support UPDATE — always DELETE+INSERT within same transaction. |
-| — | Every `open_db()` call loads sqlite-vec and sets WAL mode. Read-only commands open with `?mode=ro` directly (skipping WAL) and load sqlite-vec manually. |
-| — | `blast_count` per task item = depth-2 BFS neighbors reachable from **that specific Neuron** (not total across all matched Neurons). |
-| — | `schema_version` in `plan --json` output is always `1`. All four top-level arrays (`matched_neurons`, `blast_radius`, `affected_lobes`, `reindex_scope`) are always present, even if empty. |
+| — | Read-only commands (`search/hybrid.py`) open with `?mode=ro` URI and load sqlite-vec manually. |
 
 ---
 
@@ -204,7 +199,7 @@ class Neuron:
     docstring: str | None
 ```
 
-Neurons are **immutable value objects** (`frozen=True`). Within a single file, if the same `id` appears more than once (e.g. duplicate function names), only the first occurrence by `line_start` is kept (`deduplicate_neurons()`). Anonymous functions (lambdas, arrow functions) are never captured.
+Neurons are **immutable value objects** (`frozen=True`). Within a single file, if the same `id` appears more than once, only the first occurrence by `line_start` is kept (`deduplicate_neurons()`). Anonymous functions (lambdas, arrow functions) are never captured.
 
 ---
 
@@ -217,55 +212,41 @@ Neurons are **immutable value objects** (`frozen=True`). Within a single file, i
 | `IMPORT` | Import statement resolved to the imported module's Neurons |
 | `RUNTIME_BOUNDARY` | Unresolvable cross-language or dynamic call — stored but never traversed in BFS |
 
-`RUNTIME_BOUNDARY` edges represent calls that cross a language boundary (e.g. Python calling a C extension) or are too dynamic to resolve statically. They appear as warnings in `cerebrofy plan` and `cerebrofy tasks` output.
+`RUNTIME_BOUNDARY` edges are collected as `RuntimeBoundaryWarning` objects during hybrid search and returned separately — they are never included in blast-radius counts.
 
 ---
 
 ## Hybrid Search
 
-`hybrid_search()` in `search/hybrid.py` combines two search strategies in a single read-only SQLite connection:
+`hybrid_search()` in `search/hybrid.py` combines two strategies over a single read-only SQLite connection:
 
-1. **KNN search** — `vec_neurons` cosine similarity query, returns `top_k` `MatchedNeuron` objects ordered by similarity descending
-2. **BFS expansion** — depth-2 BFS from each matched Neuron's seed ID, collecting `BlastRadiusNeuron` objects (excludes `RUNTIME_BOUNDARY` edges)
-3. **Lobe resolution** — derives affected lobe names from file paths, loads lobe `.md` paths
-4. **Per-neuron blast count** — runs `_count_bfs_neighbors()` for each individual matched Neuron while the connection is open
+1. **KNN search** — `vec_neurons` cosine similarity query via `vec_f32() MATCH`, returns `top_k` `MatchedNeuron` objects ordered by similarity descending
+2. **BFS expansion** — depth-2 BFS from each matched Neuron, collecting `MatchedNeuron` objects for each structural neighbor (excludes `RUNTIME_BOUNDARY` edges)
+3. **Lobe resolution** — derives affected lobe names by matching file paths against `config.lobes`
 
 ```
-similarity = 1.0 - (cosine_distance / 2.0)
+similarity = max(0.0, 1.0 - cosine_distance)
 ```
 
-The connection is opened with `?mode=ro` (read-only) to avoid any accidental writes. sqlite-vec is loaded manually (bypassing `open_db()` which sets WAL pragma, incompatible with `?mode=ro`).
+The connection is opened with `?mode=ro` (read-only). sqlite-vec is loaded manually on the connection — `open_db()` is not used here because it sets WAL pragma, which is incompatible with `?mode=ro`.
 
----
+**Public API:**
 
-## `plan --json` Schema
-
-```json
-{
-  "schema_version": 1,
-  "matched_neurons": [
-    {
-      "id": "auth/validator.py::validate_token",
-      "name": "validate_token",
-      "file": "auth/validator.py",
-      "line_start": 42,
-      "similarity": 0.91
-    }
-  ],
-  "blast_radius": [
-    {
-      "id": "auth/utils.py::hash_password",
-      "name": "hash_password",
-      "file": "auth/utils.py",
-      "line_start": 31
-    }
-  ],
-  "affected_lobes": ["auth", "api"],
-  "reindex_scope": 3
-}
+```python
+embedding = embed_query(query, config.embedding_model)   # embed BEFORE opening DB
+result = hybrid_search(
+    query=query,
+    db_path=db_path,
+    embedding=embedding,
+    top_k=10,
+    lobes=config.lobes,
+    repo_root=root,
+)
+# result.matched_neurons  — KNN hits, sorted by similarity desc
+# result.blast_radius     — BFS neighbors (similarity = 0.0)
+# result.runtime_boundary_warnings — RUNTIME_BOUNDARY edges encountered
+# result.affected_lobes   — sorted lobe names from all neurons
 ```
-
-`schema_version` is always the first field and always `1`. All four top-level arrays are always present (never omitted, even when empty). Consumers SHOULD check `schema_version` before parsing.
 
 ---
 
@@ -291,6 +272,34 @@ cerebrofy update  (completes in < 2s)
 ```
 
 The sentinel format `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` allows `upgrade_hook()` to locate and replace exactly the Cerebrofy block without disturbing any pre-existing hook logic.
+
+---
+
+## MCP Dispatcher
+
+The MCP server (`mcp/server.py`) uses **CWD routing**: at each tool invocation it calls `os.getcwd()` and walks up the directory tree looking for `.cerebrofy/config.yaml`. A single registered MCP server entry (`mcpServers.cerebrofy`) serves all repos on the machine — no per-repo registration needed.
+
+```
+AI calls search_code(query="rate limiting middleware")
+    │
+    ▼
+run_mcp_server() → call_tool("search_code", {"query": "..."})
+    │
+    ▼
+_find_repo_root(Path.cwd())       ← reads CWD at call time
+    │
+    ▼
+load_config(root / ".cerebrofy/config.yaml")
+    │
+    ▼
+embed_query(query, config.embedding_model)
+    │
+    ▼
+hybrid_search(query, db_path, embedding, ...)
+    │
+    ▼
+returns TextContent(type="text", text=<json ranked results>)
+```
 
 ---
 
@@ -337,33 +346,6 @@ Cerebrofy is designed so that new language support requires zero changes to the 
   module_name: (dotted_name) @import.path)
 ```
 
-The engine processes only the captures listed above. Any other captures in the `.scm` file are ignored.
-
----
-
-## MCP Dispatcher
-
-The MCP server (`mcp/server.py`) uses **CWD routing**: at each tool invocation, it calls `os.getcwd()` and walks up the directory tree looking for `.cerebrofy/config.yaml`. This means a single registered MCP server entry (`mcpServers.cerebrofy`) serves all repos on the machine — no per-repo registration needed.
-
-```
-AI tool calls cerebrofy/plan with description="add rate limiting"
-    │
-    ▼
-run_mcp_server() → call_tool("plan", {"description": "..."})
-    │
-    ▼
-_find_repo_root(Path.cwd())   ← reads CWD at call time
-    │
-    ▼
-load_config(root / ".cerebrofy/config.yaml")
-    │
-    ▼
-hybrid_search(...)            ← same logic as CLI cerebrofy plan
-    │
-    ▼
-returns TextContent(type="text", text=<json>)
-```
-
 ---
 
 ## Testing
@@ -375,11 +357,8 @@ uv run pytest
 # Unit tests only (fast, no filesystem)
 uv run pytest tests/unit/
 
-# Integration tests (use tmp_path, parse real Python files)
+# Integration tests (use tmp_path, build real cerebrofy.db)
 uv run pytest tests/integration/
-
-# Specific command
-uv run pytest tests/integration/test_plan_command.py -v
 ```
 
 Integration tests use `pytest`'s `tmp_path` fixture exclusively — they never touch the real filesystem outside `tmp_path`. No mocking of the database; tests build a real `cerebrofy.db` in a temporary directory.

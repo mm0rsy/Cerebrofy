@@ -7,13 +7,13 @@ Cerebrofy is configured through `.cerebrofy/config.yaml`, created automatically 
 ## Full Schema
 
 ```yaml
-# ── Lobes ────────────────────────────────────────────────────────────────────
+# ── Lobes ─────────────────────────────────────────────────────────────────────
 lobes:
   auth: src/auth/
   api: src/api/
   db: src/db/
 
-# ── Parser ───────────────────────────────────────────────────────────────────
+# ── Parser ────────────────────────────────────────────────────────────────────
 tracked_extensions:
   - .py
   - .ts
@@ -23,15 +23,7 @@ tracked_extensions:
 
 # ── Embedding ─────────────────────────────────────────────────────────────────
 embedding_model: local       # local | none
-
-# ── Hybrid Search ───────────────────────────────────────────────────────────────
-top_k: 10                    # default KNN top-k for plan / tasks (MCP tools)
-
-# ── LLM (reserved for future cerebrofy specify) ───────────────────────────────────
-# llm_endpoint: ""           # OpenAI-compatible base URL (not yet used by any command)
-# llm_model: ""              # Model identifier
-# llm_timeout: 60            # Max seconds to wait for full LLM response
-# system_prompt_template: "" # Path to custom .txt template
+```
 
 ---
 
@@ -39,11 +31,11 @@ top_k: 10                    # default KNN top-k for plan / tasks (MCP tools)
 
 ### `lobes`
 
-**Type**: `dict[str, str]`  
-**Required**: yes  
+**Type**: `dict[str, str]`
+**Required**: yes
 **Auto-detected by**: `cerebrofy init`
 
-Maps a short lobe name to a directory path (relative to repo root). Each lobe gets its own Markdown documentation file at `docs/cerebrofy/<name>_lobe.md`.
+Maps a short lobe name to a directory path (relative to repo root). Each lobe gets its own Markdown summary at `.cerebrofy/lobes/<name>_lobe.md`.
 
 ```yaml
 lobes:
@@ -52,14 +44,14 @@ lobes:
   root: .            # single-lobe fallback for flat repos
 ```
 
-Lobe names appear in `tasks` MCP tool output and are injected as context in `plan` and `tasks` results. A Neuron whose file path starts with `src/auth/` belongs to the `auth` lobe.
+Lobe names appear in `search_code` MCP tool results and in the blast-radius analysis. A neuron whose file path starts with `src/auth/` belongs to the `auth` lobe.
 
 ---
 
 ### `tracked_extensions`
 
-**Type**: `list[str]`  
-**Required**: yes  
+**Type**: `list[str]`
+**Required**: yes
 **Default** (from `cerebrofy init`):
 
 ```yaml
@@ -86,39 +78,28 @@ A Tree-sitter `.scm` query file must exist in `.cerebrofy/queries/` for each ext
 
 ### `embedding_model`
 
-**Type**: `string`  
-**Default**: `local`  
+**Type**: `string`
+**Default**: `local`
 **Options**: `local` | `none`
 
-Controls which embedding model is used at `cerebrofy build` time. The model name and vector dimension are stored in the database; **changing this field requires a full `cerebrofy build`** to rebuild the index.
+Controls which embedding model is used at `cerebrofy build` time. The model name and vector dimension are stored in the database — **changing this field requires a full `cerebrofy build`** to rebuild the index with the new model.
 
 | Value | Model | Dimensions | Notes |
 |-------|-------|------------|-------|
-| `local` | `BAAI/bge-small-en-v1.5` | 384 | Offline ONNX via `fastembed` (~130MB, cached after first build) |
-| `none` | — | — | Disables all embedding and KNN search |
+| `local` | `BAAI/bge-small-en-v1.5` | 384 | Offline ONNX via `fastembed` — bundled, no extra install, ~130MB cached after first build |
+| `none` | — | — | Disables embeddings and KNN search; `search_code` will return an error |
 
-The `local` model downloads ~130MB of ONNX weights on first use and caches them. All subsequent builds are fully offline. No API key or extra required.
-
----
-
-### `top_k`
-
-**Type**: `integer`  
-**Default**: `10`
-
-Default number of nearest-neighbor results used by the MCP `plan` and `tasks` tools (when implemented). Overridable per-call via the tool's `top_k` input field.
+The `local` model downloads ~130MB of ONNX weights on first use and caches them. All subsequent builds are fully offline with no API key or network access needed.
 
 ---
 
-### LLM fields (`llm_endpoint`, `llm_model`, `llm_timeout`, `system_prompt_template`)
-
-These fields exist in the config schema and are parsed by `CerebrоfyConfig` but are **not yet consumed by any command** — the `search/hybrid.py`, `llm/client.py`, and `commands/specify.py` modules are not yet implemented. Leave them commented out for now.
+## Ignore Files
 
 Cerebrofy reads two ignore files (gitignore syntax):
 
 | File | Scope |
 |------|-------|
-| `.gitignore` | Standard git ignores — applied to both indexing and `cerebrofy parse` |
+| `.gitignore` | Standard git ignores — applied to both indexing and git hook checks |
 | `.cerebrofy-ignore` | Cerebrofy-specific ignores — for files git tracks but you don't want indexed |
 
 Default `.cerebrofy-ignore` created by `cerebrofy init`:
@@ -140,20 +121,7 @@ Add patterns to `.cerebrofy-ignore` to exclude generated files, large asset dire
 
 ---
 
-## Environment Variables
-
-| Variable | When Used |
-|----------|-----------|
-| `OPENAI_API_KEY` | When `llm_endpoint` contains `openai` |
-| `LLM_API_KEY` | For all other LLM endpoints |
-
-API keys are never written to `config.yaml`. They are read exclusively from the environment at runtime.
-
----
-
-## Example Configurations
-
-### Minimal (offline, local model)
+## Minimal Example
 
 ```yaml
 lobes:
@@ -163,50 +131,4 @@ tracked_extensions:
   - .py
 
 embedding_model: local
-top_k: 10
 ```
-
-### With LLM spec generation (local embeddings + Ollama)
-
-```yaml
-lobes:
-  auth: src/auth/
-  api: src/api/
-  db: src/db/
-  frontend: frontend/src/
-
-tracked_extensions:
-  - .py
-  - .ts
-  - .tsx
-
-embedding_model: local
-top_k: 15
-
-llm_endpoint: http://localhost:11434/v1
-llm_model: llama3.1:70b
-llm_timeout: 180
-```
-
-Set the key: `export LLM_API_KEY=ollama` (Ollama ignores the key value but it must be non-empty)
-
-### With LLM spec generation (local embeddings + OpenAI)
-
-```yaml
-lobes:
-  auth: src/auth/
-  api: src/api/
-
-tracked_extensions:
-  - .py
-  - .ts
-
-embedding_model: local
-top_k: 15
-
-llm_endpoint: https://api.openai.com/v1
-llm_model: gpt-4o
-llm_timeout: 90
-```
-
-Set the key: `export OPENAI_API_KEY=sk-...`

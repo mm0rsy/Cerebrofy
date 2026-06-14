@@ -1,7 +1,7 @@
 """MCP stdio server for cerebrofy.
 
 Exposes six tools:
-  search_code         — stub: not yet available (requires search/hybrid.py)
+  search_code         — hybrid KNN + BFS semantic search (primary navigation)
   get_neuron          — fetch a single Neuron by name or file:line
   list_lobes          — return available lobes with summary file paths
   cerebrofy_build     — full atomic re-index
