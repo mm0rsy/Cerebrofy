@@ -1,9 +1,8 @@
 import json
 import sqlite3
-from pathlib import Path
 import pytest
 from cerebrofy.viz.graph_export import (
-    export_graph, VizGraph, VizNode, VizEdge, ANATOMICAL_REGIONS
+    export_graph, VizGraph, ANATOMICAL_REGIONS
 )
 
 
