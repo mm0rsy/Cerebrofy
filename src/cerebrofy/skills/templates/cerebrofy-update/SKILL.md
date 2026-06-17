@@ -5,12 +5,12 @@
 ## ⚠️ Navigation rule
 
 **Do not glob-read source files** to understand the codebase.
-Use `cerebrofy search "<query>"` or the Cerebrofy MCP tools. Only open a file
+Use the Cerebrofy MCP tools (`search_code`, `get_neuron`, `list_lobes`). Only open a file
 after cerebrofy has pointed you to it by file path and line number.
 
 ## When to use
 
-- After editing source files and before running `cerebrofy plan`, `tasks`, or `specify`.
+- After editing source files and before querying the index via MCP tools.
 - The git pre-push hook triggers this automatically, but you can run it manually.
 - The user says the index is "stale" or "out of date" for a few files.
 

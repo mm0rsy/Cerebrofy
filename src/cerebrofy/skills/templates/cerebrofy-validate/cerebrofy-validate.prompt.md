@@ -16,4 +16,4 @@ cerebrofy validate
 | 1 | Minor drift (whitespace/comments) — index is usable, run `cerebrofy update` when convenient |
 | 2 | Structural drift — run `cerebrofy update` or `cerebrofy build` before querying |
 
-Run this before using `cerebrofy plan` or `cerebrofy tasks` to confirm the index reflects the current code.
+Run this before querying the index via MCP tools to confirm it reflects the current code.

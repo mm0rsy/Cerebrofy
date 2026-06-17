@@ -19,10 +19,10 @@ AI_PROMPT_CLIENTS: set[str] = {"copilot"}
 # Map of --ai flag value → (prompt dest dir, prompt file suffix).
 # Only clients whose slash-command convention is known are listed.
 AI_PROMPT_DIRS: dict[str, tuple[str, str]] = {
-    "copilot":  (".github/prompts",   ".prompt.md"),
-    "vscode":   (".github/prompts",   ".prompt.md"),
-    "claude":   (".claude/commands",  ".md"),
-    "opencode": (".opencode/commands", ".md"),
+    "copilot":  (".github/prompts",              ".prompt.md"),  # /cerebrofy-build
+    "vscode":   (".github/prompts",              ".prompt.md"),  # /cerebrofy-build
+    "claude":   (".claude/commands/cerebrofy",   ".md"),         # /cerebrofy:build
+    "opencode": (".opencode/commands/cerebrofy", ".md"),         # /cerebrofy:build
 }
 
 # Global instructions file per AI client (relative to repo root).
@@ -52,10 +52,10 @@ The semantic index lives at `.cerebrofy/db/cerebrofy.db`.
 1. **NEVER glob-read or recursively open source files** to understand the codebase.
    The index already contains every function, class, and module with embeddings.
 
-2. **ALWAYS start with a cerebrofy query** when asked about code structure or behaviour:
-   ```bash
-   cerebrofy search "<your question in plain English>"
-   ```
+2. **ALWAYS start with an MCP tool call** when asked about code structure or behaviour:
+   - `search_code` — find code by meaning (semantic + graph search)
+   - `get_neuron` — fetch a specific function or class by name or file:line
+   - `list_lobes` — get the list of all modules with summary file paths
 
 3. Use the pre-built summaries for orientation — no parsing needed:
    - `.cerebrofy/cerebrofy_map.md` — full codebase map
@@ -63,9 +63,6 @@ The semantic index lives at `.cerebrofy/db/cerebrofy.db`.
 
 4. **Only open a specific source file** after cerebrofy has returned its file path and
    line number — and only to read or edit *that exact location*.
-
-5. If the Cerebrofy MCP server is running, prefer the MCP tools (`search_code`,
-   `get_neuron`, `list_lobes`) over the CLI — they return structured results directly.
 <!-- cerebrofy:end -->
 """
 
@@ -132,6 +129,9 @@ def install_skills(root: Path, ai_client: str, force: bool = False) -> list[str]
                 prompts_dir.mkdir(parents=True, exist_ok=True)
                 # Rewrite the filename extension to match the client's convention.
                 stem = prompt_src.stem.removesuffix(".prompt")  # e.g. cerebrofy-build
+                # claude/opencode use a cerebrofy/ subdir for namespacing → strip prefix
+                if ai_client in ("claude", "opencode"):
+                    stem = stem.removeprefix("cerebrofy-")       # build, search, update, validate
                 prompt_dest = prompts_dir / (stem + suffix)
                 if prompt_dest.exists() and not force:
                     warnings.append(

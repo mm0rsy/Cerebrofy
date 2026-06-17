@@ -18,6 +18,9 @@ venv/
 # Cerebrofy index (local artifact — never commit)
 .cerebrofy/db/
 
+# Graphify knowledge graph output (local artifact — never commit)
+graphify-out/
+
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/
 
@@ -28,3 +31,5 @@ venv/
 coverage.*
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/
+docs/competitive-landscape-2026-06.md
+.mcp.json

@@ -28,7 +28,8 @@ def test_build_default_config_returns_dict() -> None:
     assert result["lobes"] == {"src": "src/"}
     assert result["tracked_extensions"] == DEFAULT_TRACKED_EXTENSIONS
     assert result["embedding_model"] == "local"
-    assert result["top_k"] == 10
+    assert "top_k" not in result
+    assert "system_prompt_template" not in result
 
 
 def test_build_default_config_empty_lobes() -> None:
@@ -50,7 +51,6 @@ def test_write_and_load_config_roundtrip(tmp_path: Path) -> None:
     loaded = load_config(cfg_path)
     assert loaded.lobes == {"app": "src/app/"}
     assert loaded.embedding_model == "local"
-    assert loaded.top_k == 10
 
 
 def test_write_config_creates_parent_dirs(tmp_path: Path) -> None:
@@ -69,9 +69,6 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
         "lobes": {"api": "src/api/"},
         "tracked_extensions": [".py", ".ts"],
         "embedding_model": "openai",
-        "llm_endpoint": "https://api.openai.com/v1",
-        "llm_model": "gpt-4",
-        "top_k": 5,
     }
     cfg_path = tmp_path / "config.yaml"
     with open(cfg_path, "w") as f:
@@ -81,8 +78,6 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
     assert loaded.lobes == {"api": "src/api/"}
     assert loaded.tracked_extensions == [".py", ".ts"]
     assert loaded.embedding_model == "openai"
-    assert loaded.llm_model == "gpt-4"
-    assert loaded.top_k == 5
 
 
 def test_load_config_default_optional_fields(tmp_path: Path) -> None:
@@ -97,8 +92,6 @@ def test_load_config_default_optional_fields(tmp_path: Path) -> None:
 
     loaded = load_config(cfg_path)
     assert loaded.embedding_model == "local"
-    assert loaded.llm_endpoint == ""
-    assert loaded.top_k == 10
 
 
 # ---------------------------------------------------------------------------

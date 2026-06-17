@@ -1,0 +1,18 @@
+# Cerebrofy default ignore list — edit to customize
+node_modules/
+__pycache__/
+.git/
+dist/
+build/
+out/
+vendor/
+.venv/
+venv/
+*.min.js
+*.min.css
+*.map
+*.lock
+*.pyc
+*.egg-info/
+coverage/
+.nyc_output/

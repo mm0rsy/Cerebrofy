@@ -24,7 +24,7 @@
 # 🧠 Cerebrofy
 
 **AI-powered codebase intelligence CLI.**  
-Cerebrofy indexes your repository into a local graph + vector database, then lets you explore it, plan changes, and generate AI-grounded feature specs — all from the command line, all with zero code uploaded to any server.
+Cerebrofy indexes your repository into a local graph + vector database, then exposes it to AI assistants via MCP — letting them navigate your codebase with surgical precision instead of reading entire files. Zero code uploaded to any server.
 
 ```
 cerebrofy init && cerebrofy build
@@ -129,9 +129,7 @@ Run tests:
 ```bash
 # Unit + integration tests (no MCP)
 uv run pytest tests/unit/ tests/integration/test_update_command.py \
-  tests/integration/test_validate_command.py tests/integration/test_migrate_command.py \
-  tests/integration/test_plan_command.py tests/integration/test_tasks_command.py \
-  tests/integration/test_parse_command.py
+  tests/integration/test_validate_command.py tests/integration/test_migrate_command.py
 
 # Full suite including MCP integration tests
 uv sync --extra mcp --group dev
@@ -162,7 +160,7 @@ cerebrofy update
 cerebrofy validate
 ```
 
-Once the index is built, AI assistants with MCP configured can call `cerebrofy_build`, `cerebrofy_update`, and `cerebrofy_validate` directly. Search and planning tools are registered but not yet operational — see [MCP Tools](#mcp-tools) for status.
+Once the index is built, AI assistants with MCP configured can use all six tools directly — see [MCP Tools](#mcp-tools).
 
 ---
 
@@ -264,7 +262,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes eight registered tools; three are fully operational: `cerebrofy_build`, `cerebrofy_update`, `cerebrofy_validate`. Five (`search_code`, `get_neuron`, `list_lobes`, `plan`, `tasks`) are stubs pending implementation of `search/hybrid.py` and related modules. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes six fully operational tools: `search_code`, `get_neuron`, `list_lobes`, `cerebrofy_build`, `cerebrofy_update`, `cerebrofy_validate`. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -289,15 +287,15 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_build` | ✅ | Trigger a full atomic re-index from the AI client. |
 | `cerebrofy_update` | ✅ | Trigger an incremental re-index. Pass `path` to target a specific file. |
 | `cerebrofy_validate` | ✅ | Check for drift. Returns `clean`, `minor_drift`, or `structural_drift`. Zero writes. |
-| `search_code` | 🚧 WIP | Hybrid semantic + keyword search. Requires `search/hybrid.py` (not yet implemented). |
-| `get_neuron` | 🚧 WIP | Fetch a specific Neuron by name or file path. Requires DB schema alignment. |
-| `list_lobes` | 🚧 WIP | List indexed lobes with neuron counts. Requires DB schema alignment. |
+| `search_code` | ✅ | Hybrid KNN + BFS semantic search — primary navigation tool. |
+| `get_neuron` | ✅ | Fetch a specific Neuron by name or file:line. |
+| `list_lobes` | ✅ | List indexed lobes with summary file paths. |
 
 ---
 
 ## Lobes
 
-A **Lobe** is a named module group — typically one top-level directory in your repository. Cerebrofy auto-detects Lobes at `cerebrofy init` time. Each Lobe gets a Markdown documentation file at `docs/cerebrofy/<name>_lobe.md`.
+A **Lobe** is a named module group — typically one top-level directory in your repository. Cerebrofy auto-detects Lobes at `cerebrofy init` time. Each Lobe gets a Markdown summary at `.cerebrofy/lobes/<name>_lobe.md`.
 
 Lobes are configured in `.cerebrofy/config.yaml`:
 
@@ -366,7 +364,6 @@ tracked_extensions:
   - .go
 
 embedding_model: local      # local | none
-top_k: 10                   # default KNN results for plan/tasks
 ```
 
 ---
@@ -385,7 +382,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server. Three tools are fully operational today (`cerebrofy_build`, `cerebrofy_update`, `cerebrofy_validate`); five additional tools are registered stubs pending implementation.
+Cerebrofy ships an MCP stdio server with six fully operational tools.
 
 ```bash
 # Install with MCP support
