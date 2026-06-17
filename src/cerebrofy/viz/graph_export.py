@@ -6,6 +6,8 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import yaml
+
 ANATOMICAL_REGIONS = ["frontal", "parietal", "temporal", "occipital", "limbic"]
 
 
@@ -14,7 +16,7 @@ class VizNode:
     id: str
     name: str
     type: str
-    lobe: str    # code lobe name (from DB)
+    lobe: str    # code lobe name (from config.yaml lobes mapping)
     region: str  # anatomical region (one of ANATOMICAL_REGIONS)
     file: str
     line: int
@@ -54,21 +56,45 @@ def _assign_region(lobe: str, lobe_index: dict[str, int]) -> str:
     return ANATOMICAL_REGIONS[lobe_index.get(lobe, 0) % len(ANATOMICAL_REGIONS)]
 
 
+def _load_lobe_map(db_path: Path) -> dict[str, str]:
+    """Read config.yaml and return {lobe_name: directory_prefix} mapping."""
+    config_path = db_path.parent.parent / "config.yaml"
+    if not config_path.exists():
+        return {}
+    with config_path.open() as f:
+        cfg = yaml.safe_load(f) or {}
+    return cfg.get("lobes", {})
+
+
+def _file_to_lobe(file: str, lobe_map: dict[str, str]) -> str:
+    """Return the lobe name whose directory prefix best matches the file path."""
+    best_lobe, best_len = "unknown", 0
+    for lobe, prefix in lobe_map.items():
+        if file.startswith(prefix) and len(prefix) > best_len:
+            best_lobe, best_len = lobe, len(prefix)
+    return best_lobe
+
+
 def export_graph(db_path: Path) -> VizGraph:
     """Read nodes and edges from cerebrofy.db and return a VizGraph."""
+    lobe_map = _load_lobe_map(db_path)
+
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
         node_rows = con.execute(
-            "SELECT id, name, type, lobe, file, line_start FROM nodes ORDER BY lobe, name"
+            "SELECT id, name, type, file, line_start FROM nodes ORDER BY file, name"
         ).fetchall()
 
         seen: set[str] = set()
         unique_lobes: list[str] = []
+        row_lobes: list[str] = []
         for r in node_rows:
-            if r["lobe"] not in seen:
-                unique_lobes.append(r["lobe"])
-                seen.add(r["lobe"])
+            lobe = _file_to_lobe(r["file"], lobe_map)
+            row_lobes.append(lobe)
+            if lobe not in seen:
+                unique_lobes.append(lobe)
+                seen.add(lobe)
         lobe_index = {lobe: i for i, lobe in enumerate(unique_lobes)}
 
         nodes = [
@@ -76,12 +102,12 @@ def export_graph(db_path: Path) -> VizGraph:
                 id=r["id"],
                 name=r["name"],
                 type=r["type"],
-                lobe=r["lobe"],
-                region=_assign_region(r["lobe"], lobe_index),
+                lobe=row_lobes[i],
+                region=_assign_region(row_lobes[i], lobe_index),
                 file=r["file"],
                 line=r["line_start"],
             )
-            for r in node_rows
+            for i, r in enumerate(node_rows)
         ]
 
         edge_rows = con.execute(
@@ -93,8 +119,7 @@ def export_graph(db_path: Path) -> VizGraph:
             for r in edge_rows
         ]
 
-        # repo name = grandparent of .cerebrofy/db/cerebrofy.db
-        repo = db_path.parent.parent.parent.name
+        repo = db_path.parent.parent.parent.resolve().name
 
         return VizGraph(
             nodes=nodes,
