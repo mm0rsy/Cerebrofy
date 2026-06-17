@@ -12,7 +12,6 @@ import sqlite_vec  # type: ignore[import-untyped]
 from cerebrofy.db.schema import create_schema
 from cerebrofy.search.hybrid import (
     HybridSearchResult,
-    MatchedNeuron,
     RuntimeBoundaryWarning,
     _resolve_lobe,
     embed_query,
