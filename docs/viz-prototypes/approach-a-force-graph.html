@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cerebrofy Viz — Approach A</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #00000f; overflow: hidden; font-family: monospace; }
+    #graph { width: 100vw; height: 100vh; }
+    #label { position: fixed; top: 16px; left: 16px; color: #4fc3f7; font-size: 13px; line-height: 1.7; z-index: 10; pointer-events: none; }
+    #label small { color: #555; font-size: 11px; display: block; }
+    .legend { position: fixed; bottom: 16px; left: 16px; display: flex; flex-direction: column; gap: 5px; z-index: 10; pointer-events: none; }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: #aaa; font-size: 11px; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+<div id="label">
+  APPROACH A — 3d-force-graph + d3.forceRadial
+  <small>Battle-tested physics · Fast to build · No post-processing bloom</small>
+</div>
+<div class="legend">
+  <div class="legend-item"><div class="dot" style="background:#4fc3f7"></div>Frontal</div>
+  <div class="legend-item"><div class="dot" style="background:#81c784"></div>Parietal</div>
+  <div class="legend-item"><div class="dot" style="background:#ffb74d"></div>Temporal</div>
+  <div class="legend-item"><div class="dot" style="background:#f06292"></div>Occipital</div>
+  <div class="legend-item"><div class="dot" style="background:#ce93d8"></div>Limbic</div>
+</div>
+<div id="graph"></div>
+
+<script src="vendor/3d-force-graph.min.js"></script>
+<script src="vendor/d3.min.js"></script>
+<script>
+const LOBES = [
+  { id: 'frontal',   color: '#4fc3f7', cx: -110, cy:  55, cz:   0 },
+  { id: 'parietal',  color: '#81c784', cx:   65, cy:  95, cz:   0 },
+  { id: 'temporal',  color: '#ffb74d', cx:    0, cy: -65, cz:  95 },
+  { id: 'occipital', color: '#f06292', cx:   95, cy:   0, cz: -55 },
+  { id: 'limbic',    color: '#ce93d8', cx:    0, cy:   0, cz:   0 },
+];
+
+const nodes = [], links = [];
+
+LOBES.forEach(lobe => {
+  for (let i = 0; i < 10; i++) {
+    nodes.push({ id: `${lobe.id}_${i}`, lobe: lobe.id, color: lobe.color });
+  }
+});
+
+nodes.forEach(n => {
+  const same = nodes.filter(m => m.lobe === n.lobe && m.id !== n.id);
+  same.slice(0, 2).forEach(t => { if (Math.random() < 0.6) links.push({ source: n.id, target: t.id }); });
+  if (Math.random() < 0.14) {
+    const cross = nodes.filter(m => m.lobe !== n.lobe);
+    const t = cross[Math.floor(Math.random() * cross.length)];
+    if (t) links.push({ source: n.id, target: t.id });
+  }
+});
+
+const lobeCenters = {};
+LOBES.forEach(l => { lobeCenters[l.id] = { x: l.cx, y: l.cy, z: l.cz }; });
+
+const Graph = ForceGraph3D()(document.getElementById('graph'))
+  .width(window.innerWidth)
+  .height(window.innerHeight)
+  .backgroundColor('#00000f')
+  .nodeColor(n => n.color)
+  .nodeOpacity(0.95)
+  .nodeResolution(16)
+  .nodeVal(3)
+  .linkColor(link => {
+    const src = typeof link.source === 'object' ? link.source : nodes.find(n => n.id === link.source);
+    return src ? src.color + '88' : '#ffffff44';
+  })
+  .linkWidth(0.7)
+  .linkOpacity(0.5)
+  .graphData({ nodes, links });
+
+Graph.controls().autoRotate = true;
+Graph.controls().autoRotateSpeed = 0.5;
+
+Graph.d3Force('clusterX', d3.forceX(n => lobeCenters[n.lobe].x).strength(0.35));
+Graph.d3Force('clusterY', d3.forceY(n => lobeCenters[n.lobe].y).strength(0.35));
+Graph.d3Force('clusterZ', d3.forceZ(n => lobeCenters[n.lobe].z).strength(0.35));
+Graph.d3Force('charge').strength(-90);
+</script>
+</body>
+</html>
