@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -268,7 +268,6 @@ def hybrid_search(
         # Phase 1: KNN
         knn_hits = _knn_search(conn, embedding, top_k)
         knn_ids = [nid for nid, _ in knn_hits]
-        similarity_map: dict[str, float] = {nid: sim for nid, sim in knn_hits}
 
         # Fetch node details for KNN hits
         knn_nodes = _fetch_nodes_by_ids(conn, knn_ids)
