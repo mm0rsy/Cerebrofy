@@ -10,16 +10,18 @@ from cerebrofy.viz.graph_export import (
 def db_path(tmp_path):
     db = tmp_path / ".cerebrofy" / "db" / "cerebrofy.db"
     db.parent.mkdir(parents=True)
+    # config.yaml so _file_to_lobe maps test files to known lobes (not filtered as "unknown")
+    (db.parent.parent / "config.yaml").write_text("lobes:\n  pkg: pkg\n  cmd: cmd\n")
     con = sqlite3.connect(db)
     con.executescript("""
         CREATE TABLE nodes (
-            id TEXT, name TEXT, type TEXT, lobe TEXT,
-            file TEXT, line_start INTEGER, line_end INTEGER
+            id TEXT, name TEXT, type TEXT,
+            file TEXT, line_start INTEGER, line_end INTEGER, docstring TEXT
         );
         CREATE TABLE edges (src_id TEXT, dst_id TEXT, rel_type TEXT);
-        INSERT INTO nodes VALUES ('pkg::foo','foo','function','pkg','pkg.py',1,5);
-        INSERT INTO nodes VALUES ('pkg::bar','bar','function','pkg','pkg.py',7,12);
-        INSERT INTO nodes VALUES ('cmd::run','run','function','cmd','cmd.py',1,10);
+        INSERT INTO nodes VALUES ('pkg::foo','foo','function','pkg.py',1,5,NULL);
+        INSERT INTO nodes VALUES ('pkg::bar','bar','function','pkg.py',7,12,'A bar.');
+        INSERT INTO nodes VALUES ('cmd::run','run','function','cmd.py',1,10,NULL);
         INSERT INTO edges VALUES ('pkg::foo','pkg::bar','CALLS');
         INSERT INTO edges VALUES ('pkg::foo','cmd::run','RUNTIME_BOUNDARY');
     """)
@@ -64,4 +66,4 @@ def test_meta_counts(db_path):
 def test_to_json_produces_valid_structure(db_path):
     data = json.loads(export_graph(db_path).to_json())
     assert set(data.keys()) == {"nodes", "edges", "meta"}
-    assert data["nodes"][0].keys() >= {"id", "name", "type", "lobe", "region", "file", "line"}
+    assert data["nodes"][0].keys() >= {"id", "name", "type", "lobe", "region", "file", "line", "in_degree", "out_degree", "is_entry"}

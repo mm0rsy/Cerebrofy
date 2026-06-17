@@ -16,7 +16,8 @@ def static_dir(tmp_path):
 def graph():
     return VizGraph(
         nodes=[VizNode(id="a::b", name="b", type="function",
-                       lobe="a", region="frontal", file="a.py", line=1)],
+                       lobe="a", region="frontal", file="a.py", line=1,
+                       docstring="", in_degree=0, out_degree=0, is_entry=False)],
         edges=[VizEdge(src="a::b", dst="a::b", rel="CALLS")],
         meta=VizMeta(repo="test", node_count=1, edge_count=1, lobe_count=1),
     )
