@@ -1,4 +1,4 @@
-"""Unit tests for hook sentinel helpers: _get_hook_version, _replace_hook_block (T079)."""
+"""Unit tests for hook sentinel helpers: _get_hook_version, _replace_hook_block."""
 
 from __future__ import annotations
 

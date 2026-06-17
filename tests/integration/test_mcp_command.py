@@ -31,7 +31,7 @@ def test_mcp_import_guard(monkeypatch: pytest.MonkeyPatch) -> None:
         result = runner.invoke(main, ["mcp"])
 
     assert result.exit_code == 1
-    assert "mcp" in result.output.lower() or "mcp" in (result.exception or "")
+    assert "mcp" in result.output.lower() or "mcp" in str(result.exception or "")
     assert "pip install" in result.output or "cerebrofy[mcp]" in result.output
 
 
