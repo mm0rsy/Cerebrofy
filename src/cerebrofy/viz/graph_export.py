@@ -16,10 +16,14 @@ class VizNode:
     id: str
     name: str
     type: str
-    lobe: str    # code lobe name (from config.yaml lobes mapping)
-    region: str  # anatomical region (one of ANATOMICAL_REGIONS)
+    lobe: str      # code lobe name (from config.yaml lobes mapping)
+    region: str    # anatomical region (one of ANATOMICAL_REGIONS)
     file: str
     line: int
+    docstring: str
+    in_degree: int   # edges arriving at this node
+    out_degree: int  # edges leaving this node
+    is_entry: bool   # True for CLI entry points (commands/ or cli.py)
 
 
 @dataclass(frozen=True)
@@ -83,7 +87,7 @@ def export_graph(db_path: Path) -> VizGraph:
     con.row_factory = sqlite3.Row
     try:
         node_rows = con.execute(
-            "SELECT id, name, type, file, line_start FROM nodes ORDER BY file, name"
+            "SELECT id, name, type, file, line_start, docstring FROM nodes ORDER BY file, name"
         ).fetchall()
 
         seen: set[str] = set()
@@ -97,6 +101,29 @@ def export_graph(db_path: Path) -> VizGraph:
                 seen.add(lobe)
         lobe_index = {lobe: i for i, lobe in enumerate(unique_lobes)}
 
+        # Collect valid rows (exclude unknown-lobe files such as tests)
+        valid_rows = [
+            (i, r) for i, r in enumerate(node_rows) if row_lobes[i] != "unknown"
+        ]
+        valid_ids = {r["id"] for _, r in valid_rows}
+
+        # Build edges first so we can compute per-node degree before freezing VizNodes
+        edge_rows = con.execute(
+            "SELECT src_id, dst_id, rel_type FROM edges"
+            " WHERE rel_type != 'RUNTIME_BOUNDARY'"
+        ).fetchall()
+        edges = [
+            VizEdge(src=r["src_id"], dst=r["dst_id"], rel=r["rel_type"])
+            for r in edge_rows
+            if r["src_id"] in valid_ids and r["dst_id"] in valid_ids
+        ]
+
+        in_degrees: dict[str, int] = {r["id"]: 0 for _, r in valid_rows}
+        out_degrees: dict[str, int] = {r["id"]: 0 for _, r in valid_rows}
+        for e in edges:
+            out_degrees[e.src] += 1
+            in_degrees[e.dst] += 1
+
         nodes = [
             VizNode(
                 id=r["id"],
@@ -106,17 +133,12 @@ def export_graph(db_path: Path) -> VizGraph:
                 region=_assign_region(row_lobes[i], lobe_index),
                 file=r["file"],
                 line=r["line_start"],
+                docstring=r["docstring"] or "",
+                in_degree=in_degrees.get(r["id"], 0),
+                out_degree=out_degrees.get(r["id"], 0),
+                is_entry=in_degrees.get(r["id"], 0) == 0 and out_degrees.get(r["id"], 0) > 0,
             )
-            for i, r in enumerate(node_rows)
-        ]
-
-        edge_rows = con.execute(
-            "SELECT src_id, dst_id, rel_type FROM edges"
-            " WHERE rel_type != 'RUNTIME_BOUNDARY'"
-        ).fetchall()
-        edges = [
-            VizEdge(src=r["src_id"], dst=r["dst_id"], rel=r["rel_type"])
-            for r in edge_rows
+            for i, r in valid_rows
         ]
 
         repo = db_path.parent.parent.parent.resolve().name

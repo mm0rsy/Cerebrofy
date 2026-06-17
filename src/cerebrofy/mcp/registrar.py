@@ -145,16 +145,6 @@ def find_writable_mcp_config() -> Path:
     return fallback
 
 
-def read_mcp_config(config_path: Path) -> dict:  # type: ignore[type-arg]
-    """Read and parse JSON from config_path; returns empty dict if absent or malformed."""
-    if not config_path.exists():
-        return {}
-    try:
-        return json.loads(config_path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
 def detect_multiple_installations() -> list[str]:
     """Return all cerebrofy binary paths found on PATH (via which/where)."""
     import shutil

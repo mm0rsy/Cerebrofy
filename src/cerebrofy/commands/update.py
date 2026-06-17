@@ -6,7 +6,6 @@ import hashlib
 import sqlite3
 import sys
 import time
-from dataclasses import dataclass
 from pathlib import Path
 
 import rich_click as click
@@ -42,16 +41,6 @@ from cerebrofy.update.change_detector import ChangeSet, detect_changes
 from cerebrofy.update.scope_resolver import UpdateScope, resolve_scope
 
 
-@dataclass(frozen=True)
-class UpdateResult:
-    files_changed: int
-    nodes_reindexed: int
-    nodes_deleted: int
-    new_state_hash: str
-    duration_s: float
-    model_was_cold: bool
-
-
 def _check_index_exists(repo_root: Path) -> Path:
     """Return db_path or exit 1 with error if index is missing."""
     db_path = repo_root / ".cerebrofy" / "db" / "cerebrofy.db"
@@ -61,13 +50,6 @@ def _check_index_exists(repo_root: Path) -> Path:
         )
         raise SystemExit(1)
     return db_path
-
-
-def _compute_new_state_hash(conn: sqlite3.Connection) -> str:
-    """Compute state_hash from current file_hashes table using same formula as build."""
-    rows = conn.execute("SELECT file, hash FROM file_hashes").fetchall()
-    file_hash_map = {file: hash_ for file, hash_ in rows}
-    return compute_state_hash(file_hash_map)
 
 
 def _run_update_transaction(

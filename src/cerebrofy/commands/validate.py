@@ -3,21 +3,12 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 import rich_click as click
 
 from cerebrofy.db.connection import check_schema_version
-from cerebrofy.validate.drift_classifier import DriftRecord, classify_drift
-
-
-@dataclass(frozen=True)
-class ValidationResult:
-    exit_code: int
-    drift_type: str
-    structural_records: tuple[DriftRecord, ...]
-    minor_records: tuple[DriftRecord, ...]
+from cerebrofy.validate.drift_classifier import classify_drift
 
 
 @click.command("validate")
