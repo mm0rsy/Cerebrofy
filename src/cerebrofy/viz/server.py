@@ -70,3 +70,6 @@ class VizServer:
         if self._server:
             self._server.shutdown()
             self._server = None
+        if self._thread:
+            self._thread.join(timeout=2)
+            self._thread = None
