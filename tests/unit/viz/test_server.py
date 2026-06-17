@@ -56,6 +56,8 @@ def test_port_retry_on_conflict(static_dir, graph):
         srv = VizServer(static_dir, graph, port=17340)
         actual = srv.start()
         assert actual != 17340
+        with urllib.request.urlopen(f"http://127.0.0.1:{actual}/index.html") as r:
+            assert r.status == 200
         srv.stop()
     finally:
         blocker.close()
