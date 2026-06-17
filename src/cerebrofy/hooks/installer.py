@@ -20,7 +20,11 @@ HOOK_VERSION_MARKER = "# cerebrofy-hook-version:"
 HOOK_SCRIPT_BLOCK = """\
 {marker_start}
 # cerebrofy-hook-version: 1
-cerebrofy validate --hook {{hook_name}}
+if ! cerebrofy validate --hook {{hook_name}} 2>/dev/null; then
+    echo 'Cerebrofy: drift detected — auto-syncing index...'
+    cerebrofy update || {{ echo 'Cerebrofy: index update failed. Push blocked.' >&2; exit 1; }}
+    echo 'Cerebrofy: index synced.'
+fi
 {marker_end}
 """.format(marker_start=HOOK_MARKER_START, marker_end=HOOK_MARKER_END)
 
