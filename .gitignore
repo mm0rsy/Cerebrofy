@@ -3,6 +3,8 @@
 .claude/
 .copilot/
 
+docs/cerebrofy/
+
 
 # Python
 __pycache__/
@@ -16,7 +18,8 @@ venv/
 *.egg
 
 # Cerebrofy index (local artifact — never commit)
-.cerebrofy/db/
+.cerebrofy/
+
 
 # Graphify knowledge graph output (local artifact — never commit)
 graphify-out/
@@ -33,3 +36,4 @@ coverage.*
 .squad/
 docs/competitive-landscape-2026-06.md
 .mcp.json
+
