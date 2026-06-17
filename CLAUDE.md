@@ -107,6 +107,7 @@ cerebrofy build
 cerebrofy update --all
 cerebrofy update <path>
 cerebrofy validate
+cerebrofy viz
 
 
 ## Code Style
@@ -122,7 +123,7 @@ cerebrofy validate
 - **Law I**: `cerebrofy init` MUST NOT create `cerebrofy.db`. Never write to `.cerebrofy/db/` during init.
 - **Law II**: All call edges stored in `edges` table. `RUNTIME_BOUNDARY` edges stored but NEVER traversed in BFS.
 - **Law III**: Every Neuron in `nodes` MUST have a corresponding row in `vec_neurons` after a completed build.
-- **Law IV**: Hooks are WARN-only in Phase 1. Hard-block (exit 1) is Phase 3 (after `cerebrofy update` verified).
+- **Law IV**: Pre-push hook (v1) auto-runs `cerebrofy update` on drift, then proceeds. Only blocks if `cerebrofy update` itself fails. Hard-block mode (v2, no auto-update) is Phase 3.
 - **Law V**: Zero language-specific logic in `parser/engine.py` or `graph/resolver.py`. All language rules in `.scm` files.
 - **Atomic swap**: `cerebrofy build` writes to `cerebrofy.db.tmp`; swaps via `os.replace()` on success only.
 - **Schema version check**: Every `open_db()` call MUST read `meta.schema_version` before any read or write.
@@ -154,7 +155,18 @@ cerebrofy validate
   5 operational + 1 stub (search_code). `search/hybrid.py` is the sole remaining
   NOT YET IMPLEMENTED item.
 
-- **AI enforcement layer** (current): Added `skills/installer.py` — `install_instructions()`
+- **cerebrofy viz + dead code removal** (2026-06-18): Added `cerebrofy viz` command — interactive
+  3D brain visualization of the codebase call graph served at `http://localhost:7331`. Nodes use
+  a flow-based red→green HSL gradient (red = pure sources, green = leaves) computed from
+  `in_degree`/`out_degree`; source nodes placed at the cortex surface, interior nodes fill the
+  full brain volume via uniform sphere sampling. Entry point detection is topology-based
+  (`in_degree==0 && out_degree>0`), making viz portable to any Python project.
+  Removed 4 confirmed dead-code items: `UpdateResult`, `_compute_new_state_hash`,
+  `ValidationResult`, `read_mcp_config`. Fixed pre-push hook to auto-run `cerebrofy update`
+  on drift instead of just blocking. Key files: `viz/graph_export.py`, `viz/server.py`,
+  `viz/static/index.html`, `commands/viz.py`.
+
+- **AI enforcement layer** (2026-06-14): Added `skills/installer.py` — `install_instructions()`
   writes a fenced navigation rules block (never glob-read, always use search_code, use
   cerebrofy_map.md and lobe summaries) to AI client instructions files (CLAUDE.md,
   .github/copilot-instructions.md, .opencode/instructions.md). Block is idempotent

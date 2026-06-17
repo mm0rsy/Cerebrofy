@@ -266,6 +266,30 @@ Exposes six fully operational tools: `search_code`, `get_neuron`, `list_lobes`, 
 
 ---
 
+### `cerebrofy viz`
+
+Launch an interactive **3D brain visualization** of your codebase's call graph in the browser.
+
+```bash
+cerebrofy viz
+# → Serving at http://localhost:7331
+```
+
+Each node is a function, class, or module. Color encodes its position in the call graph:
+
+| Color | Meaning |
+|-------|---------|
+| 🔴 Red | Pure sources — entry points called by nothing (CLI commands, top-level scripts) |
+| 🟠 Orange / 🟡 Yellow | Mid-graph — both call and are called |
+| 🟢 Green | Pure leaves — utilities called by others, call nothing |
+| 🟤 Grey-gold | Isolated — no edges in the filtered graph |
+
+Nodes are distributed throughout the **full brain interior** using volumetric sphere sampling. Source nodes are placed at the cortex surface. Clicking any node shows its docstring and metadata in a side panel.
+
+Works on any cerebrofy-indexed Python project — no project-specific configuration required.
+
+---
+
 ### `cerebrofy migrate`
 
 Run sequential schema migration scripts.
@@ -340,10 +364,10 @@ Cerebrofy installs two hooks at `cerebrofy init` time:
 
 | Hook | Trigger | Behavior |
 |------|---------|----------|
-| `pre-push` | Before `git push` | Runs `cerebrofy validate`. Warns on minor drift; hard-blocks on structural drift after the hook is upgraded. |
+| `pre-push` | Before `git push` | Runs `cerebrofy validate`. If drift is detected, **auto-runs `cerebrofy update`** and retries. Blocks push only if `cerebrofy update` itself fails. |
 | `post-merge` | After `git pull` / merge | Compares remote `state_hash` against local index; warns if out of sync. |
 
-The pre-push hook starts in **warn-only** mode (v1). After `cerebrofy update` completes in under 2 seconds, it is automatically upgraded to **hard-block** mode (v2), preventing commits with a stale index from reaching the remote.
+The pre-push hook (v1) validates on every push and **automatically re-indexes** when structural drift is detected, so you never need to remember to run `cerebrofy update` before pushing. After `cerebrofy update` completes in under 2 seconds, it can be upgraded to hard-block mode (v2) via `upgrade_hook()`.
 
 ---
 
