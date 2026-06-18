@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cerebrofy — Neural Brain Viz</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { background: #000; overflow: hidden; font-family: monospace; }
+    canvas { display: block; }
+    #status { position: fixed; top: 16px; right: 16px; color: #335; font-size: 11px; z-index: 20; }
+    #label  { position: fixed; top: 16px; left: 16px; color: #4fc3f7; font-size: 13px;
+               line-height: 1.7; z-index: 10; pointer-events: none; }
+    #label small { color: #446; font-size: 11px; display: block; }
+    .legend { position: fixed; bottom: 16px; left: 16px; display: flex;
+               flex-direction: column; gap: 5px; z-index: 10; pointer-events: none; }
+    .legend-item { display: flex; align-items: center; gap: 8px; color: #778; font-size: 11px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+<div id="status">loading…</div>
+<div id="label">CEREBROFY — Neural Graph Visualisation
+  <small>Nodes on cortical surface · Signals travel along axon paths</small>
+</div>
+<div class="legend">
+  <div class="legend-item"><div class="dot" style="background:#4fc3f7"></div>Frontal</div>
+  <div class="legend-item"><div class="dot" style="background:#81c784"></div>Parietal</div>
+  <div class="legend-item"><div class="dot" style="background:#ffb74d"></div>Temporal</div>
+  <div class="legend-item"><div class="dot" style="background:#f06292"></div>Occipital</div>
+  <div class="legend-item"><div class="dot" style="background:#ce93d8"></div>Limbic</div>
+</div>
+
+<script type="module">
+import * as THREE from './vendor/three.module.js';
+import { OrbitControls }   from './vendor/jsm/controls/OrbitControls.js';
+import { EffectComposer }  from './vendor/jsm/postprocessing/EffectComposer.js';
+import { RenderPass }      from './vendor/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from './vendor/jsm/postprocessing/UnrealBloomPass.js';
+import { GLTFLoader }      from './vendor/jsm/loaders/GLTFLoader.js';
+
+const status = id => document.getElementById('status').textContent = id;
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+const W = window.innerWidth, H = window.innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ReinhardToneMapping;
+renderer.toneMappingExposure = 1.6;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000510);
+
+const camera = new THREE.PerspectiveCamera(50, W/H, 0.1, 2000);
+camera.position.set(0, 40, 310);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.04;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.28;
+controls.target.set(0, 10, 0);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(W,H), 2.6, 0.65, 0.03));
+
+// Lights
+scene.add(new THREE.AmbientLight(0x0a1828, 3.0));
+const key = new THREE.DirectionalLight(0x3399cc, 1.8); key.position.set(1, 1.5, 1); scene.add(key);
+const fill = new THREE.DirectionalLight(0x112244, 0.8); fill.position.set(-1,-0.5,-1); scene.add(fill);
+const top  = new THREE.PointLight(0x224466, 1.2, 600); top.position.set(0, 200, 0); scene.add(top);
+
+// ── Noise ─────────────────────────────────────────────────────────────────────
+function h3(xi,yi,zi){ return((Math.sin(xi*127.1+yi*311.7+zi*74.7)*43758.5453)%1+1)%1; }
+function sm(t){ return t*t*(3-2*t); }
+function lerp(a,b,t){ return a+t*(b-a); }
+function noise3(x,y,z){
+  const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z);
+  const fx=x-ix,fy=y-iy,fz=z-iz;
+  const ux=sm(fx),uy=sm(fy),uz=sm(fz);
+  return lerp(
+    lerp(lerp(h3(ix,iy,iz),h3(ix+1,iy,iz),ux),lerp(h3(ix,iy+1,iz),h3(ix+1,iy+1,iz),ux),uy),
+    lerp(lerp(h3(ix,iy,iz+1),h3(ix+1,iy,iz+1),ux),lerp(h3(ix,iy+1,iz+1),h3(ix+1,iy+1,iz+1),ux),uy),
+    uz);
+}
+// Ridged multifractal — creates sharp ridge/valley topology like cortical gyri
+function ridgedMF(x,y,z){
+  let v=0, amp=1, freq=1, prev=1;
+  for(let i=0;i<5;i++){
+    const n = 1 - Math.abs(noise3(x*freq,y*freq,z*freq)*2-1);
+    v += n*n*amp*prev;
+    prev = n*n;
+    amp *= 0.5; freq *= 2.1;
+  }
+  return v;
+}
+
+// ── Procedural brain geometry ─────────────────────────────────────────────────
+function makeBrainGeo(){
+  const R=88, geo=new THREE.IcosahedronGeometry(R,6), pos=geo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    const v=new THREE.Vector3(pos.getX(i),pos.getY(i),pos.getZ(i));
+    const n=v.clone().normalize();
+
+    // ── Anatomical shape ──────────────────────────────────────────────────
+    let sx=1.02, sy=0.87, sz=1.22;
+
+    // Temporal lobes — bulge laterally and downward
+    const temp = Math.pow(Math.abs(n.x),1.2)*Math.max(0,-n.y+0.3)*Math.max(0,1-Math.abs(n.z));
+    sx += temp*0.22; sy -= temp*0.10;
+
+    // Frontal — rounded forward bulge
+    sz += Math.max(0,n.z)*Math.max(0,n.y+0.25)*0.10;
+
+    // Flatten base where brain sits on skull
+    sy -= Math.max(0,-n.y-0.15)*0.6;
+
+    const sh = new THREE.Vector3(n.x*sx,n.y*sy,n.z*sz).normalize();
+
+    // ── Major anatomical sulci ────────────────────────────────────────────
+    // Interhemispheric fissure — deep groove at x≈0, widest at top
+    const fissure  = Math.exp(-sh.x*sh.x*28)*Math.max(0,sh.y+0.05)*0.17;
+    // Central sulcus — separates frontal and parietal
+    const central  = Math.exp(-(sh.z-0.05)*(sh.z-0.05)*55)*Math.max(0,sh.y-0.3)*0.065;
+    // Sylvian fissure — lateral sulcus, between temporal and frontal/parietal
+    const sylvian  = Math.exp(-(sh.y+0.2)*(sh.y+0.2)*20)*Math.max(0,Math.abs(sh.x)-0.3)*0.07;
+    // Parieto-occipital sulcus
+    const pariOcc  = Math.exp(-(sh.z+0.45)*(sh.z+0.45)*40)*Math.max(0,sh.y-0.15)*0.05;
+
+    const majorSulci = fissure + central + sylvian + pariOcc;
+
+    // ── Cortical folds via domain-warped ridged MF ────────────────────────
+    const s=2.6;
+    const wx = noise3(sh.x*s+1.7, sh.y*s+0.3, sh.z*s+0.9)*0.30;
+    const wy = noise3(sh.x*s+3.2, sh.y*s+2.1, sh.z*s+1.4)*0.30;
+    const wz = noise3(sh.x*s+0.5, sh.y*s+4.7, sh.z*s+2.8)*0.30;
+    // Two octave ridged MF at different scales for major gyri + minor gyri
+    const gyriLarge = ridgedMF(sh.x*s+wx, sh.y*s+wy, sh.z*s+wz)*9.0;
+    const gyriSmall = ridgedMF(sh.x*s*2+wy, sh.y*s*2+wz, sh.z*s*2+wx)*3.5;
+    const folds = gyriLarge + gyriSmall - 8;
+
+    const r = R*(1-majorSulci) + folds;
+    v.set(sh.x*r, sh.y*r, sh.z*r);
+    pos.setXYZ(i,v.x,v.y,v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// ── GLSL shaders ──────────────────────────────────────────────────────────────
+const nodeVert = `
+  attribute vec3 instanceColor;
+  varying vec3 vColor; varying vec3 vNormal; varying vec3 vViewDir;
+  void main() {
+    vColor=instanceColor;
+    vec4 wp=modelMatrix*instanceMatrix*vec4(position,1.0);
+    vNormal=normalize(mat3(modelMatrix)*mat3(instanceMatrix)*normal);
+    vViewDir=normalize(cameraPosition-wp.xyz);
+    gl_Position=projectionMatrix*viewMatrix*wp;
+  }`;
+const nodeFrag = `
+  varying vec3 vColor; varying vec3 vNormal; varying vec3 vViewDir;
+  void main(){
+    float rim=pow(1.0-clamp(dot(normalize(vNormal),normalize(vViewDir)),0.0,1.0),1.4);
+    float core=pow(clamp(dot(normalize(vNormal),normalize(vViewDir)),0.0,1.0),4.0)*0.25;
+    gl_FragColor=vec4(vColor*(core+rim*3.4),1.0);
+  }`;
+
+const edgeVert = `
+  attribute float t; attribute vec3 colA; attribute vec3 colB;
+  varying float vT; varying vec3 vCA; varying vec3 vCB;
+  void main(){ vT=t;vCA=colA;vCB=colB; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const edgeFrag = `
+  varying float vT; varying vec3 vCA; varying vec3 vCB;
+  void main(){
+    float a=0.8*sin(vT*3.14159);
+    gl_FragColor=vec4(mix(vCA,vCB,vT)*2.2,a);
+  }`;
+
+const partVert = `
+  attribute vec3 pColor; attribute float phase;
+  varying vec3 vColor;
+  uniform float uTime;
+  void main(){
+    vColor=pColor;
+    float p=0.5+0.5*sin(uTime*5.0+phase);
+    vec4 mv=modelViewMatrix*vec4(position,1.0);
+    gl_PointSize=(2.0+p*3.5)*(260.0/-mv.z);
+    gl_Position=projectionMatrix*mv;
+  }`;
+const partFrag = `
+  varying vec3 vColor;
+  void main(){
+    float d=length(gl_PointCoord-0.5);
+    if(d>0.5)discard;
+    gl_FragColor=vec4(vColor*2.8,1.0-d*2.0);
+  }`;
+
+// ── Lobe regions ──────────────────────────────────────────────────────────────
+const LOBES = [
+  { color: new THREE.Color(0x4fc3f7), dir: new THREE.Vector3( 0.0, 0.3, 1.0).normalize()  },
+  { color: new THREE.Color(0x81c784), dir: new THREE.Vector3( 0.0, 1.0, 0.0).normalize()  },
+  { color: new THREE.Color(0xffb74d), dir: new THREE.Vector3( 1.0,-0.2, 0.2).normalize()  },
+  { color: new THREE.Color(0xf06292), dir: new THREE.Vector3( 0.0, 0.2,-1.0).normalize()  },
+  { color: new THREE.Color(0xce93d8), dir: new THREE.Vector3( 0.3, 0.8, 0.1).normalize()  },
+];
+
+// ── Build or load brain, then wire neural graph ───────────────────────────────
+function buildNeural(brainGeo, scaleFactor=1){
+  // Collect unique surface verts
+  const vmap = new Map();
+  const bp = brainGeo.attributes.position;
+  for(let i=0;i<bp.count;i++){
+    const x=Math.round(bp.getX(i)/scaleFactor), y=Math.round(bp.getY(i)/scaleFactor), z=Math.round(bp.getZ(i)/scaleFactor);
+    const k=`${x}|${y}|${z}`;
+    if(!vmap.has(k)) vmap.set(k, new THREE.Vector3(bp.getX(i),bp.getY(i),bp.getZ(i)));
+  }
+  const verts = [...vmap.values()];
+
+  // Nodes
+  const positions=[], lobeIdxs=[];
+  const NODE_COUNT=50;
+  const sphereGeo=new THREE.SphereGeometry(2.0,14,14);
+  const icAttr=new THREE.InstancedBufferAttribute(new Float32Array(NODE_COUNT*3),3);
+  sphereGeo.setAttribute('instanceColor',icAttr);
+  const iMesh=new THREE.InstancedMesh(sphereGeo,new THREE.ShaderMaterial({vertexShader:nodeVert,fragmentShader:nodeFrag}),NODE_COUNT);
+  iMesh.frustumCulled=false;
+  const dummy=new THREE.Object3D();
+
+  let idx=0;
+  LOBES.forEach((lobe,li)=>{
+    let pool=verts.filter(v=>v.clone().normalize().dot(lobe.dir)>0.42);
+    if(pool.length<12) pool=verts.filter(v=>v.clone().normalize().dot(lobe.dir)>0.25);
+    pool=pool.sort(()=>Math.random()-0.5);
+    for(let i=0;i<10;i++){
+      const v=pool[i%pool.length].clone().multiplyScalar(0.94);
+      positions.push(v); lobeIdxs.push(li);
+      dummy.position.copy(v); dummy.updateMatrix();
+      iMesh.setMatrixAt(idx,dummy.matrix);
+      icAttr.setXYZ(idx,lobe.color.r,lobe.color.g,lobe.color.b);
+      idx++;
+    }
+  });
+  iMesh.instanceMatrix.needsUpdate=true; icAttr.needsUpdate=true;
+  scene.add(iMesh);
+
+  // Edges
+  const edgeReg=[];
+  function addEdge(p1,p2,c1,c2,li){
+    const S=26, pts=[],ts=[],cas=[],cbs=[];
+    const mid=p1.clone().lerp(p2,0.5);
+    const inward=mid.clone().normalize().multiplyScalar(-(12+Math.random()*18));
+    const ctrl=mid.clone().add(inward).add(new THREE.Vector3((Math.random()-.5)*12,(Math.random()-.5)*12,(Math.random()-.5)*12));
+    edgeReg.push({p1:p1.clone(),p2:p2.clone(),ctrl:ctrl.clone(),li});
+    for(let i=0;i<=S;i++){
+      const t=i/S, q=p1.clone().lerp(ctrl,t).lerp(ctrl.clone().lerp(p2,t),t);
+      pts.push(q.x,q.y,q.z); ts.push(t);
+      cas.push(c1.r,c1.g,c1.b); cbs.push(c2.r,c2.g,c2.b);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+    g.setAttribute('t',       new THREE.Float32BufferAttribute(ts,1));
+    g.setAttribute('colA',    new THREE.Float32BufferAttribute(cas,3));
+    g.setAttribute('colB',    new THREE.Float32BufferAttribute(cbs,3));
+    scene.add(new THREE.Line(g,new THREE.ShaderMaterial({vertexShader:edgeVert,fragmentShader:edgeFrag,transparent:true,depthWrite:false})));
+  }
+
+  LOBES.forEach((lobe,li)=>{
+    const lp=positions.filter((_,i)=>lobeIdxs[i]===li);
+    for(let i=0;i<lp.length-1;i++) if(Math.random()<0.62) addEdge(lp[i],lp[i+1],lobe.color,lobe.color,li);
+  });
+  for(let i=0;i<30;i++){
+    const ai=Math.floor(Math.random()*positions.length), bi=Math.floor(Math.random()*positions.length);
+    const la=lobeIdxs[ai],lb=lobeIdxs[bi];
+    if(la!==lb) addEdge(positions[ai],positions[bi],LOBES[la].color,LOBES[lb].color,la);
+  }
+
+  // Particles
+  const PSIG=220;
+  const sigEdges=Array.from({length:PSIG},()=>{
+    const e=edgeReg[Math.floor(Math.random()*edgeReg.length)];
+    return{edge:e,t:Math.random(),speed:0.003+Math.random()*0.007,li:e.li};
+  });
+  const pPos=new Float32Array(PSIG*3),pCol=new Float32Array(PSIG*3),pPhase=new Float32Array(PSIG);
+  sigEdges.forEach((e,i)=>{const c=LOBES[e.li].color;pCol[i*3]=c.r;pCol[i*3+1]=c.g;pCol[i*3+2]=c.b;pPhase[i]=Math.random()*Math.PI*2;});
+  const pGeo=new THREE.BufferGeometry();
+  pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+  pGeo.setAttribute('pColor',  new THREE.BufferAttribute(pCol,3));
+  pGeo.setAttribute('phase',   new THREE.BufferAttribute(pPhase,1));
+  const uTime={value:0};
+  scene.add(new THREE.Points(pGeo,new THREE.ShaderMaterial({vertexShader:partVert,fragmentShader:partFrag,transparent:true,depthWrite:false,uniforms:{uTime}})));
+
+  return {sigEdges,pPos,pGeo,uTime};
+}
+
+function addBrainMesh(geo){
+  scene.add(new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
+    color:0x071828, emissive:0x040e1a, specular:0x1a6688, shininess:50,
+    transparent:true, opacity:0.52, side:THREE.FrontSide, depthWrite:false
+  })));
+  scene.add(new THREE.Mesh(geo, new THREE.MeshPhongMaterial({
+    color:0x0a2035, emissive:0x05121e,
+    transparent:true, opacity:0.18, side:THREE.BackSide, depthWrite:false
+  })));
+  scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color:0x0e3d5a, wireframe:true, transparent:true, opacity:0.045
+  })));
+}
+
+// ── Try loading real brain GLB, fall back to procedural ───────────────────────
+let neural;
+
+new GLTFLoader().load('./vendor/brain.glb',
+  (gltf)=>{
+    status('real brain model loaded');
+    let geo = null;
+    gltf.scene.traverse(c=>{
+      if(c.isMesh && !geo){ geo = c.geometry; }
+    });
+    if(!geo){ initProcedural(); return; }
+
+    // Centre and scale
+    geo.computeBoundingBox();
+    const box=geo.boundingBox;
+    const size=box.getSize(new THREE.Vector3()).length();
+    const scale=200/size;
+    geo.scale(scale,scale,scale);
+    const center=box.getCenter(new THREE.Vector3()).multiplyScalar(scale);
+    geo.translate(-center.x,-center.y,-center.z);
+    geo.computeVertexNormals();
+
+    addBrainMesh(geo);
+    neural = buildNeural(geo, 1);
+  },
+  undefined,
+  ()=>{ initProcedural(); }
+);
+
+function initProcedural(){
+  status('procedural brain (drop brain.glb in vendor/ for real model)');
+  const geo = makeBrainGeo();
+  addBrainMesh(geo);
+  neural = buildNeural(geo, 1);
+}
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+(function animate(t){
+  requestAnimationFrame(animate);
+  controls.update();
+  if(neural){
+    neural.uTime.value=t*0.001;
+    neural.sigEdges.forEach((e,i)=>{
+      e.t=(e.t+e.speed)%1;
+      const{p1,p2,ctrl}=e.edge, tt=e.t;
+      const p=p1.clone().lerp(ctrl,tt).lerp(ctrl.clone().lerp(p2,tt),tt);
+      neural.pPos[i*3]=p.x; neural.pPos[i*3+1]=p.y; neural.pPos[i*3+2]=p.z;
+    });
+    neural.pGeo.attributes.position.needsUpdate=true;
+  }
+  composer.render();
+})(0);
+
+window.addEventListener('resize',()=>{
+  const w=window.innerWidth,h=window.innerHeight;
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+  renderer.setSize(w,h); composer.setSize(w,h);
+});
+</script>
+</body>
+</html>
