@@ -21,6 +21,12 @@
 
 ---
 
+<p align="center">
+  <img src="assets/demo/cerebrofy-viz.gif" alt="cerebrofy viz — interactive 3D brain visualization of your codebase call graph" width="720"/>
+</p>
+
+---
+
 # 🧠 Cerebrofy
 
 **AI-powered codebase intelligence CLI.**  
