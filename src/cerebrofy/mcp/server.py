@@ -169,8 +169,8 @@ def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
 
     root = _find_repo_root(Path.cwd())
-    lobes_dir = root / ".cerebrofy" / "lobes"
-    map_file = root / ".cerebrofy" / "cerebrofy_map.md"
+    lobes_dir = root / "docs" / "cerebrofy"
+    map_file = root / "docs" / "cerebrofy" / "cerebrofy_map.md"
 
     lobes = []
     if lobes_dir.exists():
