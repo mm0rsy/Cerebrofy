@@ -58,9 +58,10 @@ def _run_init_and_build(runner: CliRunner, repo_root: Path) -> None:
     assert result.exit_code == 0, f"build failed:\n{result.output}"
 
     # Commit all init-generated files (queries, config, ignore) so git is clean.
-    # .cerebrofy/db/ is git-ignored; docs/ (map.md) should also be committed.
+    # --no-verify skips the cerebrofy pre-commit hook in test fixture setup;
+    # the hook would otherwise re-run update and leave unstaged changes.
     _git(["git", "add", "."], repo_root)
-    _git(["git", "commit", "-m", "cerebrofy init + build artifacts"], repo_root)
+    _git(["git", "commit", "--no-verify", "-m", "cerebrofy init + build artifacts"], repo_root)
 
 
 # ---------------------------------------------------------------------------

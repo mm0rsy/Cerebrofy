@@ -20,9 +20,24 @@ HOOK_VERSION_MARKER = "# cerebrofy-hook-version:"
 HOOK_SCRIPT_BLOCK = """\
 {marker_start}
 # cerebrofy-hook-version: 1
-cerebrofy validate --hook {{hook_name}}
+if ! cerebrofy validate --hook {{hook_name}} 2>/dev/null; then
+    echo 'Cerebrofy: drift detected — auto-syncing index...'
+    cerebrofy update || {{ echo 'Cerebrofy: index update failed. Push blocked.' >&2; exit 1; }}
+    echo 'Cerebrofy: index synced.'
+fi
 {marker_end}
 """.format(marker_start=HOOK_MARKER_START, marker_end=HOOK_MARKER_END)
+
+# Pre-commit block: silently re-indexes changed files after every commit.
+# Always exits 0 — index update is best-effort and must never block commits.
+_HOOK_SCRIPT_PRE_COMMIT: str = (
+    f"{HOOK_SENTINEL_BEGIN}\n"
+    f"{HOOK_VERSION_MARKER} 1\n"
+    "if [ -f \".cerebrofy/db/cerebrofy.db\" ]; then\n"
+    "    cerebrofy update >/dev/null 2>&1 || true\n"
+    "fi\n"
+    f"{HOOK_SENTINEL_END}\n"
+)
 
 # Hard-block block used by upgrade_hook() when update latency target is met.
 _HOOK_SCRIPT_V2: str = (
@@ -189,7 +204,14 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
     else:
         pre_push_block = _HOOK_SCRIPT_V2
 
-    # Pre-push hook: warn-only if DB is gitignored, hard-block if tracked
+    # Pre-commit hook: silently re-index on every commit (never blocks)
+    pre_commit = hooks_dir / "pre-commit"
+    if not pre_commit.exists():
+        create_hook_file(pre_commit, "pre-commit", block=_HOOK_SCRIPT_PRE_COMMIT)
+    elif not has_cerebrofy_marker(pre_commit):
+        warnings.append(append_to_hook(pre_commit, "pre-commit", block=_HOOK_SCRIPT_PRE_COMMIT))
+
+    # Pre-push hook: validate + auto-update if DB is gitignored, hard-block if tracked
     pre_push = hooks_dir / "pre-push"
     if not pre_push.exists():
         create_hook_file(pre_push, "pre-push", block=pre_push_block)

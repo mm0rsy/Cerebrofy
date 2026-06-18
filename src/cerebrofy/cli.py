@@ -9,6 +9,7 @@ from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.update import cerebrofy_update
 from cerebrofy.commands.validate import cerebrofy_validate
+from cerebrofy.commands.viz import cerebrofy_viz
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.USE_MARKDOWN = False
@@ -44,3 +45,4 @@ cerebrofy_mcp.hidden = True
 cerebrofy_migrate.hidden = True
 main.add_command(cerebrofy_mcp)
 main.add_command(cerebrofy_migrate)
+main.add_command(cerebrofy_viz)
