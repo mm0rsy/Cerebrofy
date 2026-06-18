@@ -12,7 +12,7 @@ from cerebrofy.viz.graph_export import VizGraph
 class _VizHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args: object, graph_json: str, **kwargs: object) -> None:
         self._graph_json = graph_json
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
 
     def do_GET(self) -> None:
         if self.path == "/data":
