@@ -66,8 +66,11 @@ def _load_lobe_map(db_path: Path) -> dict[str, str]:
     if not config_path.exists():
         return {}
     with config_path.open() as f:
-        cfg = yaml.safe_load(f) or {}
-    return cfg.get("lobes", {})
+        cfg: dict[str, object] = yaml.safe_load(f) or {}
+    raw = cfg.get("lobes")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items()}
 
 
 def _file_to_lobe(file: str, lobe_map: dict[str, str]) -> str:
