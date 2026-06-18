@@ -146,27 +146,37 @@ uv run pytest
 
 ## Quick Start
 
+**Three commands, then git handles everything automatically:**
+
 ```bash
-# 1. Initialize — scaffolds .cerebrofy/, installs git hooks, auto-detects Lobes
+# Step 1 — one time per repo
 cerebrofy init
 
-# 2. (Optional) Write AI navigation rules into your AI client's instructions file
-cerebrofy init --ai claude        # → CLAUDE.md
-cerebrofy init --ai copilot       # → .github/copilot-instructions.md
-cerebrofy init --ai vscode        # → .github/copilot-instructions.md
-cerebrofy init --ai opencode      # → .opencode/instructions.md
-
-# 3. Build the index — parses all tracked files, builds call graph, generates embeddings
+# Step 2 — one time after init (takes ~30s on a typical codebase)
 cerebrofy build
 
-# 4. Keep the index in sync after code changes
-cerebrofy update
-
-# 5. Check for drift before pushing
-cerebrofy validate
+# Step 3 — optional: wire your AI client so it uses the index instead of reading files
+cerebrofy init --ai claude      # writes navigation rules to CLAUDE.md
+cerebrofy init --ai copilot     # writes rules to .github/copilot-instructions.md
+cerebrofy init --ai opencode    # writes rules to .opencode/instructions.md
 ```
 
-Once the index is built, AI assistants with MCP configured can use all six tools directly — see [MCP Tools](#mcp-tools).
+**That's it.** From here, `cerebrofy update` runs automatically on every `git commit` (via the installed pre-commit hook) and the index is validated before every `git push`. You never need to run `cerebrofy update` manually.
+
+```
+your workflow:
+  code → git commit  →  index auto-updated  ✓
+                ↓
+           git push   →  index validated     ✓
+```
+
+> **First time on a new machine?** After cloning a repo that already has cerebrofy:
+> ```bash
+> cerebrofy init   # re-installs hooks
+> cerebrofy build  # builds your local index from scratch
+> ```
+
+Once the index is built, AI assistants with MCP configured can call all six tools directly — see [MCP Tools](#mcp-tools).
 
 ---
 
@@ -196,7 +206,8 @@ cerebrofy init --ai opencode             # Also write rules to .opencode/instruc
 └── queries/             ← Tree-sitter .scm files per language
 .cerebrofy-ignore        ← Ignore rules (gitignore syntax)
 .gitignore               ← .cerebrofy/db/ appended automatically
-.git/hooks/pre-push      ← Drift enforcement hook (warn-only until cerebrofy update verified)
+.git/hooks/pre-commit    ← Auto-runs cerebrofy update on every commit (silent, never blocks)
+.git/hooks/pre-push      ← Validates index before push; auto-updates if drift detected
 .git/hooks/post-merge    ← state_hash sync check after git pull
 ```
 
@@ -370,10 +381,11 @@ Cerebrofy installs two hooks at `cerebrofy init` time:
 
 | Hook | Trigger | Behavior |
 |------|---------|----------|
-| `pre-push` | Before `git push` | Runs `cerebrofy validate`. If drift is detected, **auto-runs `cerebrofy update`** and retries. Blocks push only if `cerebrofy update` itself fails. |
+| `pre-commit` | After every `git commit` | **Auto-runs `cerebrofy update`** silently. Never blocks commits. Index is always fresh. |
+| `pre-push` | Before `git push` | Validates the index. If drift slipped through, auto-runs `cerebrofy update`. Blocks only if update fails. |
 | `post-merge` | After `git pull` / merge | Compares remote `state_hash` against local index; warns if out of sync. |
 
-The pre-push hook (v1) validates on every push and **automatically re-indexes** when structural drift is detected, so you never need to remember to run `cerebrofy update` before pushing. After `cerebrofy update` completes in under 2 seconds, it can be upgraded to hard-block mode (v2) via `upgrade_hook()`.
+All three hooks are installed by `cerebrofy init`. **You should never need to run `cerebrofy update` manually** — the pre-commit hook does it on every commit. The pre-push hook is a safety net for cases where the pre-commit hook wasn't installed or was bypassed.
 
 ---
 

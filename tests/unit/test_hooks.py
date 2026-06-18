@@ -111,12 +111,23 @@ def test_generate_post_merge_script_exits_0(tmp_path: Path) -> None:
 
 
 def test_install_hooks_creates_hooks(tmp_path: Path) -> None:
-    """install_hooks creates both pre-push and post-merge hooks in a fresh repo."""
+    """install_hooks creates pre-commit, pre-push and post-merge hooks in a fresh repo."""
     hooks_dir = tmp_path / ".git" / "hooks"
     hooks_dir.mkdir(parents=True)
     install_hooks(tmp_path)
+    assert (hooks_dir / "pre-commit").exists()
     assert (hooks_dir / "pre-push").exists()
     assert (hooks_dir / "post-merge").exists()
+
+
+def test_install_hooks_pre_commit_never_blocks(tmp_path: Path) -> None:
+    """pre-commit hook must always exit 0 — it is best-effort and must not block commits."""
+    hooks_dir = tmp_path / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True)
+    install_hooks(tmp_path)
+    content = (hooks_dir / "pre-commit").read_text(encoding="utf-8")
+    assert "cerebrofy update" in content
+    assert "|| true" in content or "exit 0" in content
 
 
 def test_install_hooks_idempotent(tmp_path: Path) -> None:
@@ -127,6 +138,8 @@ def test_install_hooks_idempotent(tmp_path: Path) -> None:
     install_hooks(tmp_path)
     pre_push = (hooks_dir / "pre-push").read_text(encoding="utf-8")
     assert pre_push.count(HOOK_MARKER_START) == 1
+    pre_commit = (hooks_dir / "pre-commit").read_text(encoding="utf-8")
+    assert pre_commit.count(HOOK_MARKER_START) == 1
 
 
 def test_install_hooks_post_merge_uses_state_hash_check(tmp_path: Path) -> None:
