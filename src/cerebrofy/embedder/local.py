@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 from cerebrofy.embedder.base import Embedder
 
 
@@ -9,8 +11,13 @@ class LocalEmbedder(Embedder):
     """Embed texts using BAAI/bge-small-en-v1.5 via fastembed (384-dim, ~130MB, ONNX)."""
 
     def __init__(self) -> None:
-        from fastembed import TextEmbedding
-        self.model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+        # BAAI/bge-small-en-v1.5 is a public model — no HF token needed.
+        # Suppress huggingface_hub's token-not-set warnings that appear on first download.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub")
+            warnings.filterwarnings("ignore", message=".*token.*", category=FutureWarning)
+            from fastembed import TextEmbedding
+            self.model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
 
     @property
     def dim(self) -> int:

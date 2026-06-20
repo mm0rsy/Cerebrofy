@@ -153,9 +153,16 @@ def cerebrofy_init(
     click.echo("Cerebrofy: Writing .cerebrofy-ignore")
     write_cerebrofy_ignore(root)
     click.echo("Cerebrofy: Installing git hooks (warn-only mode)")
-    hook_warnings = install_hooks(root)
-    for w in hook_warnings:
-        click.echo(w, err=True)
+    try:
+        hook_warnings = install_hooks(root)
+        for w in hook_warnings:
+            click.echo(w, err=True)
+    except OSError as exc:
+        click.echo(
+            f"Warning: Could not install git hooks ({exc}). "
+            "Run `cerebrofy init --force` after fixing permissions.",
+            err=True,
+        )
 
     # FR-019: keep .cerebrofy/db/ out of git
     add_gitignore_entry(root)
