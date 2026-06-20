@@ -8,6 +8,7 @@ from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.context import cerebrofy_context
 from cerebrofy.commands.epistemic import cerebrofy_epistemic
 from cerebrofy.commands.health import cerebrofy_health
+from cerebrofy.commands.impact import cerebrofy_impact
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.intent import cerebrofy_intent
 from cerebrofy.commands.memory import mem_group
@@ -47,6 +48,7 @@ main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_context)
 main.add_command(cerebrofy_epistemic)
 main.add_command(cerebrofy_health)
+main.add_command(cerebrofy_impact)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_intent)
 main.add_command(mem_group)
