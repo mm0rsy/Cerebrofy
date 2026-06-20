@@ -187,6 +187,70 @@ def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
     }, indent=2))]
 
 
+def _handle_blast_radius(arguments: dict[str, Any]) -> list[Any]:
+    """Blast radius for a single neuron target."""
+    from mcp.types import TextContent
+
+    target: str = arguments.get("target", "")
+    if not target:
+        return _make_error_content("[error] 'target' is required.")
+
+    depth: int = int(arguments.get("depth", 2))
+    fmt: str = arguments.get("format", "json")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    conn = _open_db_ro(root)
+    try:
+        from cerebrofy.analysis.blast_radius import (
+            compute_blast_radius_report,
+            format_pr_comment,
+            neuron_for_target,
+        )
+        from cerebrofy.db.connection import check_schema_version
+
+        try:
+            check_schema_version(conn)
+        except ValueError as exc:
+            return _make_error_content(f"Schema version mismatch: {exc}. Run 'cerebrofy migrate'.")
+
+        neuron = neuron_for_target(target, conn)
+        if neuron is None:
+            return _make_error_content(
+                f"[NEURON_NOT_FOUND] Neuron '{target}' not found. Run 'cerebrofy build' first."
+            )
+
+        report = compute_blast_radius_report([neuron], conn, depth=depth)
+    finally:
+        conn.close()
+
+    if fmt == "markdown":
+        return [TextContent(type="text", text=format_pr_comment(report))]
+
+    import json as _json
+    nbr = report.changed_neurons[0]
+    out: dict[str, Any] = {
+        "target_neuron": {"name": nbr.neuron.name, "file": nbr.neuron.file, "line": nbr.neuron.line_start},
+        "callers": [
+            {"name": n.name, "file": n.file, "line": n.line_start, "depth": 1}
+            for n in nbr.callers_depth1
+        ] + [
+            {"name": n.name, "file": n.file, "line": n.line_start, "depth": 2}
+            for n in nbr.callers_depth2
+        ],
+        "uncovered_callers": nbr.uncovered_callers,
+        "risk_score": round(nbr.risk_score, 3),
+        "risk_label": nbr.risk_label,
+        "lobe_spread": nbr.lobe_spread,
+        "runtime_boundary_callers": nbr.runtime_boundary_callers,
+        "summary": format_pr_comment(report),
+    }
+    return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+
+
 def _handle_build(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
@@ -279,6 +343,25 @@ async def run_mcp_server() -> None:
                 "List all indexed lobes (modules/packages) with summary file paths. "
                 "Use for high-level orientation before searching."
             ), inputSchema=_EMPTY),
+            Tool(name="cerebrofy_blast_radius", description=(
+                "Compute the blast radius of a changed neuron — every caller at depth 1 and 2, "
+                "test coverage, lobe spread, and a risk score. "
+                "Use after a PR diff to understand what a change affects before merging."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Neuron to analyse. Accepts: "
+                            "'file::name', 'file:line', or plain name."
+                        ),
+                    },
+                    "depth": {"type": "integer", "default": 2, "minimum": 1, "maximum": 5},
+                    "format": {"type": "string", "default": "json", "enum": ["json", "markdown"]},
+                },
+                "required": ["target"],
+            }),
             Tool(name="cerebrofy_build", description=(
                 "Full atomic re-index of the entire repository. "
                 "Use when the index is missing or a full rebuild is needed."
@@ -297,7 +380,9 @@ async def run_mcp_server() -> None:
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         args = arguments or {}
         try:
-            if name == "search_code":
+            if name == "cerebrofy_blast_radius":
+                return _handle_blast_radius(args)
+            elif name == "search_code":
                 return _handle_search_code(args)
             elif name == "get_neuron":
                 return _handle_get_neuron(args)

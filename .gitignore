@@ -24,6 +24,9 @@ venv/
 # Graphify knowledge graph output (local artifact — never commit)
 graphify-out/
 
+# Product ideas — local only, never commit
+.ideas/
+
 # Squad: ignore runtime state (logs, inbox, sessions)
 .squad/
 
