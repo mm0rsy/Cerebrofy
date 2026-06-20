@@ -23,12 +23,11 @@ jobs:
   # Fast smoke — init / validate (no model download, <1 min)
   # ───────────────────────────────────────────────────────────────────────────
   smoke-fast:
-    name: Smoke fast (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, windows-latest]
+    name: Smoke fast
+    # Windows is not yet a supported platform — git hooks use #!/bin/sh and
+    # the post-merge hook calls python3 (not available by that name on Windows).
+    # Track Windows support in a dedicated issue before adding it here.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
