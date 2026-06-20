@@ -121,7 +121,8 @@ def has_cerebrofy_marker(hook_path: Path) -> bool:
 def create_hook_file(hook_path: Path, hook_name: str, block: str | None = None) -> None:
     """Create a new executable hook file with the cerebrofy block."""
     b = block if block is not None else HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
-    hook_path.write_text(f"#!/bin/sh\n{b}", encoding="utf-8")
+    with hook_path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write(f"#!/bin/sh\n{b}")
     try:
         os.chmod(hook_path, 0o755)
     except (NotImplementedError, OSError):
@@ -131,8 +132,9 @@ def create_hook_file(hook_path: Path, hook_name: str, block: str | None = None) 
 def append_to_hook(hook_path: Path, hook_name: str, block: str | None = None) -> str:
     """Append the cerebrofy block to an existing hook file. Returns a warning string."""
     b = block if block is not None else HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
-    existing = hook_path.read_text(encoding="utf-8")
-    hook_path.write_text(existing.rstrip("\n") + "\n" + b, encoding="utf-8")
+    existing = hook_path.open("r", encoding="utf-8", newline="\n").read()
+    with hook_path.open("w", encoding="utf-8", newline="\n") as f:
+        f.write(existing.rstrip("\n") + "\n" + b)
     return f"Warning: Pre-existing hook at {hook_path} — appending Cerebrofy call."
 
 
@@ -143,13 +145,23 @@ def _generate_post_merge_script(map_md_path: str, db_path: str) -> str:
     (resolved from repo_root at install time — the shell script cannot read config.yaml).
     Script reads state_hash from cerebrofy_map.md; queries DB meta table via sqlite3.
     Always exits 0 (WARN-only, never blocks).
+
+    Uses portable python detection (python3 → python fallback) so the script works
+    on Linux, macOS, and Windows (Git for Windows / MSYS bash).
     """
     map_md_literal = repr(map_md_path)
     db_literal = repr(db_path)
     return f"""\
 {HOOK_MARKER_START}
 # cerebrofy-hook-version: 1
-python3 << 'CEREBROFY_PM_CHECK'
+if command -v python3 >/dev/null 2>&1; then
+    _CEREBROFY_PY=python3
+elif command -v python >/dev/null 2>&1; then
+    _CEREBROFY_PY=python
+else
+    exit 0
+fi
+$_CEREBROFY_PY << 'CEREBROFY_PM_CHECK'
 import re, sqlite3, sys
 MAP_MD = {map_md_literal}
 DB_PATH = {db_literal}
@@ -229,14 +241,16 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
 
     post_merge = hooks_dir / "post-merge"
     if not post_merge.exists():
-        post_merge.write_text(f"#!/bin/sh\n{post_merge_block}", encoding="utf-8")
+        with post_merge.open("w", encoding="utf-8", newline="\n") as f:
+            f.write(f"#!/bin/sh\n{post_merge_block}")
         try:
             os.chmod(post_merge, 0o755)
         except (NotImplementedError, OSError):
             pass
     elif not has_cerebrofy_marker(post_merge):
-        existing = post_merge.read_text(encoding="utf-8")
-        post_merge.write_text(existing.rstrip("\n") + "\n" + post_merge_block, encoding="utf-8")
+        existing = post_merge.open("r", encoding="utf-8", newline="\n").read()
+        with post_merge.open("w", encoding="utf-8", newline="\n") as f:
+            f.write(existing.rstrip("\n") + "\n" + post_merge_block)
         warnings.append(f"Warning: Pre-existing hook at {post_merge} — appending Cerebrofy call.")
 
     return warnings
