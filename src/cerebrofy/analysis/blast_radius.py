@@ -279,7 +279,7 @@ def format_pr_comment(report: BlastRadiusReport) -> str:
     for nbr in report.changed_neurons:
         if not nbr.callers_depth1 and not nbr.callers_depth2:
             continue
-        lines.append(f"<details>")
+        lines.append("<details>")
         lines.append(f"<summary><code>{nbr.neuron.name}</code> — full caller tree</summary>")
         lines.append("")
         if nbr.callers_depth1:
