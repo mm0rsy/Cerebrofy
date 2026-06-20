@@ -84,7 +84,7 @@ strict = true
 # mcp is an optional dependency that ships no type stubs.
 # Suppress import-not-found for the whole mcp namespace.
 [[tool.mypy.overrides]]
-module = ["mcp", "mcp.*"]
+module = ["mcp", "mcp.*", "tiktoken"]
 ignore_missing_imports = true
 
 # mcp decorators (list_tools, call_tool) raise either no-untyped-call or
