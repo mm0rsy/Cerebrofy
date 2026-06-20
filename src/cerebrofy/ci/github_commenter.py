@@ -6,7 +6,6 @@ Requires `gh` to be installed and authenticated.
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 def post_pr_comment(pr_number: int, body: str, repo: str | None = None) -> tuple[bool, str]:

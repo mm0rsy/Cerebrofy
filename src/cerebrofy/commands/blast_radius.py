@@ -16,7 +16,6 @@ from rich import box
 from cerebrofy.db.connection import check_schema_version
 from cerebrofy.analysis.blast_radius import (
     BlastRadiusReport,
-    NeuronBlastRadius,
     compute_blast_radius_report,
     format_pr_comment,
     neuron_for_target,
