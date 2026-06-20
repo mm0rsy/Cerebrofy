@@ -121,7 +121,7 @@ def has_cerebrofy_marker(hook_path: Path) -> bool:
 def create_hook_file(hook_path: Path, hook_name: str, block: str | None = None) -> None:
     """Create a new executable hook file with the cerebrofy block."""
     b = block if block is not None else HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
-    hook_path.write_text(f"#!/bin/sh\n{b}", encoding="utf-8")
+    hook_path.write_text(f"#!/bin/sh\n{b}", encoding="utf-8", newline="\n")
     try:
         os.chmod(hook_path, 0o755)
     except (NotImplementedError, OSError):
@@ -131,8 +131,8 @@ def create_hook_file(hook_path: Path, hook_name: str, block: str | None = None) 
 def append_to_hook(hook_path: Path, hook_name: str, block: str | None = None) -> str:
     """Append the cerebrofy block to an existing hook file. Returns a warning string."""
     b = block if block is not None else HOOK_SCRIPT_BLOCK.format(hook_name=hook_name)
-    existing = hook_path.read_text(encoding="utf-8")
-    hook_path.write_text(existing.rstrip("\n") + "\n" + b, encoding="utf-8")
+    existing = hook_path.read_text(encoding="utf-8", newline="\n")
+    hook_path.write_text(existing.rstrip("\n") + "\n" + b, encoding="utf-8", newline="\n")
     return f"Warning: Pre-existing hook at {hook_path} — appending Cerebrofy call."
 
 
@@ -239,14 +239,16 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
 
     post_merge = hooks_dir / "post-merge"
     if not post_merge.exists():
-        post_merge.write_text(f"#!/bin/sh\n{post_merge_block}", encoding="utf-8")
+        post_merge.write_text(f"#!/bin/sh\n{post_merge_block}", encoding="utf-8", newline="\n")
         try:
             os.chmod(post_merge, 0o755)
         except (NotImplementedError, OSError):
             pass
     elif not has_cerebrofy_marker(post_merge):
-        existing = post_merge.read_text(encoding="utf-8")
-        post_merge.write_text(existing.rstrip("\n") + "\n" + post_merge_block, encoding="utf-8")
+        existing = post_merge.read_text(encoding="utf-8", newline="\n")
+        post_merge.write_text(
+            existing.rstrip("\n") + "\n" + post_merge_block, encoding="utf-8", newline="\n"
+        )
         warnings.append(f"Warning: Pre-existing hook at {post_merge} — appending Cerebrofy call.")
 
     return warnings
