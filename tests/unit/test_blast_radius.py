@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-import pytest
 
 from cerebrofy.analysis.blast_radius import (
     BlastNeuron,
@@ -12,7 +11,6 @@ from cerebrofy.analysis.blast_radius import (
     NeuronBlastRadius,
     _lobe_from_file,
     bfs_callers,
-    compute_blast_radius_report,
     compute_neuron_blast_radius,
     find_covering_tests,
     format_pr_comment,
