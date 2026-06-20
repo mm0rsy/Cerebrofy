@@ -196,6 +196,7 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
     config is accepted for forward compatibility but paths are derived from root.
     """
     hooks_dir = root / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
 
     # Choose pre-push blocking mode based on gitignore state.
