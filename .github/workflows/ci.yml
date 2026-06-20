@@ -4,7 +4,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 # Cancel in-flight runs for the same ref when a new push arrives.
 concurrency:
