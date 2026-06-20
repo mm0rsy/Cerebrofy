@@ -107,15 +107,17 @@ def test_init_installs_hooks(tmp_path: Path) -> None:
     assert result.returncode == 0, f"init failed:\n{result.stdout}\n{result.stderr}"
 
     hooks_dir = root / ".git" / "hooks"
+    import platform
     for hook_name in ("pre-commit", "pre-push", "post-merge"):
         hook_path = hooks_dir / hook_name
         assert hook_path.exists(), f"{hook_name} hook not created"
         assert "cerebrofy" in hook_path.read_text(encoding="utf-8"), (
             f"{hook_name} hook does not contain cerebrofy block"
         )
-        assert oct(hook_path.stat().st_mode)[-3:] in ("755", "775", "777"), (
-            f"{hook_name} hook is not executable"
-        )
+        if platform.system() != "Windows":
+            assert oct(hook_path.stat().st_mode)[-3:] in ("755", "775", "777"), (
+                f"{hook_name} hook is not executable"
+            )
 
 
 def test_init_hooks_when_hooks_dir_missing(tmp_path: Path) -> None:
