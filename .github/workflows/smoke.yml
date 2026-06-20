@@ -1,6 +1,6 @@
 name: Smoke
 
-# Run on every PR to main and on direct pushes to main.
+# Run on every PR to master and on direct pushes to master.
 # Purpose: install cerebrofy from the current commit as a real binary and
 # exercise every command via subprocess — the same way a user would.
 # This catches issues that in-process CliRunner tests cannot see:
@@ -10,9 +10,9 @@ name: Smoke
 #   - permission errors on real filesystem operations
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 concurrency:
   group: smoke-${{ github.ref }}
@@ -21,13 +21,16 @@ concurrency:
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
   # Fast smoke — init / validate (no model download, <1 min)
+  # Runs on both Linux and Windows: hooks use #!/bin/sh which MSYS bash
+  # (Git for Windows) handles, and python3 detection is now portable.
   # ───────────────────────────────────────────────────────────────────────────
   smoke-fast:
-    name: Smoke fast
-    # Windows is not yet a supported platform — git hooks use #!/bin/sh and
-    # the post-merge hook calls python3 (not available by that name on Windows).
-    # Track Windows support in a dedicated issue before adding it here.
-    runs-on: ubuntu-22.04
+    name: Smoke fast (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +52,8 @@ jobs:
 
   # ───────────────────────────────────────────────────────────────────────────
   # Full smoke — includes cerebrofy build + update (model cached between runs)
+  # Linux-only: fastembed cache path on Windows differs; full build coverage
+  # is provided by the existing integration tests (fake embedder).
   # ───────────────────────────────────────────────────────────────────────────
   smoke-full:
     name: Smoke full (ubuntu)

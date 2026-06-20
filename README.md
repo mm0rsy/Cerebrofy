@@ -16,6 +16,7 @@
 [![Embeddings](https://img.shields.io/badge/embeddings-BAAI%2Fbge--small--en-lightgrey?logo=huggingface&logoColor=white)](https://huggingface.co/BAAI/bge-small-en-v1.5)
 [![SQLite](https://img.shields.io/badge/storage-SQLite%20%2B%20sqlite--vec-003B57?logo=sqlite&logoColor=white)](https://github.com/asg017/sqlite-vec)
 [![uv](https://img.shields.io/badge/built%20with-uv-5C4EE5?logo=astral&logoColor=white)](https://docs.astral.sh/uv/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-informational)](https://github.com/mm0rsy/Cerebrofy#platform-support)
 
 </div>
 
@@ -94,6 +95,19 @@ Cerebrofy builds a **structural + semantic index** of your code in one SQLite fi
 5. **Expose** — An MCP stdio server lets AI clients trigger builds, run drift checks, and update the index
 
 No cloud index. No code upload. One file, one connection.
+
+---
+
+## Platform Support
+
+Cerebrofy runs on **Linux**, **macOS**, and **Windows**. All commands (`init`, `build`, `update`, `validate`, `viz`, `mcp`) behave identically across platforms with one prerequisite difference:
+
+| Platform | Prerequisites | Notes |
+|---|---|---|
+| Linux / macOS | Python 3.11+, Git | No extra setup |
+| Windows | Python 3.11+, **[Git for Windows](https://git-scm.com/download/win)** | Required for git hook execution (MSYS bash) |
+
+> **Windows users:** Install [Git for Windows](https://git-scm.com/download/win) before running `cerebrofy init`. Git for Windows bundles MSYS bash, which is what runs the installed git hooks. Without it, `cerebrofy init` succeeds but the pre-commit / pre-push / post-merge hooks will not fire.
 
 ---
 
@@ -377,7 +391,7 @@ To add a new language, add a `.scm` query file to `.cerebrofy/queries/` and add 
 
 ## Git Hooks
 
-Cerebrofy installs two hooks at `cerebrofy init` time:
+Cerebrofy installs three hooks at `cerebrofy init` time:
 
 | Hook | Trigger | Behavior |
 |------|---------|----------|
@@ -386,6 +400,10 @@ Cerebrofy installs two hooks at `cerebrofy init` time:
 | `post-merge` | After `git pull` / merge | Compares remote `state_hash` against local index; warns if out of sync. |
 
 All three hooks are installed by `cerebrofy init`. **You should never need to run `cerebrofy update` manually** — the pre-commit hook does it on every commit. The pre-push hook is a safety net for cases where the pre-commit hook wasn't installed or was bypassed.
+
+### Windows
+
+Hooks are written as POSIX `sh` scripts and executed by the MSYS bash shell that ships with **Git for Windows** — no extra configuration needed. If hooks don't appear to run after `cerebrofy init`, confirm that `git` on your PATH comes from Git for Windows (not WSL or another distribution).
 
 ---
 
