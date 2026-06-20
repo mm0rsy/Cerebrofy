@@ -21,8 +21,11 @@ HOOK_SCRIPT_BLOCK = """\
 {marker_start}
 # cerebrofy-hook-version: 1
 if ! cerebrofy validate --hook {{hook_name}} 2>/dev/null; then
-    echo 'Cerebrofy: drift detected — auto-syncing index...'
-    cerebrofy update || {{ echo 'Cerebrofy: index update failed. Push blocked.' >&2; exit 1; }}
+    echo 'Cerebrofy: drift detected -- auto-syncing index...'
+    if ! cerebrofy update; then
+        echo 'Cerebrofy: index update failed. Push blocked.' >&2
+        exit 1
+    fi
     echo 'Cerebrofy: index synced.'
 fi
 {marker_end}
@@ -196,6 +199,7 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
     config is accepted for forward compatibility but paths are derived from root.
     """
     hooks_dir = root / ".git" / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
 
     # Choose pre-push blocking mode based on gitignore state.
