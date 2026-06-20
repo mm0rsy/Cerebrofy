@@ -187,6 +187,49 @@ def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
     }, indent=2))]
 
 
+def _handle_context(arguments: dict[str, Any]) -> list[Any]:
+    """Budget-aware context window optimizer."""
+    from mcp.types import TextContent
+
+    task: str = arguments.get("task", "")
+    if not task:
+        return _make_error_content("[error] 'task' is required.")
+
+    budget: int = int(arguments.get("budget", 8000))
+    model: str = arguments.get("model", "auto")
+    fmt: str = arguments.get("format", "json")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("[NO_INDEX] Index not found. Run 'cerebrofy build' first.")
+
+    try:
+        from cerebrofy.context.exporter import to_claude_xml, to_json, to_markdown
+        from cerebrofy.context.optimizer import optimize_context
+
+        plan = optimize_context(
+            task=task,
+            db_path=db_path,
+            config_path=root / ".cerebrofy" / "config.yaml",
+            budget=budget,
+            model=model,
+            repo_root=root,
+        )
+    except ValueError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    if fmt == "markdown":
+        return [TextContent(type="text", text=to_markdown(plan))]
+    if fmt == "claude-xml":
+        return [TextContent(type="text", text=to_claude_xml(plan))]
+    return [TextContent(type="text", text=to_json(plan))]
+
+
 def _handle_blast_radius(arguments: dict[str, Any]) -> list[Any]:
     """Blast radius for a single neuron target."""
     from mcp.types import TextContent
@@ -343,6 +386,21 @@ async def run_mcp_server() -> None:
                 "List all indexed lobes (modules/packages) with summary file paths. "
                 "Use for high-level orientation before searching."
             ), inputSchema=_EMPTY),
+            Tool(name="cerebrofy_context", description=(
+                "Build the optimal context window for a coding task within a token budget. "
+                "Embeds the task, runs KNN + BFS, scores candidates by relevance, and "
+                "greedy-packs neurons with tier degradation (full_source → signature → lobe_summary → name_only). "
+                "Call this before starting any non-trivial coding task."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "task": {"type": "string", "description": "Natural language coding task description."},
+                    "budget": {"type": "integer", "default": 8000, "description": "Token budget."},
+                    "model": {"type": "string", "default": "auto", "description": "Model for token counting."},
+                    "format": {"type": "string", "default": "json", "enum": ["json", "markdown", "claude-xml"]},
+                },
+                "required": ["task"],
+            }),
             Tool(name="cerebrofy_blast_radius", description=(
                 "Compute the blast radius of a changed neuron — every caller at depth 1 and 2, "
                 "test coverage, lobe spread, and a risk score. "
@@ -380,7 +438,9 @@ async def run_mcp_server() -> None:
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         args = arguments or {}
         try:
-            if name == "cerebrofy_blast_radius":
+            if name == "cerebrofy_context":
+                return _handle_context(args)
+            elif name == "cerebrofy_blast_radius":
                 return _handle_blast_radius(args)
             elif name == "search_code":
                 return _handle_search_code(args)
