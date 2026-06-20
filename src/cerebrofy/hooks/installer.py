@@ -143,13 +143,23 @@ def _generate_post_merge_script(map_md_path: str, db_path: str) -> str:
     (resolved from repo_root at install time — the shell script cannot read config.yaml).
     Script reads state_hash from cerebrofy_map.md; queries DB meta table via sqlite3.
     Always exits 0 (WARN-only, never blocks).
+
+    Uses portable python detection (python3 → python fallback) so the script works
+    on Linux, macOS, and Windows (Git for Windows / MSYS bash).
     """
     map_md_literal = repr(map_md_path)
     db_literal = repr(db_path)
     return f"""\
 {HOOK_MARKER_START}
 # cerebrofy-hook-version: 1
-python3 << 'CEREBROFY_PM_CHECK'
+if command -v python3 >/dev/null 2>&1; then
+    _CEREBROFY_PY=python3
+elif command -v python >/dev/null 2>&1; then
+    _CEREBROFY_PY=python
+else
+    exit 0
+fi
+$_CEREBROFY_PY << 'CEREBROFY_PM_CHECK'
 import re, sqlite3, sys
 MAP_MD = {map_md_literal}
 DB_PATH = {db_literal}
