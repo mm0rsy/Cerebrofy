@@ -51,6 +51,10 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "--cov=cerebrofy --cov-report=term-missing --cov-report=xml --cov-fail-under=70"
 testpaths = ["tests"]
+markers = [
+    "smoke: subprocess-based CLI smoke tests (run with: pytest tests/smoke/ -m smoke)",
+    "slow: requires model download (~130 MB); set CEREBROFY_SMOKE_FULL=1 to enable",
+]
 
 [tool.coverage.run]
 source = ["cerebrofy"]

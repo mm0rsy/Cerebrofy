@@ -1,0 +1,82 @@
+name: Smoke
+
+# Run on every PR to main and on direct pushes to main.
+# Purpose: install cerebrofy from the current commit as a real binary and
+# exercise every command via subprocess — the same way a user would.
+# This catches issues that in-process CliRunner tests cannot see:
+#   - entry-point / PATH registration
+#   - missing .git/hooks/ directory
+#   - KeyError in hook template formatting
+#   - permission errors on real filesystem operations
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Fast smoke — init / validate (no model download, <1 min)
+  # ───────────────────────────────────────────────────────────────────────────
+  smoke-fast:
+    name: Smoke fast (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install cerebrofy from this commit
+        run: uv sync --group dev
+
+      - name: Configure git identity (required for git commit inside tests)
+        run: |
+          git config --global user.email "smoke@cerebrofy.test"
+          git config --global user.name "CerebrofySmoke"
+
+      - name: Run fast smoke tests
+        run: uv run pytest tests/smoke/ -m "smoke and not slow" -v --tb=short --no-cov
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Full smoke — includes cerebrofy build + update (model cached between runs)
+  # ───────────────────────────────────────────────────────────────────────────
+  smoke-full:
+    name: Smoke full (ubuntu)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install cerebrofy from this commit
+        run: uv sync --group dev
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "smoke@cerebrofy.test"
+          git config --global user.name "CerebrofySmoke"
+
+      - name: Cache fastembed ONNX model (~130 MB)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-BAAI-bge-small-en-v1.5
+
+      - name: Run full smoke tests (build + update)
+        env:
+          CEREBROFY_SMOKE_FULL: "1"
+        run: uv run pytest tests/smoke/ -m "smoke" -v --tb=short --no-cov
