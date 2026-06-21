@@ -93,3 +93,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["cerebrofy.mcp.server"]
 warn_unused_ignores = false
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "master"
+changelog_file = "CHANGELOG.md"
+commit_message = "chore(release): v{version} [skip ci]"
+upload_to_vcs_release = false
