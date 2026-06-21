@@ -147,3 +147,23 @@ def test_validate_config_no_warnings_for_valid_config(tmp_path: Path) -> None:
     warnings = validate_config(cfg, queries_dir)
     assert not any("lobes" in w for w in warnings)
     assert not any("tracked_extensions" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# MemoryConfig
+# ---------------------------------------------------------------------------
+
+
+def test_memory_config_defaults() -> None:
+    from cerebrofy.config.loader import MemoryConfig
+    cfg = MemoryConfig()
+    assert cfg.decay_half_life_days == 70.0
+    assert cfg.stale_threshold == 0.1
+    assert cfg.possibly_stale_threshold == 0.3
+
+
+def test_memory_config_on_cerebrofy_config() -> None:
+    from cerebrofy.config.loader import MemoryConfig
+    cfg = CerebrоfyConfig(lobes={}, tracked_extensions=[], embedding_model="local")
+    assert isinstance(cfg.memory, MemoryConfig)
+    assert cfg.memory.decay_half_life_days == 70.0
