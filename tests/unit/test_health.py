@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from unittest.mock import MagicMock, patch
 
+from cerebrofy.commands.health import _watch_loop
 from cerebrofy.health.metrics import (
     HealthMetrics,
     _is_test_file,
@@ -399,10 +401,6 @@ def test_to_export_json_structure():
 # ---------------------------------------------------------------------------
 # _watch_loop
 # ---------------------------------------------------------------------------
-
-from unittest.mock import MagicMock, call, patch
-from cerebrofy.commands.health import _watch_loop
-
 
 def _make_stat(mtime: float) -> MagicMock:
     s = MagicMock()
