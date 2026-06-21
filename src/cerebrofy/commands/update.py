@@ -41,6 +41,27 @@ from cerebrofy.update.change_detector import ChangeSet, detect_changes
 from cerebrofy.update.scope_resolver import UpdateScope, resolve_scope
 
 
+def _record_health_snapshot_update(
+    conn: object,
+    lobes: dict[str, str],
+    repo_root: str,
+) -> None:
+    """Compute and persist a health snapshot on the open update connection."""
+    import sqlite3 as _sqlite3
+    c: _sqlite3.Connection = conn  # type: ignore[assignment]
+    try:
+        from cerebrofy.health.metrics import compute_metrics
+        from cerebrofy.health.snapshot import fetch_snapshots, record_snapshot
+
+        prior = fetch_snapshots(c, limit=30)
+        metrics = compute_metrics(c, lobes, prior_snapshots=prior)
+        record_snapshot(c, metrics, repo_root=repo_root)
+        c.commit()
+        click.echo("Cerebrofy: Health snapshot recorded.")
+    except Exception as exc:
+        click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
+
+
 def _check_index_exists(repo_root: Path) -> Path:
     """Return db_path or exit 1 with error if index is missing."""
     db_path = repo_root / ".cerebrofy" / "db" / "cerebrofy.db"
@@ -284,6 +305,9 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
 
         # Step 8: Rewrite Markdown (post-commit)
         _rewrite_markdown_after_update(scope, conn, config, root, new_state_hash)
+
+        # Step 9: Health snapshot
+        _record_health_snapshot_update(conn, config.lobes, str(root))
         conn.close()
 
         elapsed = time.monotonic() - start

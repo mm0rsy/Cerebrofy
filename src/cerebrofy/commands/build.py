@@ -41,6 +41,29 @@ from cerebrofy.parser.engine import parse_directory
 from cerebrofy.parser.neuron import Neuron, ParseResult
 
 
+def _record_health_snapshot(
+    db_path: Path,
+    lobes: dict[str, str],
+    repo_root: str,
+) -> None:
+    """Open the swapped DB, compute health metrics, and persist the snapshot."""
+    try:
+        from cerebrofy.health.metrics import compute_metrics
+        from cerebrofy.health.snapshot import fetch_snapshots, record_snapshot
+
+        conn = open_db(db_path)
+        try:
+            prior = fetch_snapshots(conn, limit=30)
+            metrics = compute_metrics(conn, lobes, prior_snapshots=prior)
+            record_snapshot(conn, metrics, repo_root=repo_root)
+            conn.commit()
+        finally:
+            conn.close()
+        click.echo("Cerebrofy: Health snapshot recorded.")
+    except Exception as exc:
+        click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
+
+
 def get_tmp_path(db_path: Path) -> Path:
     """Return the .tmp sibling path used during an in-progress build."""
     return db_path.parent / (db_path.name + ".tmp")
@@ -258,6 +281,8 @@ def cerebrofy_build() -> None:
 
         docs_dir = root / "docs" / "cerebrofy"
         build_step6_markdown(db_path, config, state_hash, docs_dir)
+
+        _record_health_snapshot(db_path, config.lobes, str(root))
 
         elapsed = time.monotonic() - start
         files_count = len(parse_results)
