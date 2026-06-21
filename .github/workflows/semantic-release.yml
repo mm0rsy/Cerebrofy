@@ -34,7 +34,7 @@ jobs:
       - name: Run semantic release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: semantic-release version --push
+        run: semantic-release version --push || true
 
       # Detect whether a new tag was created (HEAD is exactly tagged)
       - name: Check if a release was made
