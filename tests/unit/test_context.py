@@ -8,12 +8,11 @@ from cerebrofy.context.scorer import compute_relevance
 from cerebrofy.context.optimizer import (
     ContextNeuron,
     ContextPlan,
-    EpistemicInfo,
-    _compute_epistemic,
     _lobe_from_file,
     _read_lobe_summary,
     _signature_text,
 )
+from cerebrofy.epistemic.state import EpistemicState
 from cerebrofy.context.exporter import to_json, to_markdown, to_claude_xml
 
 
@@ -108,21 +107,6 @@ def test_read_lobe_summary_found(tmp_path):
     assert tokens > 0
 
 
-def test_compute_epistemic_fresh(tmp_path):
-    db = tmp_path / "cerebrofy.db"
-    db.write_bytes(b"")
-    info = _compute_epistemic(db)
-    assert info.confidence == 1.0
-    assert info.graph_age_hours < 1.0
-    assert info.caveats == []
-
-
-def test_compute_epistemic_missing_db(tmp_path):
-    info = _compute_epistemic(tmp_path / "missing.db")
-    assert info.confidence == 1.0
-    assert info.graph_age_hours == 0.0
-
-
 # ---------------------------------------------------------------------------
 # exporter
 # ---------------------------------------------------------------------------
@@ -140,11 +124,16 @@ def _make_plan() -> ContextPlan:
         content="def validate_token(token: str) -> bool:\n    ...",
         tokens=40,
     )
-    epistemic = EpistemicInfo(
-        confidence=1.0,
+    epistemic = EpistemicState(
         graph_age_hours=0.5,
-        caveats=[],
-        recommendation="Index is fresh.",
+        neurons_changed_since_build=0,
+        unindexed_languages=(),
+        dynamic_dispatch_count=0,
+        memory_stale_count=0,
+        missing_test_paths=0,
+        overall_confidence=1.0,
+        caveats=(),
+        recommendation="Index is fresh — results are reliable",
     )
     return ContextPlan(
         task="fix the JWT validation bug",

@@ -9,12 +9,13 @@ Algorithm:
 
 from __future__ import annotations
 
-import time
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from cerebrofy.context.scorer import compute_relevance
 from cerebrofy.context.token_counter import count_tokens, tokens_for_source
+from cerebrofy.epistemic.state import EpistemicState, compute_epistemic_state
 from cerebrofy.search.hybrid import MatchedNeuron
 
 TIER_FULL = "full_source"
@@ -43,16 +44,6 @@ class ContextNeuron:
 
 
 @dataclass
-class EpistemicInfo:
-    """Basic graph staleness metadata (simplified #22 placeholder)."""
-
-    confidence: float
-    graph_age_hours: float
-    caveats: list[str]
-    recommendation: str
-
-
-@dataclass
 class ContextPlan:
     """Result of one optimize_context() call."""
 
@@ -62,7 +53,7 @@ class ContextPlan:
     neurons: list[ContextNeuron] = field(default_factory=list)
     lobe_summaries_included: list[str] = field(default_factory=list)
     truncated_count: int = 0
-    epistemic: EpistemicInfo | None = None
+    epistemic: EpistemicState | None = None
 
 
 def _lobe_from_file(file: str) -> str:
@@ -89,31 +80,6 @@ def _signature_text(name: str, signature: str | None, docstring: str | None) -> 
     if docstring:
         parts.append(f'    """{docstring[:200]}"""')
     return "\n".join(parts) if parts else f"# {name}"
-
-
-def _compute_epistemic(db_path: Path) -> EpistemicInfo:
-    """Compute basic graph staleness info from DB modification time."""
-    try:
-        mtime = db_path.stat().st_mtime
-        age_hours = (time.time() - mtime) / 3600.0
-    except OSError:
-        age_hours = 0.0
-
-    caveats: list[str] = []
-    recommendation = "Index is fresh."
-    confidence = 1.0
-
-    if age_hours > 24:
-        caveats.append(f"Index is {age_hours:.0f}h old — callers may have changed.")
-        recommendation = "Run 'cerebrofy build' for full confidence."
-        confidence = max(0.5, 1.0 - (age_hours / 168.0))  # decay over 1 week
-
-    return EpistemicInfo(
-        confidence=round(confidence, 2),
-        graph_age_hours=round(age_hours, 1),
-        caveats=caveats,
-        recommendation=recommendation,
-    )
 
 
 def optimize_context(
@@ -218,5 +184,12 @@ def optimize_context(
         if not placed:
             plan.truncated_count += 1
 
-    plan.epistemic = _compute_epistemic(db_path)
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            plan.epistemic = compute_epistemic_state(conn, config.tracked_extensions, root)
+        finally:
+            conn.close()
+    except Exception:
+        pass
     return plan

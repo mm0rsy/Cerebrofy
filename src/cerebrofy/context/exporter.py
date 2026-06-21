@@ -29,12 +29,7 @@ def to_json(plan: ContextPlan) -> str:
         "truncated_count": plan.truncated_count,
     }
     if plan.epistemic:
-        out["epistemic"] = {
-            "confidence": plan.epistemic.confidence,
-            "graph_age_hours": plan.epistemic.graph_age_hours,
-            "caveats": plan.epistemic.caveats,
-            "recommendation": plan.epistemic.recommendation,
-        }
+        out["epistemic"] = plan.epistemic.to_dict()
     return json.dumps(out, indent=2)
 
 
