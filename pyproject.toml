@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cerebrofy"
-version = "1.0.5"
+version = "2.1.0"
 description = "AI-powered codebase intelligence CLI"
 readme = "README.md"
 license = { file = "LICENSE" }
