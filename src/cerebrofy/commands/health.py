@@ -3,12 +3,55 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 import rich_click as click
 
-from cerebrofy.config.loader import load_config
+from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import open_db
+
+
+def _render_snapshot(db_path: Path, config: CerebrоfyConfig) -> None:
+    """Open DB, compute current metrics, and print the health snapshot."""
+    conn = open_db(db_path)
+    try:
+        from cerebrofy.health.metrics import compute_metrics
+        from cerebrofy.health.reporter import format_health_snapshot
+        from cerebrofy.health.snapshot import fetch_snapshots
+
+        snapshots = fetch_snapshots(conn, limit=30)
+        metrics = compute_metrics(conn, config.lobes, prior_snapshots=snapshots)
+        prev = snapshots[0] if snapshots else None
+        prev_ts = prev["build_ts"] if prev else None
+        prev_commit = prev.get("commit_hash") if prev else None
+        click.echo(format_health_snapshot(metrics, prev, prev_ts, prev_commit))
+    finally:
+        conn.close()
+
+
+def _watch_loop(db_path: Path, config: CerebrоfyConfig) -> None:
+    """Poll cerebrofy.db mtime and re-render on every build/update."""
+    click.echo("Watching for builds… Press Ctrl+C to exit.\n")
+    last_mtime: float | None = None
+
+    try:
+        while True:
+            try:
+                mtime = db_path.stat().st_mtime
+            except OSError:
+                time.sleep(2)
+                continue
+
+            if mtime != last_mtime:
+                last_mtime = mtime
+                click.clear()
+                click.echo("Watching for builds… Press Ctrl+C to exit.\n")
+                _render_snapshot(db_path, config)
+
+            time.sleep(2)
+    except KeyboardInterrupt:
+        pass
 
 
 @click.command("health")
@@ -37,7 +80,13 @@ from cerebrofy.db.connection import open_db
     type=click.Choice(["json"]),
     help="Export current snapshot as JSON.",
 )
-def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None) -> None:
+@click.option(
+    "--watch",
+    is_flag=True,
+    default=False,
+    help="Live-update mode: re-render after each cerebrofy build/update.",
+)
+def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None, watch: bool) -> None:
     """Show longitudinal codebase health metrics derived from the call graph."""
     root = Path.cwd()
     config_path = root / ".cerebrofy" / "config.yaml"
@@ -54,6 +103,11 @@ def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None) ->
         sys.exit(1)
 
     config = load_config(config_path)
+
+    if watch:
+        _watch_loop(db_path, config)
+        return
+
     conn = open_db(db_path)
 
     try:
@@ -76,7 +130,6 @@ def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None) ->
             click.echo(format_trend_sparkline(snapshots, trend))
             return
 
-        # Compute live metrics and display vs previous snapshot
         metrics = compute_metrics(conn, config.lobes, prior_snapshots=snapshots)
         prev = snapshots[0] if snapshots else None
         prev_ts = prev["build_ts"] if prev else None

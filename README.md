@@ -299,12 +299,12 @@ cerebrofy blast-radius validate_token --format markdown   # PR comment format
 
 ### `cerebrofy context`
 
-Build the optimal context window for a coding task within a token budget. Uses KNN + BFS to find relevant Neurons, then greedy-packs them by relevance with tier degradation.
+Build the optimal context window for a coding task within a token budget. Uses KNN + BFS to find relevant Neurons, then greedy-packs them by relevance with tier degradation. JSON output includes a full epistemic confidence payload (`overall_confidence`, `neurons_changed_since_build`, `unindexed_languages`, etc.).
 
 ```bash
 cerebrofy context "add rate limiting to the payments API"
 cerebrofy context "refactor auth module" --budget 12000
-cerebrofy context "fix token expiry bug" --format claude-xml
+cerebrofy context "fix token expiry bug" --output claude-xml
 ```
 
 ---
@@ -325,10 +325,11 @@ cerebrofy epistemic --json   # machine-readable output for agent consumption
 Show longitudinal codebase health metrics derived from the call graph, with deltas vs the previous build.
 
 ```bash
-cerebrofy health
-cerebrofy health --since-build 3   # compare against 3 builds ago
-cerebrofy health --metric coupling  # single metric
-cerebrofy health --format json
+cerebrofy health                      # current snapshot vs last build
+cerebrofy health --history 30         # last 30 builds in a table
+cerebrofy health --trend coupling     # ASCII sparkline for a metric over time
+cerebrofy health --export json        # machine-readable snapshot
+cerebrofy health --watch              # live-update: re-renders after each build
 ```
 
 ---
