@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **six fully operational tools** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **eleven fully operational tools** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -81,6 +81,11 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `search_code` | Hybrid KNN + BFS semantic search — primary navigation |
 | `get_neuron` | Fetch a specific function or class by name or file:line |
 | `list_lobes` | List all indexed modules with summary file paths |
+| `cerebrofy_context` | Build optimal context window for a task within a token budget |
+| `cerebrofy_blast_radius` | Compute every caller affected by a changed neuron + risk score |
+| `cerebrofy_epistemic` | Return confidence score and staleness warnings for the index |
+| `cerebrofy_health` | Longitudinal codebase health metrics from the call graph |
+| `cerebrofy_intent` | Return sprint goals, incidents, and architectural direction |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -164,6 +169,148 @@ List all indexed lobes (named subsections of your codebase) with paths to their 
 ```
 
 Read the `summary_file` for a module overview before searching within it.
+
+---
+
+### `cerebrofy_context`
+
+Build the optimal context window for a coding task within a token budget. Embeds the task, runs KNN + BFS, scores candidates by relevance, and greedy-packs neurons with tier degradation (`full_source → signature → lobe_summary → name_only`). Call this before starting any non-trivial coding task.
+
+**Input schema:**
+
+```json
+{
+  "task": "Add rate limiting to the payments API",
+  "budget": 8000,
+  "model": "auto",
+  "format": "json"
+}
+```
+
+`budget` defaults to 8000 tokens. `model` defaults to `"auto"` (heuristic token counting). `format` accepts `"json"`, `"markdown"`, or `"claude-xml"`.
+
+**Output:** A packed context plan with selected neurons, their representation tier, token counts, and an epistemic confidence score.
+
+---
+
+### `cerebrofy_blast_radius`
+
+Compute the blast radius of a changed neuron — every caller at depth 1 and 2, test coverage gaps, lobe spread, and a risk score. Use after a PR diff to understand what a change affects before merging.
+
+**Input schema:**
+
+```json
+{
+  "target": "src/auth/validator.py::validate_token",
+  "depth": 2,
+  "format": "json"
+}
+```
+
+`target` accepts `"file::name"`, `"file:line"`, or a plain function name. `depth` defaults to 2 (max 5). `format` accepts `"json"` or `"markdown"` (PR comment format).
+
+**Output:**
+
+```json
+{
+  "target_neuron": { "name": "validate_token", "file": "src/auth/validator.py", "line": 42 },
+  "callers": [
+    { "name": "authenticate_request", "file": "src/api/middleware.py", "line": 18, "depth": 1 }
+  ],
+  "uncovered_callers": ["authenticate_request"],
+  "risk_score": 0.72,
+  "risk_label": "HIGH",
+  "lobe_spread": 3,
+  "summary": "..."
+}
+```
+
+---
+
+### `cerebrofy_epistemic`
+
+Return the epistemic confidence score for the current index — graph age, neurons changed since last build, unindexed languages, dynamic dispatch count, and a composite confidence score (0.5–1.0). Call this before any architectural decision to understand how much to trust the index.
+
+All other Cerebrofy tool responses include an `"epistemic"` field automatically.
+
+**Input schema:**
+
+```json
+{ "format": "json" }
+```
+
+`format` accepts `"json"` or `"human"`.
+
+**Output:**
+
+```json
+{
+  "overall_confidence": 0.91,
+  "graph_age_hours": 2.3,
+  "neurons_changed_since_build": 0,
+  "unindexed_languages": [],
+  "dynamic_dispatch_count": 4,
+  "caveats": [],
+  "recommendation": "Index is fresh — results are reliable"
+}
+```
+
+---
+
+### `cerebrofy_health`
+
+Return longitudinal codebase health metrics derived from the call graph. Includes coupling, blast radius trend, dead code %, lobe cohesion, test surface coverage, drift velocity, and hub concentration. Use to understand whether the codebase is improving or degrading over time.
+
+**Input schema:**
+
+```json
+{
+  "since_build": 1,
+  "metric": "all",
+  "format": "markdown"
+}
+```
+
+`since_build` compares against N builds ago. `metric` can be `"all"` or a specific metric name (e.g. `"coupling"`). `format` accepts `"markdown"` or `"json"`.
+
+**Output (markdown):** A formatted health dashboard with delta arrows (↑/↓) vs the previous build and a trend sparkline.
+
+---
+
+### `cerebrofy_intent`
+
+Return the current product intent — sprint goals, active incidents, architectural direction, and team context from `.cerebrofy/intent.yaml`. Pass `lobe` or `neuron` to get relevance scoring for a specific part of the codebase.
+
+Call this at the start of any task to understand team priorities and known risks.
+
+**Input schema:**
+
+```json
+{
+  "lobe": "payments",
+  "format": "json"
+}
+```
+
+Both `lobe` and `neuron` are optional. `format` accepts `"json"` or `"human"`.
+
+**Output:**
+
+```json
+{
+  "sprint": { "name": "Payments v2", "goal": "Ship Stripe billing", "deadline": "2026-07-15", "priority_lobes": ["payments", "api"] },
+  "incidents": [{ "id": "INC-001", "severity": "critical", "description": "...", "status": "patched" }],
+  "architecture": { "direction": "Event-driven via Kafka", "avoid_patterns": ["direct DB from API"] },
+  "team_context": { "concerns": ["payments/ test coverage is 34%"] },
+  "relevance_to_query": {
+    "sprint_relevance": "HIGH — payments is a priority lobe this sprint",
+    "active_incidents": [],
+    "architectural_guidance": ["AVOID: direct DB from API"]
+  }
+}
+```
+
+Returns `NO_INTENT_FILE` if `.cerebrofy/intent.yaml` does not exist — create it with `cerebrofy intent init`.
 
 ---
 
