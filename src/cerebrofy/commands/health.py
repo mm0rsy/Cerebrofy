@@ -8,11 +8,11 @@ from pathlib import Path
 
 import rich_click as click
 
-from cerebrofy.config.loader import load_config
+from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import open_db
 
 
-def _render_snapshot(db_path: Path, config: object) -> None:
+def _render_snapshot(db_path: Path, config: CerebrоfyConfig) -> None:
     """Open DB, compute current metrics, and print the health snapshot."""
     conn = open_db(db_path)
     try:
@@ -30,7 +30,7 @@ def _render_snapshot(db_path: Path, config: object) -> None:
         conn.close()
 
 
-def _watch_loop(db_path: Path, config: object) -> None:
+def _watch_loop(db_path: Path, config: CerebrоfyConfig) -> None:
     """Poll cerebrofy.db mtime and re-render on every build/update."""
     click.echo("Watching for builds… Press Ctrl+C to exit.\n")
     last_mtime: float | None = None
