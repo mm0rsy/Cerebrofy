@@ -3,6 +3,7 @@
 import rich_click as click
 
 from cerebrofy import __version__
+from cerebrofy.commands.blast_radius import cerebrofy_blast_radius
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.mcp import cerebrofy_mcp
@@ -35,6 +36,7 @@ def main() -> None:
 
 
 # Public commands (shown in --help)
+main.add_command(cerebrofy_blast_radius)
 main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_update)
