@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from unittest.mock import MagicMock, patch
 
+from cerebrofy.commands.health import _watch_loop
 from cerebrofy.health.metrics import (
     HealthMetrics,
     _is_test_file,
@@ -394,3 +396,69 @@ def test_to_export_json_structure():
     assert data["current"]["neuron_count"] == 100
     assert data["delta"]["coupling"] < 0  # improved
     assert data["trend"]["coupling"] == "down"
+
+
+# ---------------------------------------------------------------------------
+# _watch_loop
+# ---------------------------------------------------------------------------
+
+def _make_stat(mtime: float) -> MagicMock:
+    s = MagicMock()
+    s.st_mtime = mtime
+    return s
+
+
+def _mock_db(mtimes: list[float]) -> MagicMock:
+    db = MagicMock()
+    db.stat.side_effect = [_make_stat(m) for m in mtimes]
+    return db
+
+
+def test_watch_loop_renders_on_first_mtime():
+    db = _mock_db([1000.0, 1000.0])
+    config = MagicMock()
+
+    with patch("cerebrofy.commands.health._render_snapshot") as mock_render, \
+         patch("click.clear"), \
+         patch("click.echo"), \
+         patch("time.sleep", side_effect=[None, KeyboardInterrupt()]):
+        _watch_loop(db, config)
+
+    mock_render.assert_called_once_with(db, config)
+
+
+def test_watch_loop_skips_render_when_mtime_unchanged():
+    db = _mock_db([1000.0, 1000.0, 1000.0])
+    config = MagicMock()
+
+    with patch("cerebrofy.commands.health._render_snapshot") as mock_render, \
+         patch("click.clear"), \
+         patch("click.echo"), \
+         patch("time.sleep", side_effect=[None, None, KeyboardInterrupt()]):
+        _watch_loop(db, config)
+
+    assert mock_render.call_count == 1
+
+
+def test_watch_loop_rerenders_on_mtime_change():
+    db = _mock_db([1000.0, 1000.0, 2000.0])
+    config = MagicMock()
+
+    with patch("cerebrofy.commands.health._render_snapshot") as mock_render, \
+         patch("click.clear"), \
+         patch("click.echo"), \
+         patch("time.sleep", side_effect=[None, None, KeyboardInterrupt()]):
+        _watch_loop(db, config)
+
+    assert mock_render.call_count == 2
+
+
+def test_watch_loop_exits_cleanly_on_interrupt():
+    db = _mock_db([1000.0])
+    config = MagicMock()
+
+    with patch("cerebrofy.commands.health._render_snapshot"), \
+         patch("click.clear"), \
+         patch("click.echo"), \
+         patch("time.sleep", side_effect=KeyboardInterrupt()):
+        _watch_loop(db, config)  # must not raise

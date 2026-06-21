@@ -189,7 +189,7 @@ Build the optimal context window for a coding task within a token budget. Embeds
 
 `budget` defaults to 8000 tokens. `model` defaults to `"auto"` (heuristic token counting). `format` accepts `"json"`, `"markdown"`, or `"claude-xml"`.
 
-**Output:** A packed context plan with selected neurons, their representation tier, token counts, and an epistemic confidence score.
+**Output:** A packed context plan with selected neurons, their representation tier, token counts, and a full epistemic confidence payload (`overall_confidence`, `neurons_changed_since_build`, `unindexed_languages`, `dynamic_dispatch_count`, `missing_test_paths`, `caveats`, `recommendation`).
 
 ---
 
