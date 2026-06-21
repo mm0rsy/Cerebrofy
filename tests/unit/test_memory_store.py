@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
+
 from cerebrofy.memory.store import (
-    Memory, MemoryEdge, open_memories_db, row_to_memory,
+    Memory, MemoryEdge, open_memories_db,
     write_memory, get_memory, list_memories, delete_memory,
     write_memory_edge, trace_history,
 )
