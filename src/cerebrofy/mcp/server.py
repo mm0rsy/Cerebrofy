@@ -422,6 +422,91 @@ def _handle_health(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=text)]
 
 
+def _load_intent(root: Path) -> "Any | None":
+    """Return IntentConfig or None if intent.yaml is missing or unreadable."""
+    try:
+        from cerebrofy.intent.loader import load_intent
+        return load_intent(root / ".cerebrofy")
+    except Exception:
+        return None
+
+
+def _with_intent(result: list[Any], root: Path) -> list[Any]:
+    """Post-process a tool result list by injecting compact intent summary into each TextContent."""
+    from mcp.types import TextContent
+
+    intent = _load_intent(root)
+    if intent is None:
+        return result
+
+    from cerebrofy.intent.enricher import inject_intent
+
+    out = []
+    for item in result:
+        if isinstance(item, TextContent):
+            out.append(TextContent(type="text", text=inject_intent(item.text, intent)))
+        else:
+            out.append(item)
+    return out
+
+
+def _handle_intent(arguments: dict[str, Any]) -> list[Any]:
+    """Return current product intent, optionally filtered by lobe or neuron."""
+    import json as _json
+    from mcp.types import TextContent
+
+    lobe: str | None = arguments.get("lobe")
+    neuron: str | None = arguments.get("neuron")
+    fmt: str = arguments.get("format", "json")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    intent = _load_intent(root)
+    if intent is None:
+        return [TextContent(type="text", text=_json.dumps({
+            "error": "NO_INTENT_FILE",
+            "message": ".cerebrofy/intent.yaml not found. Run 'cerebrofy intent init' to create one.",
+        }, indent=2))]
+
+    output = intent.to_dict()
+
+    # Compute relevance when a lobe or neuron filter is provided
+    if lobe or neuron:
+        from cerebrofy.intent.enricher import enrich_with_intent
+        affected = [lobe] if lobe else []
+        if neuron:
+            # Extract lobe name from neuron path (first path component after src/)
+            parts = neuron.replace("\\", "/").split("/")
+            for part in parts:
+                if part and part not in ("src", "cerebrofy", "tests"):
+                    affected.append(part)
+                    break
+        relevance = enrich_with_intent(affected, intent)
+        output["relevance_to_query"] = relevance
+    else:
+        output["relevance_to_query"] = None
+
+    if fmt == "human":
+        lines = []
+        if intent.sprint:
+            lines.append(f"Sprint: {intent.sprint.name} — {intent.sprint.goal}")
+            lines.append(f"Deadline: {intent.sprint.deadline}")
+            if intent.sprint.priority_lobes:
+                lines.append(f"Priority lobes: {', '.join(intent.sprint.priority_lobes)}")
+        if intent.incidents:
+            lines.append(f"\nActive incidents: {len(intent.incidents)}")
+            for inc in intent.incidents:
+                lines.append(f"  [{inc.id}] {inc.description} ({inc.severity}/{inc.status})")
+        if intent.architecture:
+            lines.append(f"\nArchitectural direction: {intent.architecture.direction}")
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    return [TextContent(type="text", text=_json.dumps(output, indent=2))]
+
+
 def _handle_build(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
@@ -574,6 +659,19 @@ async def run_mcp_server() -> None:
                     "format": {"type": "string", "default": "markdown", "enum": ["markdown", "json"]},
                 },
             }),
+            Tool(name="cerebrofy_intent", description=(
+                "Return the current product intent — sprint goals, active incidents, "
+                "architectural direction, and team context. Pass 'lobe' or 'neuron' to "
+                "get relevance scoring for a specific part of the codebase. "
+                "Call this at the start of any task to understand team priorities and known risks."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "lobe": {"type": "string", "description": "Get intent relevance for a specific lobe (optional)"},
+                    "neuron": {"type": "string", "description": "Get intent relevance for a specific neuron path (optional)"},
+                    "format": {"type": "string", "default": "json", "enum": ["json", "human"]},
+                },
+            }),
             Tool(name="cerebrofy_build", description=(
                 "Full atomic re-index of the entire repository. "
                 "Use when the index is missing or a full rebuild is needed."
@@ -598,6 +696,9 @@ async def run_mcp_server() -> None:
             if name == "cerebrofy_epistemic":
                 # Returns its own full epistemic payload — no further injection needed
                 return _handle_epistemic(args)
+            elif name == "cerebrofy_intent":
+                # Returns its own full intent payload — no further cross-cutting injection needed
+                return _handle_intent(args)
             elif name == "cerebrofy_health":
                 result = _handle_health(args)
             elif name == "cerebrofy_context":
@@ -619,10 +720,12 @@ async def run_mcp_server() -> None:
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
-            # Cross-cutting epistemic injection for all data-reading tools
+            # Cross-cutting enrichment for all data-reading tools
             try:
                 root = _find_repo_root(Path.cwd())
-                return _with_epistemic(result, root)
+                result = _with_epistemic(result, root)
+                result = _with_intent(result, root)
+                return result
             except Exception:
                 return result
 

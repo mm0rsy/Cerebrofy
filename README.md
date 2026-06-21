@@ -285,6 +285,68 @@ This command is also invoked automatically by the pre-push git hook.
 
 ---
 
+### `cerebrofy blast-radius`
+
+Compute the blast radius of a function or class — every caller at depth 1 and 2, test coverage gaps, lobe spread, and a risk score.
+
+```bash
+cerebrofy blast-radius validate_token
+cerebrofy blast-radius src/auth/tokens.py::validate_token --depth 3
+cerebrofy blast-radius validate_token --format markdown   # PR comment format
+```
+
+---
+
+### `cerebrofy context`
+
+Build the optimal context window for a coding task within a token budget. Uses KNN + BFS to find relevant Neurons, then greedy-packs them by relevance with tier degradation.
+
+```bash
+cerebrofy context "add rate limiting to the payments API"
+cerebrofy context "refactor auth module" --budget 12000
+cerebrofy context "fix token expiry bug" --format claude-xml
+```
+
+---
+
+### `cerebrofy epistemic`
+
+Show the epistemic confidence score and staleness warnings for the current index.
+
+```bash
+cerebrofy epistemic
+cerebrofy epistemic --json   # machine-readable output for agent consumption
+```
+
+---
+
+### `cerebrofy health`
+
+Show longitudinal codebase health metrics derived from the call graph, with deltas vs the previous build.
+
+```bash
+cerebrofy health
+cerebrofy health --since-build 3   # compare against 3 builds ago
+cerebrofy health --metric coupling  # single metric
+cerebrofy health --format json
+```
+
+---
+
+### `cerebrofy intent`
+
+Manage the product intent declaration file (`.cerebrofy/intent.yaml`) — sprint goals, incidents, architectural direction.
+
+```bash
+cerebrofy intent init        # scaffold intent.yaml with commented sections
+cerebrofy intent show        # display current intent (human-readable)
+cerebrofy intent show --json # machine-readable for agent consumption
+cerebrofy intent edit        # open in $EDITOR
+cerebrofy intent validate    # check YAML + validate lobe names against graph
+```
+
+---
+
 ### `cerebrofy mcp`
 
 Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, etc.) — not invoked manually.
@@ -293,7 +355,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes six fully operational tools: `search_code`, `get_neuron`, `list_lobes`, `cerebrofy_build`, `cerebrofy_update`, `cerebrofy_validate`. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes eleven fully operational tools. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -337,14 +399,23 @@ Scripts live in `.cerebrofy/scripts/migrations/`. Safe to run multiple times —
 
 When configured via `cerebrofy init`, AI assistants can call these tools directly against your index:
 
-| Tool | Status | Description |
-|------|--------|-------------|
-| `cerebrofy_build` | ✅ | Trigger a full atomic re-index from the AI client. |
-| `cerebrofy_update` | ✅ | Trigger an incremental re-index. Pass `path` to target a specific file. |
-| `cerebrofy_validate` | ✅ | Check for drift. Returns `clean`, `minor_drift`, or `structural_drift`. Zero writes. |
-| `search_code` | ✅ | Hybrid KNN + BFS semantic search — primary navigation tool. |
-| `get_neuron` | ✅ | Fetch a specific Neuron by name or file:line. |
-| `list_lobes` | ✅ | List indexed lobes with summary file paths. |
+| Tool | Description |
+|------|-------------|
+| `search_code` | Hybrid KNN + BFS semantic search — primary navigation tool. |
+| `get_neuron` | Fetch a specific Neuron by name or file:line. |
+| `list_lobes` | List indexed lobes with summary file paths. |
+| `cerebrofy_context` | Build optimal context window for a task within a token budget. |
+| `cerebrofy_blast_radius` | Compute every caller affected by a changed neuron + risk score. |
+| `cerebrofy_epistemic` | Return index confidence score and staleness warnings. |
+| `cerebrofy_health` | Longitudinal codebase health metrics from the call graph. |
+| `cerebrofy_intent` | Return sprint goals, incidents, and architectural direction. |
+| `cerebrofy_build` | Trigger a full atomic re-index from the AI client. |
+| `cerebrofy_update` | Trigger an incremental re-index. Pass `path` to target a specific file. |
+| `cerebrofy_validate` | Check for drift. Returns `clean`, `minor_drift`, or `structural_drift`. Zero writes. |
+
+All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
+
+Full tool reference: [docs/mcp-integration.md](docs/mcp-integration.md)
 
 ---
 
