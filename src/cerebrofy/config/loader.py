@@ -88,11 +88,12 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         raise FileNotFoundError(f"Config file not found: {path}")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    raw_memory = data.get("memory", {})
+    raw_memory = data.get("memory") or {}
+    _default = MemoryConfig()
     memory_cfg = MemoryConfig(
-        decay_half_life_days=float(raw_memory.get("decay_half_life_days", 70.0)),
-        possibly_stale_threshold=float(raw_memory.get("possibly_stale_threshold", 0.3)),
-        stale_threshold=float(raw_memory.get("stale_threshold", 0.1)),
+        decay_half_life_days=float(raw_memory.get("decay_half_life_days", _default.decay_half_life_days)),
+        possibly_stale_threshold=float(raw_memory.get("possibly_stale_threshold", _default.possibly_stale_threshold)),
+        stale_threshold=float(raw_memory.get("stale_threshold", _default.stale_threshold)),
     )
     config = CerebrоfyConfig(
         lobes=data["lobes"],

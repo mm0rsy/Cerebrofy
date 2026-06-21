@@ -167,3 +167,34 @@ def test_memory_config_on_cerebrofy_config() -> None:
     cfg = CerebrоfyConfig(lobes={}, tracked_extensions=[], embedding_model="local")
     assert isinstance(cfg.memory, MemoryConfig)
     assert cfg.memory.decay_half_life_days == 70.0
+
+
+def test_load_config_parses_memory_section(tmp_path: Path) -> None:
+    """load_config correctly reads a memory: section from YAML."""
+    import yaml as _yaml
+    from cerebrofy.config.loader import load_config, MemoryConfig
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(_yaml.dump({
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "memory": {
+            "decay_half_life_days": 30.0,
+            "possibly_stale_threshold": 0.4,
+            "stale_threshold": 0.15,
+        },
+    }))
+    config = load_config(cfg_file)
+    assert config.memory.decay_half_life_days == 30.0
+    assert config.memory.possibly_stale_threshold == 0.4
+    assert config.memory.stale_threshold == 0.15
+
+
+def test_load_config_memory_null_key_uses_defaults(tmp_path: Path) -> None:
+    """load_config handles `memory:` set to null without crashing."""
+    import yaml as _yaml
+    from cerebrofy.config.loader import load_config, MemoryConfig
+    cfg_file = tmp_path / "config.yaml"
+    # `memory:` with no value → YAML parses as null
+    cfg_file.write_text("lobes:\n  src: src/\ntracked_extensions:\n  - .py\nmemory:\n")
+    config = load_config(cfg_file)
+    assert config.memory == MemoryConfig()  # all defaults
