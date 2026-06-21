@@ -53,6 +53,25 @@ CREATE TABLE file_hashes (
 """
 
 
+HEALTH_SNAPSHOTS_DDL = """
+CREATE TABLE health_snapshots (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  build_ts          INTEGER NOT NULL,
+  commit_hash       TEXT,
+  coupling          REAL,
+  avg_blast         REAL,
+  dead_code_pct     REAL,
+  cohesion          REAL,
+  test_surface      REAL,
+  drift_velocity    REAL,
+  hub_concentration REAL,
+  neuron_count      INTEGER,
+  edge_count        INTEGER
+);
+CREATE INDEX idx_health_ts ON health_snapshots(build_ts DESC);
+"""
+
+
 def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
     """Execute all DDL statements to create the cerebrofy.db schema."""
     conn.executescript(NODES_DDL)
@@ -61,6 +80,7 @@ def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
     conn.executescript(EDGES_INDEX_DDL)
     conn.executescript(META_DDL)
     conn.executescript(FILE_HASHES_DDL)
+    conn.executescript(HEALTH_SNAPSHOTS_DDL)
     if embed_dim > 0:
         vec_neurons_ddl = (
             f"CREATE VIRTUAL TABLE vec_neurons USING vec0("
