@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      id-token: write   # PyPI OIDC Trusted Publisher
 
     steps:
       - uses: actions/checkout@v4
@@ -34,3 +35,51 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: semantic-release version --push
+
+      # Detect whether a new tag was created (HEAD is exactly tagged)
+      - name: Check if a release was made
+        id: check_release
+        run: |
+          TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
+          if [ -n "$TAG" ]; then
+            echo "released=true" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          else
+            echo "released=false" >> $GITHUB_OUTPUT
+          fi
+
+      # ── Only runs when a new version was released ──────────────────────────
+
+      - name: Install dependencies
+        if: steps.check_release.outputs.released == 'true'
+        run: uv sync --group dev --extra mcp
+
+      - name: Lint
+        if: steps.check_release.outputs.released == 'true'
+        run: uv run ruff check src/ tests/
+
+      - name: Unit & integration tests
+        if: steps.check_release.outputs.released == 'true'
+        run: uv run pytest tests/unit/ tests/integration/ -v --tb=short --no-cov
+
+      - name: Build wheel and sdist
+        if: steps.check_release.outputs.released == 'true'
+        run: uv build
+
+      - name: Verify dist/ contents
+        if: steps.check_release.outputs.released == 'true'
+        run: ls -lh dist/
+
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.released == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.check_release.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+
+      - name: Publish to PyPI
+        if: steps.check_release.outputs.released == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
