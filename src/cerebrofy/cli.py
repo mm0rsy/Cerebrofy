@@ -6,6 +6,8 @@ from cerebrofy import __version__
 from cerebrofy.commands.blast_radius import cerebrofy_blast_radius
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.context import cerebrofy_context
+from cerebrofy.commands.epistemic import cerebrofy_epistemic
+from cerebrofy.commands.health import cerebrofy_health
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
@@ -40,6 +42,8 @@ def main() -> None:
 main.add_command(cerebrofy_blast_radius)
 main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_context)
+main.add_command(cerebrofy_epistemic)
+main.add_command(cerebrofy_health)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_update)
 main.add_command(cerebrofy_validate)

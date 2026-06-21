@@ -294,6 +294,134 @@ def _handle_blast_radius(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(out, indent=2))]
 
 
+def _compute_epistemic(root: Path) -> "Any | None":
+    """Return EpistemicState or None if the DB is unavailable."""
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return None
+    try:
+        from cerebrofy.config.loader import load_config
+        from cerebrofy.db.connection import open_db
+        from cerebrofy.epistemic.state import compute_epistemic_state
+
+        config = load_config(root / ".cerebrofy" / "config.yaml")
+        conn = open_db(db_path)
+        try:
+            return compute_epistemic_state(conn, config.tracked_extensions, root)
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _with_epistemic(result: list[Any], root: Path) -> list[Any]:
+    """Post-process a tool result list by injecting epistemic state into each TextContent."""
+    from mcp.types import TextContent
+
+    state = _compute_epistemic(root)
+    if state is None:
+        return result
+
+    from cerebrofy.epistemic.state import inject_epistemic
+
+    out = []
+    for item in result:
+        if isinstance(item, TextContent):
+            out.append(TextContent(type="text", text=inject_epistemic(item.text, state)))
+        else:
+            out.append(item)
+    return out
+
+
+def _handle_epistemic(arguments: dict[str, Any]) -> list[Any]:
+    """Return the current epistemic state as JSON or human-readable text."""
+    from mcp.types import TextContent
+
+    fmt: str = arguments.get("format", "json")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("[NO_INDEX] Index not found. Run 'cerebrofy build' first.")
+
+    state = _compute_epistemic(root)
+    if state is None:
+        return _make_error_content("[error] Could not compute epistemic state.")
+
+    import json as _json
+    if fmt == "human":
+        pct = int(state.overall_confidence * 100)
+        lines = [
+            f"Epistemic Confidence: {pct}%",
+            f"Graph age: {state.graph_age_hours:.1f}h",
+            f"Neurons changed: {state.neurons_changed_since_build}",
+        ]
+        for c in state.caveats:
+            lines.append(f"⚠️  {c}")
+        lines.append(f"Recommendation: {state.recommendation}")
+        return [TextContent(type="text", text="\n".join(lines))]
+
+    return [TextContent(type="text", text=_json.dumps(state.to_dict(), indent=2))]
+
+
+def _handle_health(arguments: dict[str, Any]) -> list[Any]:
+    """Return current health snapshot with delta from previous build."""
+    from mcp.types import TextContent
+
+    since_build: int = int(arguments.get("since_build", 1))
+    metric: str = arguments.get("metric", "all")
+    fmt: str = arguments.get("format", "markdown")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content("[NO_INDEX] Index not found. Run 'cerebrofy build' first.")
+
+    try:
+        from cerebrofy.config.loader import load_config
+        from cerebrofy.db.connection import open_db
+        from cerebrofy.health.metrics import compute_metrics
+        from cerebrofy.health.reporter import format_health_snapshot, to_export_json
+        from cerebrofy.health.snapshot import fetch_snapshots
+
+        config = load_config(root / ".cerebrofy" / "config.yaml")
+        conn = open_db(db_path)
+        try:
+            snapshots = fetch_snapshots(conn, limit=since_build + 1)
+            metrics = compute_metrics(conn, config.lobes, prior_snapshots=snapshots)
+        finally:
+            conn.close()
+
+        prev = snapshots[since_build - 1] if len(snapshots) >= since_build else None
+        latest = snapshots[0] if snapshots else None
+        ts = latest["build_ts"] if latest else None
+        commit = latest.get("commit_hash") if latest else None
+
+        if fmt == "json":
+            text = to_export_json(metrics, prev, ts, commit)
+        else:
+            text = format_health_snapshot(metrics, prev, ts, commit)
+
+        if metric != "all":
+            val = getattr(metrics, metric, None)
+            if val is None:
+                return _make_error_content(f"[error] Unknown metric: {metric}")
+            text = f"{metric}: {val}"
+
+    except Exception as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    return [TextContent(type="text", text=text)]
+
+
 def _handle_build(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
@@ -420,6 +548,32 @@ async def run_mcp_server() -> None:
                 },
                 "required": ["target"],
             }),
+            Tool(name="cerebrofy_epistemic", description=(
+                "Return the epistemic confidence score for the current index — "
+                "graph age, neurons changed since last build, unindexed languages, "
+                "dynamic dispatch count, and a composite confidence score (0.5–1.0). "
+                "Call this before any architectural decision to understand how much to "
+                "trust the index. All other Cerebrofy tool responses include an "
+                "'epistemic' field automatically."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string", "default": "json", "enum": ["json", "human"]},
+                },
+            }),
+            Tool(name="cerebrofy_health", description=(
+                "Return longitudinal codebase health metrics derived from the call graph. "
+                "Includes coupling, blast radius trend, dead code %, lobe cohesion, "
+                "test surface coverage, drift velocity, and hub concentration. "
+                "Use to understand whether the codebase is improving or degrading over time."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "since_build": {"type": "integer", "default": 1, "description": "Compare against N builds ago."},
+                    "metric": {"type": "string", "default": "all", "description": "Specific metric name or 'all'."},
+                    "format": {"type": "string", "default": "markdown", "enum": ["markdown", "json"]},
+                },
+            }),
             Tool(name="cerebrofy_build", description=(
                 "Full atomic re-index of the entire repository. "
                 "Use when the index is missing or a full rebuild is needed."
@@ -437,17 +591,25 @@ async def run_mcp_server() -> None:
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         args = arguments or {}
+        # Subprocess tools don't benefit from epistemic injection
+        _subprocess_tools = {"cerebrofy_build", "cerebrofy_update", "cerebrofy_validate"}
+
         try:
-            if name == "cerebrofy_context":
-                return _handle_context(args)
+            if name == "cerebrofy_epistemic":
+                # Returns its own full epistemic payload — no further injection needed
+                return _handle_epistemic(args)
+            elif name == "cerebrofy_health":
+                result = _handle_health(args)
+            elif name == "cerebrofy_context":
+                result = _handle_context(args)
             elif name == "cerebrofy_blast_radius":
-                return _handle_blast_radius(args)
+                result = _handle_blast_radius(args)
             elif name == "search_code":
-                return _handle_search_code(args)
+                result = _handle_search_code(args)
             elif name == "get_neuron":
-                return _handle_get_neuron(args)
+                result = _handle_get_neuron(args)
             elif name == "list_lobes":
-                return _handle_list_lobes(args)
+                result = _handle_list_lobes(args)
             elif name == "cerebrofy_build":
                 return _handle_build(args)
             elif name == "cerebrofy_update":
@@ -456,6 +618,14 @@ async def run_mcp_server() -> None:
                 return _handle_validate(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
+
+            # Cross-cutting epistemic injection for all data-reading tools
+            try:
+                root = _find_repo_root(Path.cwd())
+                return _with_epistemic(result, root)
+            except Exception:
+                return result
+
         except FileNotFoundError as exc:
             return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' first.")
         except ValueError as exc:
