@@ -574,15 +574,22 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
             try:
                 from cerebrofy.db.connection import open_db
                 idx = open_db(db_path)
-                row = idx.execute(
+                rows = idx.execute(
                     "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
                     (neuron_param, f"%::{neuron_param}"),
-                ).fetchone()
+                ).fetchall()
                 idx.close()
-                if row:
-                    neuron_id = row[0]
-                else:
+                if not rows:
                     warning_msg = f"neuron '{neuron_param}' not found — memory stored without anchor"
+                elif len(rows) > 1:
+                    matches = ", ".join(r[0] for r in rows[:5])
+                    warning_msg = (
+                        f"'{neuron_param}' matches {len(rows)} neurons ({matches}…) — "
+                        f"using first match. Use file::name for precision."
+                    )
+                    neuron_id = rows[0][0]
+                else:
+                    neuron_id = rows[0][0]
             except Exception:
                 warning_msg = "could not resolve neuron — memory stored without anchor"
 
@@ -696,12 +703,13 @@ def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
             db_path = cerebrofy_dir / "db" / "cerebrofy.db"
             from cerebrofy.db.connection import open_db
             idx = open_db(db_path)
-            row = idx.execute(
+            rows = idx.execute(
                 "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
                 (neuron, f"%::{neuron}"),
-            ).fetchone()
+            ).fetchall()
             idx.close()
-            neuron_id = row[0] if row else None
+            if rows:
+                neuron_id = rows[0][0]
 
         memories = list_memories(
             conn, neuron_id=neuron_id, lobe=lobe,
