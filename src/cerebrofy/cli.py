@@ -10,6 +10,7 @@ from cerebrofy.commands.epistemic import cerebrofy_epistemic
 from cerebrofy.commands.health import cerebrofy_health
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.intent import cerebrofy_intent
+from cerebrofy.commands.memory import mem_group
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.update import cerebrofy_update
@@ -47,6 +48,7 @@ main.add_command(cerebrofy_epistemic)
 main.add_command(cerebrofy_health)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_intent)
+main.add_command(mem_group)
 main.add_command(cerebrofy_update)
 main.add_command(cerebrofy_validate)
 
