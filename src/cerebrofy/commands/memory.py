@@ -52,7 +52,7 @@ def mem_group() -> None:
 @mem_group.command("add")
 @click.argument("title")
 @click.option("--type", "mem_type", required=True,
-              type=click.Choice(["decision", "warning", "context", "pattern", "agent_action"]),
+              type=click.Choice(["decision", "warning", "context", "pattern", "agent_action", "insight"]),
               help="Memory type.")
 @click.option("--body", required=True, help="Full memory content.")
 @click.option("--neuron", default=None, help="Neuron to attach to (file::name or name).")
@@ -71,31 +71,38 @@ def memory_add(title: str, mem_type: str, body: str, neuron: str | None,
     neuron_id: str | None = None
     if neuron:
         db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
-        try:
-            from cerebrofy.db.connection import open_db
-            idx = open_db(db_path)
-            rows = idx.execute(
-                "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
-                (neuron, f"%::{neuron}"),
-            ).fetchall()
-            idx.close()
-            if not rows:
-                click.echo(
-                    f"Warning: neuron '{neuron}' not found — memory stored without anchor.",
-                    err=True,
-                )
-            elif len(rows) > 1:
-                matches = ", ".join(r[0] for r in rows[:5])
-                click.echo(
-                    f"Warning: '{neuron}' matches {len(rows)} neurons ({matches}…) — "
-                    f"using first match. Use file::name for precision.",
-                    err=True,
-                )
-                neuron_id = rows[0][0]
-            else:
-                neuron_id = rows[0][0]
-        except Exception:
-            pass
+        if not db_path.exists():
+            click.echo(
+                f"Warning: neuron '{neuron}' cannot be resolved — no index found "
+                f"(run 'cerebrofy build' first). Memory stored without anchor.",
+                err=True,
+            )
+        else:
+            try:
+                from cerebrofy.db.connection import open_db
+                idx = open_db(db_path)
+                rows = idx.execute(
+                    "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
+                    (neuron, f"%::{neuron}"),
+                ).fetchall()
+                idx.close()
+                if not rows:
+                    click.echo(
+                        f"Warning: neuron '{neuron}' not found — memory stored without anchor.",
+                        err=True,
+                    )
+                elif len(rows) > 1:
+                    matches = ", ".join(r[0] for r in rows[:5])
+                    click.echo(
+                        f"Warning: '{neuron}' matches {len(rows)} neurons ({matches}…) — "
+                        f"using first match. Use file::name for precision.",
+                        err=True,
+                    )
+                    neuron_id = rows[0][0]
+                else:
+                    neuron_id = rows[0][0]
+            except Exception:
+                pass
 
     tag_tuple = tuple(t.strip() for t in tags.split(",") if t.strip()) if tags else ()
     mem = Memory(

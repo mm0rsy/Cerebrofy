@@ -62,7 +62,9 @@ def recall_memories(
     for row in mem_rows:
         rowid = int(row[0])
         mem = row_to_memory(row[1:])  # 11 columns after rowid
-        similarity = max(0.0, 1.0 - rowid_to_dist[rowid])
+        # sqlite-vec returns L2 distance; for unit vectors: cosine_sim = 1 - L2²/2
+        d = rowid_to_dist[rowid]
+        similarity = max(0.0, 1.0 - (d * d / 2.0))
         results.append((mem, round(similarity, 4)))
 
     results.sort(key=lambda x: -x[1])
