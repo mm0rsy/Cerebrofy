@@ -62,6 +62,24 @@ def _record_health_snapshot_update(
         click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
 
 
+def _recompute_memory_decay_update(
+    root: Path, config: CerebrоfyConfig, affected_node_ids: frozenset[str] | set[str]
+) -> None:
+    """Decay recompute for memories attached to re-indexed neurons."""
+    memories_db = root / ".cerebrofy" / "db" / "memories.db"
+    if not memories_db.exists():
+        return
+    try:
+        from cerebrofy.memory.decay import recompute_all_decay
+        from cerebrofy.memory.store import open_memories_db
+        conn = open_memories_db(root / ".cerebrofy")
+        recompute_all_decay(conn, set(affected_node_ids), config.memory)
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        click.echo(f"Warning: memory decay recompute failed: {exc}", err=True)
+
+
 def _check_index_exists(repo_root: Path) -> Path:
     """Return db_path or exit 1 with error if index is missing."""
     db_path = repo_root / ".cerebrofy" / "db" / "cerebrofy.db"
@@ -308,6 +326,7 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
 
         # Step 9: Health snapshot
         _record_health_snapshot_update(conn, config.lobes, str(root))
+        _recompute_memory_decay_update(root, config, scope.affected_node_ids)
         conn.close()
 
         elapsed = time.monotonic() - start

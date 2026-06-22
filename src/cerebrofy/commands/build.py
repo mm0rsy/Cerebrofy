@@ -64,6 +64,22 @@ def _record_health_snapshot(
         click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
 
 
+def _recompute_memory_decay_build(root: Path, config: CerebrоfyConfig) -> None:
+    """Time-based decay recompute for all memories after a full build."""
+    memories_db = root / ".cerebrofy" / "db" / "memories.db"
+    if not memories_db.exists():
+        return
+    try:
+        from cerebrofy.memory.decay import recompute_all_decay
+        from cerebrofy.memory.store import open_memories_db
+        conn = open_memories_db(root / ".cerebrofy")
+        recompute_all_decay(conn, set(), config.memory)
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        click.echo(f"Warning: memory decay recompute failed: {exc}", err=True)
+
+
 def get_tmp_path(db_path: Path) -> Path:
     """Return the .tmp sibling path used during an in-progress build."""
     return db_path.parent / (db_path.name + ".tmp")
@@ -283,6 +299,7 @@ def cerebrofy_build() -> None:
         build_step6_markdown(db_path, config, state_hash, docs_dir)
 
         _record_health_snapshot(db_path, config.lobes, str(root))
+        _recompute_memory_decay_build(root, config)
 
         elapsed = time.monotonic() - start
         files_count = len(parse_results)
