@@ -37,9 +37,10 @@ def _get_author(override: str | None) -> str:
 def _open(root: Path) -> "sqlite3.Connection":
     from cerebrofy.memory.store import open_memories_db
     cerebrofy_dir = root / ".cerebrofy"
-    if not (cerebrofy_dir / "db").exists():
-        click.echo("Error: No index found. Run 'cerebrofy init && cerebrofy build' first.", err=True)
+    if not (cerebrofy_dir / "config.yaml").exists():
+        click.echo("Error: Not initialized. Run 'cerebrofy init' first.", err=True)
         sys.exit(1)
+    (cerebrofy_dir / "db").mkdir(parents=True, exist_ok=True)
     return open_memories_db(cerebrofy_dir)
 
 
@@ -73,18 +74,26 @@ def memory_add(title: str, mem_type: str, body: str, neuron: str | None,
         try:
             from cerebrofy.db.connection import open_db
             idx = open_db(db_path)
-            row = idx.execute(
+            rows = idx.execute(
                 "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
                 (neuron, f"%::{neuron}"),
-            ).fetchone()
+            ).fetchall()
             idx.close()
-            if row:
-                neuron_id = row[0]
-            else:
+            if not rows:
                 click.echo(
                     f"Warning: neuron '{neuron}' not found — memory stored without anchor.",
                     err=True,
                 )
+            elif len(rows) > 1:
+                matches = ", ".join(r[0] for r in rows[:5])
+                click.echo(
+                    f"Warning: '{neuron}' matches {len(rows)} neurons ({matches}…) — "
+                    f"using first match. Use file::name for precision.",
+                    err=True,
+                )
+                neuron_id = rows[0][0]
+            else:
+                neuron_id = rows[0][0]
         except Exception:
             pass
 
@@ -166,12 +175,20 @@ def memory_list(neuron: str | None, lobe: str | None, mem_type: str | None,
         try:
             from cerebrofy.db.connection import open_db
             idx = open_db(db_path)
-            row = idx.execute(
+            rows = idx.execute(
                 "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
                 (neuron, f"%::{neuron}"),
-            ).fetchone()
+            ).fetchall()
             idx.close()
-            neuron_id = row[0] if row else None
+            if rows:
+                if len(rows) > 1:
+                    matches = ", ".join(r[0] for r in rows[:5])
+                    click.echo(
+                        f"Warning: '{neuron}' matches {len(rows)} neurons ({matches}…) — "
+                        f"showing first match. Use file::name for precision.",
+                        err=True,
+                    )
+                neuron_id = rows[0][0]
         except Exception:
             pass
     memories = list_memories(conn, neuron_id=neuron_id, lobe=lobe,

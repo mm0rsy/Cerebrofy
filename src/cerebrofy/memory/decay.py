@@ -4,14 +4,10 @@ from __future__ import annotations
 import math
 import sqlite3
 import time as _time
+from typing import Any
 
 from cerebrofy.config.loader import MemoryConfig
-from cerebrofy.memory.store import Memory, row_to_memory
-
-_SELECT_COLS = (
-    "id, neuron_id, lobe, type, title, body, author, "
-    "created_ts, tags, decay_score, status"
-)
+from cerebrofy.memory.store import Memory, _SELECT_COLS, row_to_memory
 
 
 def compute_decay(
@@ -41,21 +37,14 @@ def _decay_status(score: float, config: MemoryConfig) -> str:
     return "active"
 
 
-def recompute_all_decay(
+def _recompute_rows(
     conn: sqlite3.Connection,
+    rows: list[tuple[Any, ...]],
     changed_neuron_ids: set[str],
+    current_ts: int,
     config: MemoryConfig,
 ) -> int:
-    """Recompute decay for all memories. Returns count of rows whose status changed.
-
-    Pass empty set for build (time-decay only).
-    Pass affected_node_ids for update (signature penalty for those neurons).
-    """
-    current_ts = int(_time.time())
-    rows = conn.execute(
-        f"SELECT {_SELECT_COLS} FROM memories"
-    ).fetchall()
-
+    """Recompute decay for a list of memory rows. Returns count of changed rows."""
     changed_count = 0
     for row in rows:
         memory = row_to_memory(row)
@@ -70,4 +59,45 @@ def recompute_all_decay(
                 (new_score, new_status, memory.id),
             )
             changed_count += 1
+    return changed_count
+
+
+def recompute_all_decay(
+    conn: sqlite3.Connection,
+    changed_neuron_ids: set[str],
+    config: MemoryConfig,
+) -> int:
+    """Recompute decay for memories. Returns count of rows whose status changed.
+
+    Pass empty set for build (time-decay only, all memories).
+    Pass affected_node_ids for update (signature penalty for those neurons;
+    time-decay only for all others). On incremental update only memories
+    attached to changed neurons are fetched and recomputed in Python;
+    unattached memories are updated via a bulk SQL time-decay pass.
+    """
+    current_ts = int(_time.time())
+
+    if not changed_neuron_ids:
+        # Full rebuild: recompute every memory in Python (no signature penalty)
+        rows = conn.execute(f"SELECT {_SELECT_COLS} FROM memories").fetchall()
+        return _recompute_rows(conn, rows, set(), current_ts, config)
+
+    # Incremental update: only fetch memories attached to changed neurons
+    placeholders = ",".join("?" * len(changed_neuron_ids))
+    affected_rows = conn.execute(
+        f"SELECT {_SELECT_COLS} FROM memories WHERE neuron_id IN ({placeholders})",
+        list(changed_neuron_ids),
+    ).fetchall()
+
+    # Recompute affected memories (with signature penalty where applicable)
+    changed_count = _recompute_rows(conn, affected_rows, changed_neuron_ids, current_ts, config)
+
+    # Time-only decay for all remaining memories (not attached to changed neurons)
+    unaffected_rows = conn.execute(
+        f"SELECT {_SELECT_COLS} FROM memories "
+        f"WHERE neuron_id NOT IN ({placeholders}) OR neuron_id IS NULL",
+        list(changed_neuron_ids),
+    ).fetchall()
+    changed_count += _recompute_rows(conn, unaffected_rows, set(), current_ts, config)
+
     return changed_count
