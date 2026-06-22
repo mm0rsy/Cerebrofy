@@ -161,6 +161,31 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
 
     cols = ("id", "name", "type", "file", "line_start", "line_end", "signature", "docstring")
     neurons = [dict(zip(cols, row)) for row in rows]
+
+    # Attach memories from memories.db (if it exists)
+    try:
+        from cerebrofy.memory.store import list_memories, open_memories_db
+        cerebrofy_dir = root / ".cerebrofy"
+        if (cerebrofy_dir / "db" / "memories.db").exists():
+            mem_conn = open_memories_db(cerebrofy_dir)
+            for result in neurons:
+                attached = list_memories(mem_conn, neuron_id=result.get("id"), include_stale=False)
+                result["memories"] = [
+                    {
+                        "id": m.id, "type": m.type, "title": m.title,
+                        "body": m.body, "decay_score": m.decay_score,
+                        "status": m.status, "tags": list(m.tags),
+                    }
+                    for m in attached
+                ]
+            mem_conn.close()
+        else:
+            for result in neurons:
+                result["memories"] = []
+    except Exception:
+        for result in neurons:
+            result.setdefault("memories", [])
+
     return [TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))]
 
 
