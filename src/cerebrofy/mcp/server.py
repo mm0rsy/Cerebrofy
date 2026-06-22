@@ -161,6 +161,33 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
 
     cols = ("id", "name", "type", "file", "line_start", "line_end", "signature", "docstring")
     neurons = [dict(zip(cols, row)) for row in rows]
+
+    # Attach memories from memories.db (if it exists)
+    try:
+        from cerebrofy.memory.store import list_memories, open_memories_db
+        cerebrofy_dir = root / ".cerebrofy"
+        if (cerebrofy_dir / "db" / "memories.db").exists():
+            mem_conn = open_memories_db(cerebrofy_dir)
+            try:
+                for result in neurons:
+                    attached = list_memories(mem_conn, neuron_id=result.get("id"), include_stale=False)
+                    result["memories"] = [
+                        {
+                            "id": m.id, "type": m.type, "title": m.title,
+                            "body": m.body, "decay_score": m.decay_score,
+                            "status": m.status, "tags": list(m.tags),
+                        }
+                        for m in attached
+                    ]
+            finally:
+                mem_conn.close()
+        else:
+            for result in neurons:
+                result["memories"] = []
+    except Exception:
+        for result in neurons:
+            result.setdefault("memories", [])
+
     return [TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))]
 
 
@@ -507,6 +534,207 @@ def _handle_intent(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(output, indent=2))]
 
 
+def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
+    import json as _json
+    import time as _time
+    import uuid as _uuid
+
+    title = arguments.get("title", "").strip()
+    body = arguments.get("body", "").strip()
+    mem_type = arguments.get("type", "").strip()
+
+    if not title or not body or not mem_type:
+        return _make_error_content("cerebrofy_remember: 'title', 'body', and 'type' are required")
+
+    from cerebrofy.memory.store import VALID_TYPES
+    if mem_type not in VALID_TYPES:
+        return _make_error_content(
+            f"cerebrofy_remember: invalid type '{mem_type}'. "
+            f"Valid: {', '.join(sorted(VALID_TYPES))}"
+        )
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except Exception:
+        return _make_error_content("NO_INDEX: could not find .cerebrofy directory")
+
+    cerebrofy_dir = root / ".cerebrofy"
+    if not (cerebrofy_dir / "db").exists():
+        return _make_error_content("NO_INDEX: run cerebrofy build first")
+
+    try:
+        from cerebrofy.memory.embedder import embed_memory
+        from cerebrofy.memory.store import Memory, open_memories_db, write_memory
+
+        neuron_param = arguments.get("neuron")
+        neuron_id: str | None = None
+        warning_msg: str | None = None
+        if neuron_param:
+            db_path = cerebrofy_dir / "db" / "cerebrofy.db"
+            try:
+                from cerebrofy.db.connection import open_db
+                idx = open_db(db_path)
+                rows = idx.execute(
+                    "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
+                    (neuron_param, f"%::{neuron_param}"),
+                ).fetchall()
+                idx.close()
+                if not rows:
+                    warning_msg = f"neuron '{neuron_param}' not found — memory stored without anchor"
+                elif len(rows) > 1:
+                    matches = ", ".join(r[0] for r in rows[:5])
+                    warning_msg = (
+                        f"'{neuron_param}' matches {len(rows)} neurons ({matches}…) — "
+                        f"using first match. Use file::name for precision."
+                    )
+                    neuron_id = rows[0][0]
+                else:
+                    neuron_id = rows[0][0]
+            except Exception:
+                warning_msg = "could not resolve neuron — memory stored without anchor"
+
+        tags_raw = arguments.get("tags", [])
+        if isinstance(tags_raw, str):
+            tags = tuple(t.strip() for t in tags_raw.split(",") if t.strip())
+        else:
+            tags = tuple(str(t) for t in tags_raw)
+
+        author = arguments.get("author") or "agent:unknown"
+        mem_id = str(_uuid.uuid4())
+        mem = Memory(
+            id=mem_id, neuron_id=neuron_id, lobe=arguments.get("lobe"),
+            type=mem_type, title=title, body=body, author=author,
+            created_ts=int(_time.time()), tags=tags,
+            decay_score=1.0, status="active",
+        )
+        embedding = embed_memory(title, body)
+        conn = open_memories_db(cerebrofy_dir)
+        write_memory(conn, mem, embedding)
+        conn.commit()
+        conn.close()
+
+        result: dict[str, Any] = {
+            "id": mem_id, "neuron_id": neuron_id, "created_ts": mem.created_ts,
+        }
+        if warning_msg:
+            result["warning"] = warning_msg
+        from mcp.types import TextContent
+        return [TextContent(type="text", text=_json.dumps(result, indent=2))]
+    except Exception as exc:
+        return _make_error_content(f"cerebrofy_remember failed: {exc}")
+
+
+def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
+    import json as _json
+    from mcp.types import TextContent
+
+    query = arguments.get("query", "").strip()
+    if not query:
+        return _make_error_content("cerebrofy_recall: 'query' is required")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except Exception:
+        return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
+
+    cerebrofy_dir = root / ".cerebrofy"
+    memories_db = cerebrofy_dir / "db" / "memories.db"
+    if not memories_db.exists():
+        return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
+
+    try:
+        from cerebrofy.memory.embedder import embed_memory
+        from cerebrofy.memory.search import recall_memories
+        from cerebrofy.memory.store import open_memories_db
+
+        conn = open_memories_db(cerebrofy_dir)
+        embedding = embed_memory(query, "")
+        results = recall_memories(
+            conn, embedding,
+            limit=int(arguments.get("limit", 10)),
+            type_filter=arguments.get("type"),
+            lobe_filter=arguments.get("lobe"),
+            include_stale=bool(arguments.get("include_stale", False)),
+        )
+        conn.close()
+
+        out = {
+            "memories": [
+                {
+                    "id": m.id, "type": m.type, "title": m.title, "body": m.body,
+                    "neuron": m.neuron_id, "lobe": m.lobe, "author": m.author,
+                    "created_ts": m.created_ts, "tags": list(m.tags),
+                    "decay_score": m.decay_score, "status": m.status,
+                    "relevance_score": score,
+                }
+                for m, score in results
+            ],
+            "count": len(results),
+        }
+        return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+    except Exception as exc:
+        return [TextContent(type="text", text=_json.dumps({"memories": [], "error": str(exc)}))]
+
+
+def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
+    import json as _json
+    from mcp.types import TextContent
+
+    neuron = arguments.get("neuron")
+    lobe = arguments.get("lobe")
+    if not neuron and not lobe:
+        return _make_error_content("cerebrofy_memories: provide 'neuron' or 'lobe'")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except Exception:
+        return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
+
+    cerebrofy_dir = root / ".cerebrofy"
+    if not (cerebrofy_dir / "db" / "memories.db").exists():
+        return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
+
+    try:
+        from cerebrofy.memory.store import list_memories, open_memories_db
+
+        conn = open_memories_db(cerebrofy_dir)
+        neuron_id: str | None = None
+        if neuron:
+            db_path = cerebrofy_dir / "db" / "cerebrofy.db"
+            from cerebrofy.db.connection import open_db
+            idx = open_db(db_path)
+            rows = idx.execute(
+                "SELECT id FROM nodes WHERE name = ? OR id LIKE ?",
+                (neuron, f"%::{neuron}"),
+            ).fetchall()
+            idx.close()
+            if rows:
+                neuron_id = rows[0][0]
+
+        memories = list_memories(
+            conn, neuron_id=neuron_id, lobe=lobe,
+            type_filter=arguments.get("type"),
+            include_stale=bool(arguments.get("include_stale", False)),
+        )
+        conn.close()
+
+        out = {
+            "memories": [
+                {
+                    "id": m.id, "type": m.type, "title": m.title, "body": m.body,
+                    "neuron": m.neuron_id, "lobe": m.lobe, "author": m.author,
+                    "created_ts": m.created_ts, "tags": list(m.tags),
+                    "decay_score": m.decay_score, "status": m.status,
+                }
+                for m in memories
+            ],
+            "count": len(memories),
+        }
+        return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+    except Exception as exc:
+        return _make_error_content(f"cerebrofy_memories failed: {exc}")
+
+
 def _handle_build(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
@@ -684,6 +912,55 @@ async def run_mcp_server() -> None:
                 "Check for drift between source code and the index. "
                 "Returns 'clean', 'minor_drift', or 'structural_drift'. Zero writes."
             ), inputSchema=_EMPTY),
+            Tool(name="cerebrofy_remember", description=(
+                "Write a structured memory (decision, warning, context, pattern, agent_action) "
+                "attached to a neuron or lobe. Call this after any important decision, gotcha, "
+                "or completed refactor so future agents have context."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Short memory title"},
+                    "body": {"type": "string", "description": "Full memory content"},
+                    "type": {
+                        "type": "string",
+                        "enum": ["decision", "warning", "context", "pattern", "agent_action"],
+                    },
+                    "neuron": {"type": "string", "description": "Neuron name or file::name"},
+                    "lobe": {"type": "string", "description": "Lobe name"},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "author": {"type": "string"},
+                },
+                "required": ["title", "body", "type"],
+            }),
+            Tool(name="cerebrofy_recall", description=(
+                "Semantic search across all memories. Use before starting a task to surface "
+                "relevant decisions, warnings, and past agent actions."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "type": {
+                        "type": "string",
+                        "enum": ["decision", "warning", "context", "pattern", "agent_action", "insight"],
+                    },
+                    "lobe": {"type": "string"},
+                    "limit": {"type": "integer", "default": 10},
+                    "include_stale": {"type": "boolean", "default": False},
+                },
+                "required": ["query"],
+            }),
+            Tool(name="cerebrofy_memories", description=(
+                "List memories for a specific neuron or lobe without a search query. "
+                "Use when you already know which neuron/lobe you are working with."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "neuron": {"type": "string"},
+                    "lobe": {"type": "string"},
+                    "type": {"type": "string"},
+                    "include_stale": {"type": "boolean", "default": False},
+                },
+            }),
         ]
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
@@ -717,6 +994,12 @@ async def run_mcp_server() -> None:
                 return _handle_update(args)
             elif name == "cerebrofy_validate":
                 return _handle_validate(args)
+            elif name == "cerebrofy_remember":
+                return _handle_remember(args)
+            elif name == "cerebrofy_recall":
+                return _handle_recall(args)
+            elif name == "cerebrofy_memories":
+                return _handle_memories(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 

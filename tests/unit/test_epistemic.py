@@ -370,3 +370,26 @@ def test_confidence_line_low():
     )
     line = state.confidence_line()
     assert "⚠️" in line
+
+
+def test_memory_stale_count_no_db(tmp_path):
+    from cerebrofy.epistemic.state import _memory_stale_count
+    assert _memory_stale_count(tmp_path) == 0
+
+
+def test_memory_stale_count_with_stale(tmp_path):
+    from cerebrofy.epistemic.state import _memory_stale_count
+    from cerebrofy.memory.store import Memory, open_memories_db, write_memory
+
+    cerebrofy_dir = tmp_path / ".cerebrofy"
+    (cerebrofy_dir / "db").mkdir(parents=True)
+    conn = open_memories_db(cerebrofy_dir)
+    m = Memory(
+        id="s1", neuron_id=None, lobe=None, type="warning",
+        title="Old", body="Stale", author=None,
+        created_ts=1_000_000, tags=(), decay_score=0.05, status="stale",
+    )
+    write_memory(conn, m, [0.1] * 384)
+    conn.commit()
+    conn.close()
+    assert _memory_stale_count(tmp_path) == 1

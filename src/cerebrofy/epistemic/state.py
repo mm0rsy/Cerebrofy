@@ -58,6 +58,21 @@ class EpistemicState:
 # Main entry point
 # ---------------------------------------------------------------------------
 
+def _memory_stale_count(repo_root: Path) -> int:
+    """Count stale memories in memories.db. Returns 0 if no memories.db exists."""
+    memories_db = repo_root / ".cerebrofy" / "db" / "memories.db"
+    if not memories_db.exists():
+        return 0
+    try:
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(str(memories_db))
+        row = conn.execute("SELECT COUNT(*) FROM memories WHERE status = 'stale'").fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+    except Exception:
+        return 0
+
+
 def compute_epistemic_state(
     conn: sqlite3.Connection,
     tracked_extensions: list[str],
@@ -90,7 +105,7 @@ def compute_epistemic_state(
         neurons_changed_since_build=neurons_changed,
         unindexed_languages=tuple(unindexed),
         dynamic_dispatch_count=dispatch_count,
-        memory_stale_count=0,
+        memory_stale_count=_memory_stale_count(repo_root),
         missing_test_paths=missing_tests,
         overall_confidence=confidence,
         caveats=tuple(caveats),
