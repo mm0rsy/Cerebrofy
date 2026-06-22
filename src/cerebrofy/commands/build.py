@@ -65,19 +65,28 @@ def _record_health_snapshot(
 
 
 def _recompute_memory_decay_build(root: Path, config: CerebrоfyConfig) -> None:
-    """Time-based decay recompute for all memories after a full build."""
+    """Time-based decay recompute for all memories after a full build.
+
+    Uses a plain sqlite3 connection — decay only queries the memories table,
+    not vec_memories, so sqlite-vec is not required here.
+    """
+    import sqlite3 as _sqlite3
+
     memories_db = root / ".cerebrofy" / "db" / "memories.db"
     if not memories_db.exists():
         return
+    conn: _sqlite3.Connection | None = None
     try:
         from cerebrofy.memory.decay import recompute_all_decay
-        from cerebrofy.memory.store import open_memories_db
-        conn = open_memories_db(root / ".cerebrofy")
+        conn = _sqlite3.connect(str(memories_db))
+        conn.execute("PRAGMA journal_mode=WAL")
         recompute_all_decay(conn, set(), config.memory)
         conn.commit()
-        conn.close()
     except Exception as exc:
         click.echo(f"Warning: memory decay recompute failed: {exc}", err=True)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def get_tmp_path(db_path: Path) -> Path:

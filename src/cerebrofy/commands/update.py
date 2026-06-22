@@ -65,19 +65,28 @@ def _record_health_snapshot_update(
 def _recompute_memory_decay_update(
     root: Path, config: CerebrоfyConfig, affected_node_ids: frozenset[str] | set[str]
 ) -> None:
-    """Decay recompute for memories attached to re-indexed neurons."""
+    """Decay recompute for memories attached to re-indexed neurons.
+
+    Uses a plain sqlite3 connection — decay only queries the memories table,
+    not vec_memories, so sqlite-vec is not required here.
+    """
+    import sqlite3 as _sqlite3
+
     memories_db = root / ".cerebrofy" / "db" / "memories.db"
     if not memories_db.exists():
         return
+    conn: _sqlite3.Connection | None = None
     try:
         from cerebrofy.memory.decay import recompute_all_decay
-        from cerebrofy.memory.store import open_memories_db
-        conn = open_memories_db(root / ".cerebrofy")
+        conn = _sqlite3.connect(str(memories_db))
+        conn.execute("PRAGMA journal_mode=WAL")
         recompute_all_decay(conn, set(affected_node_ids), config.memory)
         conn.commit()
-        conn.close()
     except Exception as exc:
         click.echo(f"Warning: memory decay recompute failed: {exc}", err=True)
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _check_index_exists(repo_root: Path) -> Path:
