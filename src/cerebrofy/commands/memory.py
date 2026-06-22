@@ -8,6 +8,8 @@ import time
 import uuid
 from pathlib import Path
 
+import sqlite3
+
 import rich_click as click
 from rich import box
 from rich.console import Console
@@ -32,7 +34,7 @@ def _get_author(override: str | None) -> str:
     return "human:unknown"
 
 
-def _open(root: Path):
+def _open(root: Path) -> "sqlite3.Connection":
     from cerebrofy.memory.store import open_memories_db
     cerebrofy_dir = root / ".cerebrofy"
     if not (cerebrofy_dir / "db").exists():

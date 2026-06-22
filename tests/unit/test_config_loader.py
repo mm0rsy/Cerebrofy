@@ -172,7 +172,7 @@ def test_memory_config_on_cerebrofy_config() -> None:
 def test_load_config_parses_memory_section(tmp_path: Path) -> None:
     """load_config correctly reads a memory: section from YAML."""
     import yaml as _yaml
-    from cerebrofy.config.loader import load_config, MemoryConfig
+    from cerebrofy.config.loader import load_config
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(_yaml.dump({
         "lobes": {"src": "src/"},
@@ -191,7 +191,6 @@ def test_load_config_parses_memory_section(tmp_path: Path) -> None:
 
 def test_load_config_memory_null_key_uses_defaults(tmp_path: Path) -> None:
     """load_config handles `memory:` set to null without crashing."""
-    import yaml as _yaml
     from cerebrofy.config.loader import load_config, MemoryConfig
     cfg_file = tmp_path / "config.yaml"
     # `memory:` with no value → YAML parses as null
