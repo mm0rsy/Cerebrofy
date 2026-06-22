@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    """Decay parameters for the agent memory layer."""
+
+    decay_half_life_days: float = 70.0
+    possibly_stale_threshold: float = 0.3
+    stale_threshold: float = 0.1
 
 
 @dataclass(frozen=True)
@@ -15,6 +24,7 @@ class CerebrоfyConfig:
     lobes: dict[str, str]
     tracked_extensions: list[str]
     embedding_model: str = "local"
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 DEFAULT_TRACKED_EXTENSIONS: list[str] = [
@@ -78,10 +88,18 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         raise FileNotFoundError(f"Config file not found: {path}")
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
+    raw_memory = data.get("memory") or {}
+    _default = MemoryConfig()
+    memory_cfg = MemoryConfig(
+        decay_half_life_days=float(raw_memory.get("decay_half_life_days", _default.decay_half_life_days)),
+        possibly_stale_threshold=float(raw_memory.get("possibly_stale_threshold", _default.possibly_stale_threshold)),
+        stale_threshold=float(raw_memory.get("stale_threshold", _default.stale_threshold)),
+    )
     config = CerebrоfyConfig(
         lobes=data["lobes"],
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),
+        memory=memory_cfg,
     )
     if queries_dir is not None:
         for warning in validate_config(config, queries_dir):

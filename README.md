@@ -334,6 +334,21 @@ cerebrofy health --watch              # live-update: re-renders after each build
 
 ---
 
+### `cerebrofy memory`
+
+Write and query structured memories attached to neurons and lobes. Memories persist across full rebuilds in a separate `memories.db` and decay over time using a configurable half-life (default 70 days). Stale memories are surfaced in the epistemic confidence score.
+
+```bash
+cerebrofy memory add "Clock skew breaks token expiry" \
+    --type warning --neuron auth/tokens.py::validate_token --tags "security,jwt"
+cerebrofy memory search "JWT expiry edge cases" --lobe auth
+cerebrofy memory list --lobe auth --type warning
+cerebrofy memory link <from-id> <to-id> --rel motivated
+cerebrofy memory export --format markdown > DECISIONS.md
+```
+
+---
+
 ### `cerebrofy intent`
 
 Manage the product intent declaration file (`.cerebrofy/intent.yaml`) — sprint goals, incidents, architectural direction.
