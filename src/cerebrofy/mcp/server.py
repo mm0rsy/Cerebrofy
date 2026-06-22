@@ -18,6 +18,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
+from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -961,6 +964,35 @@ async def run_mcp_server() -> None:
                     "include_stale": {"type": "boolean", "default": False},
                 },
             }),
+            Tool(name="cerebrofy_link_memories", description=(
+                "Create a typed causal edge between two memories (Phase 2 causal graph). "
+                "Use to record why a decision was made, what an action resolved, or how "
+                "two memories relate. rel_type: caused | motivated | resolved | contradicts | updated_by."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "from_memory": {"type": "string", "description": "ID of the source memory"},
+                    "to_memory": {"type": "string", "description": "ID of the target memory"},
+                    "rel_type": {
+                        "type": "string",
+                        "enum": ["caused", "motivated", "resolved", "contradicts", "updated_by"],
+                    },
+                    "author": {"type": "string"},
+                },
+                "required": ["from_memory", "to_memory", "rel_type"],
+            }),
+            Tool(name="cerebrofy_trace_history", description=(
+                "Walk the causal memory graph backward from a memory to explain why a neuron "
+                "is the way it is. Returns the full causal chain up to 'depth' hops. "
+                "Use when you need to understand the decision history behind a piece of code."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "memory": {"type": "string", "description": "Memory ID to trace backward from"},
+                    "depth": {"type": "integer", "default": 5, "minimum": 1, "maximum": 20},
+                },
+                "required": ["memory"],
+            }),
         ]
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
@@ -1000,6 +1032,10 @@ async def run_mcp_server() -> None:
                 return _handle_recall(args)
             elif name == "cerebrofy_memories":
                 return _handle_memories(args)
+            elif name == "cerebrofy_link_memories":
+                return _handle_link_memories(args)
+            elif name == "cerebrofy_trace_history":
+                return _handle_trace_history(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
