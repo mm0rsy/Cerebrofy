@@ -807,7 +807,8 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
                 f"[NO_INDEX] Neuron '{target}' not found. Run 'cerebrofy build' to refresh the index."
             )
 
-        result = compute_impact(neuron, conn, depth=depth, show_tests=show_tests)
+        result = compute_impact(neuron, conn, depth=depth, show_tests=show_tests,
+                                cerebrofy_dir=root / ".cerebrofy")
         sequence = build_sequence(
             neuron,
             result.callers_by_depth,
@@ -842,6 +843,7 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
             {"name": t.name, "file": t.file} for t in result.covering_tests
         ] if show_tests else [],
         "uncovered_callers": result.uncovered_callers if show_tests else [],
+        "memory_warnings": result.memory_warnings,
         "refactoring_sequence": [
             {
                 "step": s.step,
@@ -1170,7 +1172,7 @@ async def run_mcp_server() -> None:
             elif name == "cerebrofy_onboard":
                 result = _handle_onboard(args)
             elif name == "cerebrofy_impact":
-                return _handle_impact(args)
+                result = _handle_impact(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
