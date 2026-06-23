@@ -371,7 +371,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes seventeen fully operational tools. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes eighteen fully operational tools. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -396,6 +396,28 @@ Each node is a function, class, or module. Color encodes its position in the cal
 Nodes are distributed throughout the **full brain interior** using volumetric sphere sampling. Source nodes are placed at the cortex surface. Clicking any node shows its docstring and metadata in a side panel.
 
 Works on any cerebrofy-indexed Python project — no project-specific configuration required.
+
+---
+
+### `cerebrofy impact`
+
+Predict the full blast radius of a refactor **before touching any code**. Runs BFS caller traversal, maps test coverage, estimates lines of code affected, and produces a recommended refactoring sequence.
+
+```bash
+cerebrofy impact auth/tokens.py::validate_token
+cerebrofy impact validate_token --depth 3
+cerebrofy impact auth/tokens.py:42 --no-sequence
+cerebrofy impact auth/tokens.py::validate_token --output json
+```
+
+| Output field | Meaning |
+|---|---|
+| **Callers (Depth 1/2)** | Direct and transitive callers via BFS |
+| **Lobes Crossed** | Number of architectural boundaries the change touches |
+| **Estimated LoC** | Lines of code across all affected neurons |
+| **Complexity Rating** | 🟢 LOW / 🟡 MEDIUM / 🔴 HIGH |
+| **Memory Warnings** | `warning` memories attached to the target from `cerebrofy memory` |
+| **Refactoring Sequence** | Reverse-topological order — update callers leaf-first to minimise breakage |
 
 ---
 
@@ -461,6 +483,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_link_memories` | Create a directed link between two memories. |
 | `cerebrofy_trace_history` | Trace the ancestry chain of a memory through its linked predecessors. |
 | `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones, and memory warnings. |
+| `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
