@@ -25,6 +25,7 @@ class Hotspot:
     line_start: int
     caller_count: int
     lobe_spread: int
+    blast_radius: int   # transitive caller count via BFS
     lobe: str
 
 
@@ -61,6 +62,7 @@ class OnboardPlan:
     map_md_path: str | None
     neuron_count: int
     edge_count: int
+    team_context: dict[str, Any] | None = None   # from intent.yaml (sprint, incidents, arch)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -105,6 +107,7 @@ def build_plan(
     hotspots = fetch_hotspots(node_map, in_adj, node_lobe)
     safe_zones = fetch_safe_zones(lobes, node_map, node_lobe, in_adj, out_adj)
     things_to_know, memories_available = fetch_things_to_know(cerebrofy_dir)
+    team_context = _load_team_context(cerebrofy_dir)
 
     map_md = cerebrofy_dir / "cerebrofy_map.md"
     map_md_path = str(map_md) if map_md.exists() else None
@@ -124,7 +127,45 @@ def build_plan(
         map_md_path=map_md_path,
         neuron_count=len(node_map),
         edge_count=len(valid_edges),
+        team_context=team_context,
     )
+
+
+def _load_team_context(cerebrofy_dir: Path) -> dict[str, Any] | None:
+    """Load sprint goal, open incidents, and arch direction from intent.yaml.
+
+    Returns None if intent.yaml is absent or unparseable.
+    Gracefully degrades — never raises.
+    """
+    try:
+        from cerebrofy.intent.loader import load_intent
+        intent = load_intent(cerebrofy_dir)
+        if intent is None:
+            return None
+        ctx: dict[str, Any] = {}
+        if intent.sprint and intent.sprint.goal:
+            ctx["sprint_goal"] = intent.sprint.goal
+            if intent.sprint.deadline:
+                ctx["sprint_deadline"] = intent.sprint.deadline
+        open_incidents = [
+            inc for inc in intent.incidents
+            if inc.status not in ("closed", "patched")
+        ]
+        if open_incidents:
+            ctx["open_incidents"] = [
+                {"id": inc.id, "severity": inc.severity, "description": inc.description}
+                for inc in open_incidents
+            ]
+        if intent.architecture:
+            if intent.architecture.direction:
+                ctx["arch_direction"] = intent.architecture.direction
+            if intent.architecture.avoid_patterns:
+                ctx["avoid_patterns"] = list(intent.architecture.avoid_patterns)
+        if intent.team_context and intent.team_context.concerns:
+            ctx["concerns"] = list(intent.team_context.concerns)
+        return ctx or None
+    except Exception:
+        return None
 
 
 def _lobe_neighbours(
