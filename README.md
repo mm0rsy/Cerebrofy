@@ -371,7 +371,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes eleven fully operational tools. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes seventeen fully operational tools. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -396,6 +396,33 @@ Each node is a function, class, or module. Color encodes its position in the cal
 Nodes are distributed throughout the **full brain interior** using volumetric sphere sampling. Source nodes are placed at the cortex surface. Clicking any node shows its docstring and metadata in a side panel.
 
 Works on any cerebrofy-indexed Python project — no project-specific configuration required.
+
+---
+
+### `cerebrofy onboard`
+
+Generate a personalized **onboarding guide** from the cerebrofy index — a topology-derived reading order, entry points, complexity hotspots, and safe zones for any developer joining the project.
+
+```bash
+cerebrofy onboard                          # generates .cerebrofy/ONBOARDING.md
+cerebrofy onboard --name "Alice"           # personalized welcome header
+cerebrofy onboard --focus auth             # restrict guide to the auth lobe
+cerebrofy onboard --format html            # self-contained interactive HTML
+cerebrofy onboard --depth senior           # skip basics, focus on architecture
+cerebrofy onboard --output ~/ONBOARDING.md # write to a custom path
+```
+
+The guide includes:
+
+| Section | Source |
+|---------|--------|
+| **Reading Order** | Topological sort of lobes by call-graph dependency |
+| **Entry Points** | Neurons with `in_degree == 0 && out_degree > 0` (CLI commands, event handlers) |
+| **Hotspots** | Top-10 functions by blast radius — understand these before touching them |
+| **Safe Zones** | Lobes with low coupling and low blast radius — start contributing here |
+| **Things to Know** | `warning` and `decision` memories attached to high-traffic neurons |
+
+Output is written to `.cerebrofy/ONBOARDING.md` (or `.cerebrofy/ONBOARDING.html` with `--format html`). The HTML output is fully self-contained with zero external dependencies.
 
 ---
 
@@ -428,6 +455,12 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_build` | Trigger a full atomic re-index from the AI client. |
 | `cerebrofy_update` | Trigger an incremental re-index. Pass `path` to target a specific file. |
 | `cerebrofy_validate` | Check for drift. Returns `clean`, `minor_drift`, or `structural_drift`. Zero writes. |
+| `cerebrofy_remember` | Write a structured memory (insight, warning, decision) to the memory store. |
+| `cerebrofy_recall` | Semantic search over stored memories. |
+| `cerebrofy_memories` | List all memories, optionally filtered by lobe or type. |
+| `cerebrofy_link_memories` | Create a directed link between two memories. |
+| `cerebrofy_trace_history` | Trace the ancestry chain of a memory through its linked predecessors. |
+| `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones, and memory warnings. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
