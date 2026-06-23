@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-import pytest
 
 from cerebrofy.analysis.impact import (
     ImpactNeuron,
@@ -17,8 +16,8 @@ from cerebrofy.analysis.impact import (
     find_runtime_boundary_callers,
     resolve_target,
 )
-from cerebrofy.analysis.sequence import SequenceStep, build_sequence
-from cerebrofy.graph.edges import EXTERNAL_CALL, LOCAL_CALL, RUNTIME_BOUNDARY
+from cerebrofy.analysis.sequence import build_sequence
+from cerebrofy.graph.edges import LOCAL_CALL, RUNTIME_BOUNDARY
 
 
 # ---------------------------------------------------------------------------
