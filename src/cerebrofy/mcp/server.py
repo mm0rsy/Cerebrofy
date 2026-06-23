@@ -774,6 +774,89 @@ def _handle_validate(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=f"[{drift_label}]\n{output}")]
 
 
+def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
+    """Pre-change impact prediction for a target neuron."""
+    from mcp.types import TextContent
+
+    target: str = arguments.get("target", "")
+    if not target:
+        return _make_error_content("[error] 'target' is required.")
+
+    depth: int = int(arguments.get("depth", 2))
+    show_tests: bool = bool(arguments.get("show_tests", True))
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    conn = _open_db_ro(root)
+    try:
+        from cerebrofy.analysis.impact import compute_impact, resolve_target
+        from cerebrofy.analysis.sequence import build_sequence
+        from cerebrofy.db.connection import check_schema_version
+
+        try:
+            check_schema_version(conn)
+        except ValueError as exc:
+            return _make_error_content(f"Schema version mismatch: {exc}. Run 'cerebrofy migrate'.")
+
+        neuron = resolve_target(target, conn)
+        if neuron is None:
+            return _make_error_content(
+                f"[NO_INDEX] Neuron '{target}' not found. Run 'cerebrofy build' to refresh the index."
+            )
+
+        result = compute_impact(neuron, conn, depth=depth, show_tests=show_tests,
+                                cerebrofy_dir=root / ".cerebrofy")
+        sequence = build_sequence(
+            neuron,
+            result.callers_by_depth,
+            result.runtime_boundary_callers,
+            conn,
+        )
+    finally:
+        conn.close()
+
+    import json as _json
+    out: dict[str, Any] = {
+        "target": {
+            "id": result.target.id,
+            "name": result.target.name,
+            "file": result.target.file,
+            "line_start": result.target.line_start,
+            "lobe": result.target.lobe,
+        },
+        "callers_depth1": [
+            {"name": n.name, "file": n.file, "line_start": n.line_start}
+            for n in result.callers_by_depth.get(1, [])
+        ],
+        "callers_depth2": [
+            {"name": n.name, "file": n.file, "line_start": n.line_start}
+            for n in result.callers_by_depth.get(2, [])
+        ],
+        "lobe_spread": result.lobe_spread,
+        "estimated_loc": result.estimated_loc,
+        "complexity_rating": result.complexity_rating,
+        "runtime_boundary_callers": result.runtime_boundary_callers,
+        "covering_tests": [
+            {"name": t.name, "file": t.file} for t in result.covering_tests
+        ] if show_tests else [],
+        "uncovered_callers": result.uncovered_callers if show_tests else [],
+        "memory_warnings": result.memory_warnings,
+        "refactoring_sequence": [
+            {
+                "step": s.step,
+                "description": s.description,
+                "neuron_ids": s.neuron_ids,
+                "is_runtime_boundary": s.is_runtime_boundary,
+            }
+            for s in sequence
+        ],
+    }
+    return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+
+
 # ---------------------------------------------------------------------------
 # Server entrypoint
 # ---------------------------------------------------------------------------
@@ -1012,6 +1095,37 @@ async def run_mcp_server() -> None:
                     },
                 },
             }),
+            Tool(name="cerebrofy_impact", description=(
+                "Pre-change impact prediction. Run before any refactor to see every caller, "
+                "test coverage, lobe spread, estimated LoC, and a recommended refactoring sequence. "
+                "Standard pre-flight check before touching any function or class."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": (
+                            "Neuron to analyse. Accepts: "
+                            "'file::name' (e.g. auth/tokens.py::validate_token), "
+                            "'file:line' (e.g. auth/tokens.py:42), "
+                            "or plain name (e.g. validate_token)."
+                        ),
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "BFS caller traversal depth (default: 2).",
+                        "default": 2,
+                        "minimum": 1,
+                        "maximum": 5,
+                    },
+                    "show_tests": {
+                        "type": "boolean",
+                        "description": "Include covering test list (default: true).",
+                        "default": True,
+                    },
+                },
+                "required": ["target"],
+            }),
         ]
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
@@ -1057,6 +1171,8 @@ async def run_mcp_server() -> None:
                 return _handle_trace_history(args)
             elif name == "cerebrofy_onboard":
                 result = _handle_onboard(args)
+            elif name == "cerebrofy_impact":
+                result = _handle_impact(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
