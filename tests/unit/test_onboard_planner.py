@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
-import time
 from pathlib import Path
-
-import pytest
 
 from cerebrofy.onboard.planner import OnboardPlan, build_plan
 from cerebrofy.onboard.queries import (
@@ -14,7 +11,6 @@ from cerebrofy.onboard.queries import (
     fetch_entry_points,
     fetch_hotspots,
     fetch_lobe_reading_order,
-    fetch_lobe_sections,
     fetch_safe_zones,
     fetch_things_to_know,
 )
