@@ -77,6 +77,13 @@ def _render_text(result: ImpactResult, sequence: list[SequenceStep], show_tests:
                 idx += 1
         console.print(caller_table)
 
+    # Memory warnings attached to target
+    if result.memory_warnings:
+        console.print("[bold yellow]⚠️  Memory Warnings:[/bold yellow]")
+        for w in result.memory_warnings:
+            console.print(f"  • {w}")
+        console.print()
+
     # Runtime boundary warning
     if result.runtime_boundary_callers:
         console.print(
@@ -188,7 +195,7 @@ def cerebrofy_impact(
             click.echo(f"Cerebrofy: Neuron '{target}' not found in index. Run 'cerebrofy build' to refresh.")
             sys.exit(1)
 
-        result = compute_impact(neuron, conn, depth=depth, show_tests=show_tests)
+        result = compute_impact(neuron, conn, depth=depth, show_tests=show_tests, cerebrofy_dir=root / ".cerebrofy")
         sequence = []
         if show_sequence:
             sequence = build_sequence(

@@ -33,6 +33,7 @@ class ImpactResult:
     lobe_spread: int = 0
     estimated_loc: int = 0
     complexity_rating: str = "LOW"
+    memory_warnings: list[str] = field(default_factory=list)
 
 
 def _lobe_from_file(file: str) -> str:
@@ -210,6 +211,7 @@ def compute_impact(
     conn: sqlite3.Connection,
     depth: int = 2,
     show_tests: bool = True,
+    cerebrofy_dir: Path | None = None,
 ) -> ImpactResult:
     """Run full impact computation for target neuron."""
     callers_by_depth = bfs_callers(target.id, conn, max_depth=depth)
@@ -229,6 +231,8 @@ def compute_impact(
     if show_tests:
         covering_tests, uncovered_callers = find_covering_tests(all_caller_ids, target.id, conn)
 
+    memory_warnings = _fetch_memory_warnings(target.id, cerebrofy_dir)
+
     return ImpactResult(
         target=target,
         callers_by_depth=callers_by_depth,
@@ -238,4 +242,24 @@ def compute_impact(
         lobe_spread=lobe_spread,
         estimated_loc=estimated_loc,
         complexity_rating=complexity,
+        memory_warnings=memory_warnings,
     )
+
+
+def _fetch_memory_warnings(neuron_id: str, cerebrofy_dir: Path | None) -> list[str]:
+    """Return warning memory titles attached to neuron_id. Gracefully degrades."""
+    if cerebrofy_dir is None:
+        return []
+    try:
+        memories_db = cerebrofy_dir / "db" / "memories.db"
+        if not memories_db.exists():
+            return []
+        from cerebrofy.memory.store import list_memories, open_memories_db
+        conn = open_memories_db(cerebrofy_dir)
+        try:
+            warnings = list_memories(conn, neuron_id=neuron_id, type_filter="warning", include_stale=False)
+        finally:
+            conn.close()
+        return [m.title for m in warnings]
+    except Exception:
+        return []
