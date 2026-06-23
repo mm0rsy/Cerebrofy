@@ -224,6 +224,7 @@ def test_hotspots_ranked_by_score(tmp_path: Path) -> None:
     assert hotspots[0].name == "hub"
     assert hotspots[0].caller_count == 3
     assert hotspots[0].lobe_spread == 2
+    assert hotspots[0].blast_radius == 3  # all 3 callers are transitive callers of hub
 
 
 # ---------------------------------------------------------------------------

@@ -171,25 +171,48 @@ def fetch_entry_points(
     return result
 
 
+def _bfs_transitive_callers(nid: str, in_adj: dict[str, set[str]]) -> int:
+    """Count all nodes that transitively call nid via BFS on in_adj."""
+    visited: set[str] = {nid}
+    frontier: set[str] = {nid}
+    while frontier:
+        next_f: set[str] = set()
+        for n in frontier:
+            for caller in in_adj.get(n, set()):
+                if caller not in visited:
+                    visited.add(caller)
+                    next_f.add(caller)
+        frontier = next_f
+    return len(visited) - 1  # exclude nid itself
+
+
 def fetch_hotspots(
     node_map: dict[str, dict[str, Any]],
     in_adj: dict[str, set[str]],
     node_lobe: dict[str, str],
     limit: int = 10,
 ) -> list[Hotspot]:
-    """Top-N neurons by caller_count × lobe_spread (same formula as health/metrics.py)."""
-    scored: list[tuple[int, str]] = []
+    """Top-N neurons by transitive blast radius (BFS caller count)."""
+    # Pre-filter: cheap proxy score to pick top candidates for BFS
+    pre_scored: list[tuple[int, str]] = []
     for nid, info in node_map.items():
         if _is_test_file(info["file"]):
             continue
         callers = in_adj.get(nid, set())
         caller_lobes = {node_lobe[c] for c in callers if c in node_lobe}
         score = len(callers) * max(len(caller_lobes), 1)
-        scored.append((score, nid))
-    scored.sort(reverse=True)
+        pre_scored.append((score, nid))
+    pre_scored.sort(reverse=True)
+
+    # Compute real BFS blast radius only for top candidates
+    candidates = pre_scored[: limit * 5]
+    bfs_scored: list[tuple[int, str]] = []
+    for _pre, nid in candidates:
+        bfs_scored.append((_bfs_transitive_callers(nid, in_adj), nid))
+    bfs_scored.sort(reverse=True)
 
     result: list[Hotspot] = []
-    for _score, nid in scored[:limit]:
+    for blast, nid in bfs_scored[:limit]:
         info = node_map[nid]
         callers = in_adj.get(nid, set())
         caller_lobes = {node_lobe[c] for c in callers if c in node_lobe}
@@ -199,6 +222,7 @@ def fetch_hotspots(
             line_start=info["line_start"],
             caller_count=len(callers),
             lobe_spread=len(caller_lobes),
+            blast_radius=blast,
             lobe=node_lobe.get(nid, "__unknown__"),
         ))
     return result

@@ -13,6 +13,7 @@ def render_markdown(plan: OnboardPlan) -> str:
     sections = [
         _render_header(plan),
         _render_overview(plan),
+        _render_team_context(plan),
         _render_reading_order(plan),
         _render_entry_points(plan),
         _render_hotspots(plan),
@@ -53,6 +54,31 @@ def _render_overview(plan: OnboardPlan) -> str:
         return "## What This Codebase Does\n\n" + content
     except OSError:
         return ""
+
+
+def _render_team_context(plan: OnboardPlan) -> str:
+    ctx = plan.team_context
+    if not ctx:
+        return ""
+    lines = ["## 🎯 Team Context"]
+    if "sprint_goal" in ctx:
+        deadline = f" _(deadline: {ctx['sprint_deadline']})_" if "sprint_deadline" in ctx else ""
+        lines += ["", f"**Sprint goal:** {ctx['sprint_goal']}{deadline}"]
+    if "open_incidents" in ctx:
+        lines += ["", "**Open incidents:**"]
+        for inc in ctx["open_incidents"]:
+            lines.append(f"- `[{inc['severity'].upper()}]` {inc['description']}")
+    if "arch_direction" in ctx:
+        lines += ["", f"**Architectural direction:** {ctx['arch_direction']}"]
+    if "avoid_patterns" in ctx:
+        lines += ["", "**Avoid:**"]
+        for p in ctx["avoid_patterns"]:
+            lines.append(f"- {p}")
+    if "concerns" in ctx:
+        lines += ["", "**Team concerns:**"]
+        for c in ctx["concerns"]:
+            lines.append(f"- {c}")
+    return "\n".join(lines)
 
 
 def _render_reading_order(plan: OnboardPlan) -> str:
@@ -102,12 +128,12 @@ def _render_hotspots(plan: OnboardPlan) -> str:
     lines = [
         "## ⚠️ Complexity Hotspots (Understand Before Touching)",
         "",
-        "| Function | File | Callers | Lobe Spread |",
+        "| Function | File | Direct Callers | Blast Radius |",
         "|---|---|---|---|",
     ]
     for h in plan.hotspots:
         lines.append(
-            f"| `{h.name}` | `{h.file}:{h.line_start}` | {h.caller_count} | {h.lobe_spread} |"
+            f"| `{h.name}` | `{h.file}:{h.line_start}` | {h.caller_count} | {h.blast_radius} |"
         )
     return "\n".join(lines)
 
