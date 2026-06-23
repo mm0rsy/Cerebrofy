@@ -11,7 +11,6 @@ import rich_click as click
 from rich.console import Console
 from cerebrofy.analysis.impact import ImpactResult
 from cerebrofy.analysis.sequence import SequenceStep
-from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
