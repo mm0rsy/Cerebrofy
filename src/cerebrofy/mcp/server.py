@@ -20,6 +20,7 @@ from typing import Any
 
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
+from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
 
 
 # ---------------------------------------------------------------------------
@@ -993,6 +994,24 @@ async def run_mcp_server() -> None:
                 },
                 "required": ["memory"],
             }),
+            Tool(name="cerebrofy_onboard", description=(
+                "Generate a structured onboarding guide from the cerebrofy index. "
+                "Returns full Markdown and a structured JSON summary of reading order, "
+                "entry points, complexity hotspots, safe zones, and architectural warnings. "
+                "Call this at the start of any onboarding session or when joining a new repo."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Recipient name for the header (optional)"},
+                    "focus_lobe": {"type": "string", "description": "Restrict guide to this lobe (optional)"},
+                    "depth": {
+                        "type": "string",
+                        "enum": ["junior", "senior"],
+                        "default": "junior",
+                        "description": "Calibration hint for AI agents reading the output",
+                    },
+                },
+            }),
         ]
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
@@ -1036,6 +1055,8 @@ async def run_mcp_server() -> None:
                 return _handle_link_memories(args)
             elif name == "cerebrofy_trace_history":
                 return _handle_trace_history(args)
+            elif name == "cerebrofy_onboard":
+                result = _handle_onboard(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
