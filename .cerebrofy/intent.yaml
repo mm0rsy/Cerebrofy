@@ -1,0 +1,110 @@
+# .cerebrofy/intent.yaml — repo brain identity and architectural intent
+# This file encodes the end goal, not a sprint. It answers: what is this repo trying to become?
+# Commit this file — it is the permanent context for every developer and AI agent working here.
+
+goal:
+  name: "The Repo Brain"
+  statement: >
+    Cerebrofy is a cognitive layer that is born when a repository is born and lives with it
+    until the end. It accumulates everything a developer or AI agent needs to understand and
+    work on the codebase — structure, decisions, history, ownership, goals, confidence, and
+    narrative — all queryable in minimal tokens, with zero raw file reads.
+  constraint: >
+    The brain answers directly. It never forwards the agent to source files.
+    Every answer carries a token cost and an epistemic confidence score.
+
+cognitive_layers:
+  - name: "What the code is"
+    description: "Semantic graph, call edges, lobe structure, embeddings"
+    features: [build, update, validate, search_code, get_neuron, list_lobes]
+    status: done
+
+  - name: "What happened"
+    description: "Memories, session recordings, causal edges, semantic changelog"
+    features: [memory, session_recorder, causal_memory_edges, semantic_changelog]
+    status: partial  # memory done; session_recorder and changelog planned
+
+  - name: "Why it is the way it is"
+    description: "Decision memories, causal chains, narrative engine"
+    features: [memory_edges, narrative_engine, cross_session_synthesizer]
+    status: partial  # causal edges done; narrative engine planned
+
+  - name: "What the team intends"
+    description: "Sprint goals, incidents, architectural direction, priorities"
+    features: [intent, product_intent_layer]
+    status: done
+
+  - name: "How much to trust any answer"
+    description: "Epistemic confidence, drift velocity, health trends, index freshness"
+    features: [epistemic, health, validate, drift_velocity]
+    status: done
+
+  - name: "Who else is working here"
+    description: "Multi-agent coordination, lobe ownership, knowledge silo detection"
+    features: [multi_agent_coordination, lobe_governance, knowledge_silo_detector]
+    status: planned
+
+architecture:
+  direction: >
+    Graph-first, offline-first, MCP-native. The index is the product — MCP is the delivery
+    mechanism. Every feature must be computable from the local graph without calling an LLM.
+    AI is a consumer of the brain, never a component inside it during indexing.
+
+  principles:
+    - "Zero raw file reads — the brain answers directly from the index"
+    - "Every output carries an epistemic confidence score"
+    - "Token minimization is a correctness constraint, not a nice-to-have"
+    - "The index must stay fresh automatically via git hooks — never manual"
+    - "Memories and decisions persist across sessions — the brain never forgets"
+    - "No source code ever leaves the machine — graph metadata only"
+    - "One MCP server per machine, CWD-routed — zero per-repo config"
+
+  avoid_patterns:
+    - "Glob-reading source files to answer questions the index can answer"
+    - "Coupling indexing to an LLM call — all parsing is deterministic"
+    - "Storing raw source in the DB — only neurons, edges, hashes, and embeddings"
+    - "Blocking developer workflows — hooks auto-sync, never hard-block without consent"
+
+  build_waves:
+    done:
+      - "#01 Semantic PR Blast Radius"
+      - "#02 LLM Context Budget Optimizer"
+      - "#03 Codebase Health Timeline"
+      - "#05 AI Agent Memory Layer"
+      - "#06 Onboarding Navigator"
+      - "#07 Refactor Impact Predictor"
+      - "#08 Vulnerability Blast Radius"
+      - "#22 Epistemic Confidence Layer"
+      - "#23 Product Intent Layer"
+
+    next:
+      - "#09 Knowledge Silo Detector — bus factor risk from git blame × call graph"
+      - "#13 Test Coverage Gap Predictor — rank uncovered neurons by blast radius × velocity"
+      - "#16 Architecture Drift Alerts — enforce arch rules via graph queries on commit"
+      - "#11 Live Agent Session Recorder — audit trail of every AI coding session"
+      - "#15 Multi-Language Polyglot Graph — unified graph across Python, TypeScript, Rust, Go"
+
+    later:
+      - "#04 Cross-Repo Dependency Graph"
+      - "#10 MCP Resource Streaming"
+      - "#12 NL Refactor Planner"
+      - "#14 Semantic Changelog Generator"
+      - "#17 AI Review Copilot"
+      - "#18 Lobe Ownership Governance"
+      - "#19 Dependency Upgrade Navigator"
+      - "#20 Cerebrofy Cloud Sync"
+
+    agent_mind_layer:
+      - "#21 Insight Daemon — background reasoning that notices things without being asked"
+      - "#24 Cross-Session Pattern Synthesizer — learns from patterns across all sessions"
+      - "#25 Multi-Agent Coordination Protocol — agents see each other, claim neurons"
+      - "#26 Narrative Engine — the story of the codebase, how it evolved and where it's going"
+
+team_context:
+  concerns:
+    - "Test surface is 28% — analysis commands (blast-radius, vuln, context, epistemic) are under-covered"
+    - "Hub concentration is 89% — check_schema_version and open_memories_db are high blast-radius with low test coverage"
+    - "Dead code at 56% — monitor for growth; partly structural (private helpers, test fixtures)"
+  upcoming_risks:
+    - "Schema migrations: health_snapshots pattern must be followed for every new table (ensure_X_schema idempotent)"
+    - "MCP tool count growing — need a tool routing strategy before adding more"

@@ -1,0 +1,20 @@
+embedding_model: local
+llm_endpoint: ''
+llm_model: ''
+lobes:
+  cerebrofy: src/cerebrofy/
+  cerebrofy.egg-info: src/cerebrofy.egg-info/
+top_k: 10
+tracked_extensions:
+- .py
+- .js
+- .ts
+- .tsx
+- .jsx
+- .go
+- .rs
+- .java
+- .rb
+- .cpp
+- .c
+- .h
