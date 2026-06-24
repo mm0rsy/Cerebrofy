@@ -120,11 +120,11 @@ def _is_trust_boundary(neuron_id: str, conn: sqlite3.Connection) -> bool:
 
     Excludes IMPORT and RUNTIME_BOUNDARY edges — only LOCAL_CALL/EXTERNAL_CALL count.
     """
-    count = conn.execute(
+    row = conn.execute(
         "SELECT COUNT(*) FROM edges WHERE dst_id = ? AND rel_type NOT IN (?, ?)",
         (neuron_id, RUNTIME_BOUNDARY, IMPORT_REL),
-    ).fetchone()[0]
-    return count == 0
+    ).fetchone()
+    return bool(row and row[0] == 0)
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ def _read_from_pyproject(package: str, path: Path) -> str | None:
         import tomllib
     except ImportError:
         try:
-            import tomli as tomllib  # type: ignore[no-redef]
+            import tomli as tomllib  # type: ignore[no-redef,import-not-found]
         except ImportError:
             return None
     try:
