@@ -864,6 +864,10 @@ def _handle_silo(arguments: dict[str, Any]) -> list[Any]:
     depth: int = int(arguments.get("depth", 2))
     min_callers: int = int(arguments.get("min_callers", 1))
     top: int = int(arguments.get("top", 20))
+    lobe_filter: str | None = arguments.get("lobe")
+    author_filter: str | None = arguments.get("author")
+    risk_filter: str | None = arguments.get("risk_level")
+    write_memories: bool = bool(arguments.get("write_memories", False))
 
     try:
         root = _find_repo_root(Path.cwd())
@@ -886,6 +890,11 @@ def _handle_silo(arguments: dict[str, Any]) -> list[Any]:
             depth=depth,
             min_callers=min_callers,
             top=top,
+            lobe_filter=lobe_filter,
+            author_filter=author_filter,
+            risk_filter=risk_filter,
+            write_memories=write_memories,
+            cerebrofy_dir=root / ".cerebrofy" if write_memories else None,
         )
     finally:
         conn.close()
@@ -1253,8 +1262,9 @@ async def run_mcp_server() -> None:
             Tool(name="cerebrofy_silo", description=(
                 "Detect knowledge silos: functions with high blast radius owned by few contributors. "
                 "Overlays git blame authorship on the call graph to compute bus factor risk per neuron. "
-                "A silo score = caller_count / unique_authors — high score means one person owns "
-                "widely-called code. Use before team changes or major refactors to surface key-person risk."
+                "silo_score = caller_count / unique_authors — high score means one person owns "
+                "widely-called code. Use before team changes or major refactors to surface key-person risk. "
+                "Pass 'author' to answer 'if this person left, what breaks?'"
             ), inputSchema={
                 "type": "object",
                 "properties": {
@@ -1274,6 +1284,24 @@ async def run_mcp_server() -> None:
                         "type": "integer",
                         "description": "Number of top silos to return (default: 20).",
                         "default": 20,
+                    },
+                    "lobe": {
+                        "type": "string",
+                        "description": "Filter analysis to a specific lobe (optional).",
+                    },
+                    "author": {
+                        "type": "string",
+                        "description": "Filter to silos owned by a specific author email (optional).",
+                    },
+                    "risk_level": {
+                        "type": "string",
+                        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                        "description": "Filter by risk level (optional, default: all).",
+                    },
+                    "write_memories": {
+                        "type": "boolean",
+                        "description": "Write warning memories to HIGH/CRITICAL silo neurons (default: false).",
+                        "default": False,
                     },
                 },
             }),

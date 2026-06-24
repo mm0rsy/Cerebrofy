@@ -53,13 +53,18 @@ def _get_current_commit(repo_root: Path) -> str | None:
     return result.stdout.strip() or None if result.returncode == 0 else None
 
 
+def _to_posix(file_path: str) -> str:
+    """Normalise Windows backslash paths to posix for git commands."""
+    return file_path.replace("\\", "/")
+
+
 def _blame_file(file_path: str, repo_root: Path) -> dict[int, str]:
     """Return {final_line_number: author_email} for every line in file_path.
 
     Uses git blame --porcelain. Skips files outside the repo or with no commits.
     """
     result = subprocess.run(
-        ["git", "blame", "--porcelain", "--", file_path],
+        ["git", "blame", "--porcelain", "--", _to_posix(file_path)],
         cwd=str(repo_root), capture_output=True, text=True, check=False, timeout=30,
     )
     if result.returncode != 0 or not result.stdout.strip():
@@ -141,12 +146,63 @@ def _silo_risk_icon(label: str) -> str:
 # Core computation
 # ---------------------------------------------------------------------------
 
+def _write_silo_memories(
+    neurons: list[SiloNeuron],
+    cerebrofy_dir: Path,
+) -> None:
+    """Write warning memories to HIGH/CRITICAL silo neurons (non-fatal)."""
+    import time
+    import uuid
+    try:
+        from cerebrofy.memory.embedder import embed_memory
+        from cerebrofy.memory.store import Memory, open_memories_db, write_memory
+
+        mconn = open_memories_db(cerebrofy_dir)
+        try:
+            for n in neurons:
+                if n.risk_label not in ("HIGH", "CRITICAL"):
+                    continue
+                title = f"Knowledge silo: {n.name}"
+                body = (
+                    f"{n.risk_icon} {n.risk_label} silo — {n.caller_count} callers, "
+                    f"{n.unique_authors} unique author(s). "
+                    f"Primary owner: {n.primary_author} ({n.primary_author_pct:.0%} of lines). "
+                    f"silo_score={n.silo_score}. "
+                    "Ensure knowledge transfer before team changes affecting this contributor."
+                )
+                mem = Memory(
+                    id=str(uuid.uuid4()),
+                    neuron_id=n.id,
+                    lobe=n.lobe,
+                    type="warning",
+                    title=title,
+                    body=body,
+                    author="agent:silo-detector",
+                    created_ts=int(time.time()),
+                    tags=("silo", "bus-factor", n.primary_author),
+                    decay_score=1.0,
+                    status="active",
+                )
+                embedding = embed_memory(title, body)
+                write_memory(mconn, mem, embedding)
+            mconn.commit()
+        finally:
+            mconn.close()
+    except Exception:
+        pass  # Non-fatal — memory writes never block the report
+
+
 def compute_silo_report(
     conn: sqlite3.Connection,
     repo_root: Path,
     depth: int = 2,
     min_callers: int = 1,
     top: int = 50,
+    lobe_filter: str | None = None,
+    author_filter: str | None = None,
+    risk_filter: str | None = None,
+    write_memories: bool = False,
+    cerebrofy_dir: Path | None = None,
 ) -> SiloReport:
     """Compute knowledge silo risk for all neurons.
 
@@ -156,7 +212,7 @@ def compute_silo_report(
       3. For each neuron, compute unique_authors from its line range.
       4. Run BFS to count callers at depth 1+2.
       5. silo_score = caller_count / unique_authors.
-      6. Filter to min_callers, sort by silo_score desc, return top N.
+      6. Filter by lobe/author/risk/min_callers, sort by silo_score desc, return top N.
     """
     from cerebrofy.analysis.blast_radius import bfs_callers
 
@@ -194,9 +250,21 @@ def compute_silo_report(
         if caller_count < min_callers:
             continue
 
+        lobe = _lobe(file_path)
+        if lobe_filter and lobe_filter.lower() not in lobe.lower():
+            continue
+
         n_authors = len(unique_authors)
         silo_score = round(caller_count / max(n_authors, 1), 2)
         label = _silo_risk_label(silo_score)
+
+        if risk_filter and risk_filter.upper() != label:
+            continue
+
+        if author_filter and author_filter.lower() not in primary_author.lower():
+            # Still include if author_filter matches ANY author in the set
+            if not any(author_filter.lower() in a.lower() for a in unique_authors):
+                continue
 
         results.append(SiloNeuron(
             id=neuron_id,
@@ -204,7 +272,7 @@ def compute_silo_report(
             file=file_path,
             line_start=line_start,
             line_end=line_end or line_start,
-            lobe=_lobe(file_path),
+            lobe=lobe,
             unique_authors=n_authors,
             primary_author=primary_author,
             primary_author_pct=primary_pct,
@@ -216,6 +284,9 @@ def compute_silo_report(
 
     results.sort(key=lambda n: n.silo_score, reverse=True)
     top_results = results[:top]
+
+    if write_memories and cerebrofy_dir is not None:
+        _write_silo_memories(top_results, cerebrofy_dir)
 
     return SiloReport(
         neurons=top_results,

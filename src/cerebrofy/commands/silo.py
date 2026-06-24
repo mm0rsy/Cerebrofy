@@ -118,11 +118,25 @@ def _render_json(report: object) -> None:
 @click.option("--min-callers", default=1, show_default=True,
               help="Minimum caller count to include a neuron.")
 @click.option("--top", default=20, show_default=True, help="Number of top silos to display.")
+@click.option("--lobe", default=None, help="Filter analysis to a specific lobe.")
+@click.option("--author", default=None,
+              help="Show silos for a specific author email — 'if this person left, what breaks?'")
+@click.option(
+    "--risk", default=None,
+    type=click.Choice(["LOW", "MEDIUM", "HIGH", "CRITICAL"], case_sensitive=False),
+    help="Filter by risk level.",
+)
+@click.option("--write-memories", is_flag=True, default=False,
+              help="Write warning memories to HIGH/CRITICAL silo neurons.")
 @click.option(
     "--output", type=click.Choice(["text", "json"]), default="text", show_default=True,
     help="Output format.",
 )
-def cerebrofy_silo(depth: int, min_callers: int, top: int, output: str) -> None:
+def cerebrofy_silo(
+    depth: int, min_callers: int, top: int,
+    lobe: str | None, author: str | None, risk: str | None,
+    write_memories: bool, output: str,
+) -> None:
     """Identify knowledge silos — functions with high blast radius owned by few contributors.
 
     Overlays git blame authorship on the call graph to surface bus factor risk:
@@ -132,7 +146,11 @@ def cerebrofy_silo(depth: int, min_callers: int, top: int, output: str) -> None:
 
     cerebrofy silo
 
-    cerebrofy silo --top 10 --min-callers 3
+    cerebrofy silo --lobe auth
+
+    cerebrofy silo --author alice@company.com
+
+    cerebrofy silo --risk high --write-memories
 
     cerebrofy silo --output json
     """
@@ -153,6 +171,11 @@ def cerebrofy_silo(depth: int, min_callers: int, top: int, output: str) -> None:
             depth=depth,
             min_callers=min_callers,
             top=top,
+            lobe_filter=lobe,
+            author_filter=author,
+            risk_filter=risk,
+            write_memories=write_memories,
+            cerebrofy_dir=root / ".cerebrofy" if write_memories else None,
         )
     finally:
         conn.close()

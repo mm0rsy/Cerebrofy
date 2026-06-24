@@ -74,11 +74,11 @@ architecture:
       - "#06 Onboarding Navigator"
       - "#07 Refactor Impact Predictor"
       - "#08 Vulnerability Blast Radius"
+      - "#09 Knowledge Silo Detector"
       - "#22 Epistemic Confidence Layer"
       - "#23 Product Intent Layer"
 
     next:
-      - "#09 Knowledge Silo Detector — bus factor risk from git blame × call graph"
       - "#13 Test Coverage Gap Predictor — rank uncovered neurons by blast radius × velocity"
       - "#16 Architecture Drift Alerts — enforce arch rules via graph queries on commit"
       - "#11 Live Agent Session Recorder — audit trail of every AI coding session"
