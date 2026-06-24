@@ -17,8 +17,8 @@ build/
 venv/
 *.egg
 
-# Cerebrofy index (local artifact — never commit)
-.cerebrofy/
+# Cerebrofy DB (binary index — never commit; intent.yaml/config.yaml are team-shared)
+.cerebrofy/db/
 
 
 # Graphify knowledge graph output (local artifact — never commit)
