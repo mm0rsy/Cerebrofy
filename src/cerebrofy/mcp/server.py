@@ -857,6 +857,50 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(out, indent=2))]
 
 
+def _handle_silo(arguments: dict[str, Any]) -> list[Any]:
+    """Knowledge silo detector — git blame × call graph = bus factor risk per neuron."""
+    from mcp.types import TextContent
+
+    depth: int = int(arguments.get("depth", 2))
+    min_callers: int = int(arguments.get("min_callers", 1))
+    top: int = int(arguments.get("top", 20))
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    conn = _open_db_ro(root)
+    try:
+        from cerebrofy.db.connection import check_schema_version
+        from cerebrofy.analysis.silo_detector import compute_silo_report
+
+        try:
+            check_schema_version(conn)
+        except (ValueError, sqlite3.OperationalError) as exc:
+            return _make_error_content(f"Schema version mismatch: {exc}. Run 'cerebrofy migrate'.")
+
+        report = compute_silo_report(
+            conn=conn,
+            repo_root=root,
+            depth=depth,
+            min_callers=min_callers,
+            top=top,
+        )
+    finally:
+        conn.close()
+
+    import dataclasses
+    import json as _json
+    out: dict[str, Any] = {
+        "as_of_commit": report.as_of_commit,
+        "total_neurons_scanned": report.total_neurons_scanned,
+        "silos_detected": report.silos_detected,
+        "neurons": [dataclasses.asdict(n) for n in report.neurons],
+    }
+    return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+
+
 def _handle_vuln(arguments: dict[str, Any]) -> list[Any]:
     """Vulnerability blast radius — find which functions call a vulnerable package."""
     from mcp.types import TextContent
@@ -1206,6 +1250,33 @@ async def run_mcp_server() -> None:
                 },
                 "required": ["target"],
             }),
+            Tool(name="cerebrofy_silo", description=(
+                "Detect knowledge silos: functions with high blast radius owned by few contributors. "
+                "Overlays git blame authorship on the call graph to compute bus factor risk per neuron. "
+                "A silo score = caller_count / unique_authors — high score means one person owns "
+                "widely-called code. Use before team changes or major refactors to surface key-person risk."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "depth": {
+                        "type": "integer",
+                        "description": "BFS caller traversal depth (default: 2).",
+                        "default": 2,
+                        "minimum": 1,
+                        "maximum": 5,
+                    },
+                    "min_callers": {
+                        "type": "integer",
+                        "description": "Minimum caller count to include a neuron (default: 1).",
+                        "default": 1,
+                    },
+                    "top": {
+                        "type": "integer",
+                        "description": "Number of top silos to return (default: 20).",
+                        "default": 20,
+                    },
+                },
+            }),
             Tool(name="cerebrofy_vuln", description=(
                 "Map which of YOUR functions are exposed to a vulnerable package. "
                 "Finds all call sites of the package via the graph, traces backward to "
@@ -1284,6 +1355,8 @@ async def run_mcp_server() -> None:
                 result = _handle_onboard(args)
             elif name == "cerebrofy_impact":
                 result = _handle_impact(args)
+            elif name == "cerebrofy_silo":
+                result = _handle_silo(args)
             elif name == "cerebrofy_vuln":
                 result = _handle_vuln(args)
             else:

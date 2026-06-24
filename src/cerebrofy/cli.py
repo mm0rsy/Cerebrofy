@@ -16,6 +16,7 @@ from cerebrofy.commands.onboard import cerebrofy_onboard
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.update import cerebrofy_update
+from cerebrofy.commands.silo import cerebrofy_silo
 from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
 from cerebrofy.commands.vuln import cerebrofy_vuln
@@ -54,6 +55,7 @@ main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_intent)
 main.add_command(mem_group)
 main.add_command(cerebrofy_onboard)
+main.add_command(cerebrofy_silo)
 main.add_command(cerebrofy_update)
 main.add_command(cerebrofy_validate)
 main.add_command(cerebrofy_vuln)
