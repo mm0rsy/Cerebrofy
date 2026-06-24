@@ -152,9 +152,16 @@ def cerebrofy_init(
 
     click.echo("Cerebrofy: Writing .cerebrofy-ignore")
     write_cerebrofy_ignore(root)
-    click.echo("Cerebrofy: Installing git hooks (warn-only mode)")
+
+    # FR-019: keep .cerebrofy/db/ out of git — must run before install_hooks so
+    # _is_cerebrofy_db_gitignored() sees the entry and selects the correct hook mode.
+    add_gitignore_entry(root)
+
     try:
         hook_warnings = install_hooks(root)
+        from cerebrofy.hooks.installer import _is_cerebrofy_db_gitignored
+        hook_mode = "warn-only" if _is_cerebrofy_db_gitignored(root) else "hard-block"
+        click.echo(f"Cerebrofy: Installing git hooks ({hook_mode} mode)")
         for w in hook_warnings:
             click.echo(w, err=True)
     except OSError as exc:
@@ -163,9 +170,6 @@ def cerebrofy_init(
             "Run `cerebrofy init --force` after fixing permissions.",
             err=True,
         )
-
-    # FR-019: keep .cerebrofy/db/ out of git
-    add_gitignore_entry(root)
 
     if not no_mcp:
         try:

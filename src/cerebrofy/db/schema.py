@@ -72,6 +72,29 @@ CREATE INDEX idx_health_ts ON health_snapshots(build_ts DESC);
 """
 
 
+def ensure_health_schema(conn: sqlite3.Connection) -> None:
+    """Create health_snapshots table if it doesn't exist (idempotent, handles old DBs)."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS health_snapshots (
+          id                INTEGER PRIMARY KEY AUTOINCREMENT,
+          build_ts          INTEGER NOT NULL,
+          commit_hash       TEXT,
+          coupling          REAL,
+          avg_blast         REAL,
+          dead_code_pct     REAL,
+          cohesion          REAL,
+          test_surface      REAL,
+          drift_velocity    REAL,
+          hub_concentration REAL,
+          neuron_count      INTEGER,
+          edge_count        INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_health_ts ON health_snapshots(build_ts DESC);
+        """
+    )
+
+
 def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
     """Execute all DDL statements to create the cerebrofy.db schema."""
     conn.executescript(NODES_DDL)

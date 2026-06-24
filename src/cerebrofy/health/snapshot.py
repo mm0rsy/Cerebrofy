@@ -7,6 +7,7 @@ import subprocess
 import time
 from typing import Any
 
+from cerebrofy.db.schema import ensure_health_schema
 from cerebrofy.health.metrics import HealthMetrics
 
 
@@ -32,6 +33,7 @@ def record_snapshot(
     repo_root: str = ".",
 ) -> None:
     """Insert a health snapshot row for the current build."""
+    ensure_health_schema(conn)
     commit_hash = _get_current_commit(repo_root)
     conn.execute(
         """
@@ -62,6 +64,7 @@ def fetch_snapshots(
     limit: int = 30,
 ) -> list[dict[str, Any]]:
     """Return the most recent *limit* health snapshots, newest first."""
+    ensure_health_schema(conn)
     rows = conn.execute(
         """
         SELECT id, build_ts, commit_hash, coupling, avg_blast, dead_code_pct,
