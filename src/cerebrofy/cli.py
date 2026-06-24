@@ -18,6 +18,7 @@ from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.update import cerebrofy_update
 from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
+from cerebrofy.commands.vuln import cerebrofy_vuln
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.USE_MARKDOWN = False
@@ -55,6 +56,7 @@ main.add_command(mem_group)
 main.add_command(cerebrofy_onboard)
 main.add_command(cerebrofy_update)
 main.add_command(cerebrofy_validate)
+main.add_command(cerebrofy_vuln)
 
 # Hidden/internal commands (not shown in --help)
 cerebrofy_mcp.hidden = True

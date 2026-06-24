@@ -89,6 +89,11 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_remember` | Write a structured memory attached to a neuron or lobe |
 | `cerebrofy_recall` | Semantic search across all memories |
 | `cerebrofy_memories` | List memories for a specific neuron or lobe |
+| `cerebrofy_link_memories` | Create a directed causal link between two memories |
+| `cerebrofy_trace_history` | Trace the ancestry chain of a memory through its linked predecessors |
+| `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones |
+| `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, refactoring sequence |
+| `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, generate remediation sequence |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -446,6 +451,96 @@ After registration and restart, ask your AI client:
 > "Use the cerebrofy_validate tool to check if the index is up to date."
 
 You should see `[clean]` or drift details. If you see `"No Cerebrofy index found"`, run `cerebrofy build` in your project directory first.
+
+---
+
+### `cerebrofy_vuln`
+
+Find which of your functions are exposed to a vulnerable package, ranked by exploitability proximity to external trust boundaries.
+
+**Input schema:**
+
+```json
+{
+  "package": "requests",
+  "function_pattern": "requests.get",
+  "depth": 2,
+  "write_memories": false
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `package` | string | ✅ | Package name to scan (e.g. `requests`, `pyyaml`) |
+| `function_pattern` | string | — | Specific function to trace (e.g. `requests.get`). Omit to scan the full package. |
+| `depth` | integer | — | Upstream BFS depth (default: 2, max: 5) |
+| `write_memories` | boolean | — | Write `warning` memories to each directly-affected neuron (default: false) |
+
+**Example response:**
+
+```json
+{
+  "package": "requests",
+  "function_pattern": null,
+  "pinned_version": "requests>=2.28.0",
+  "direct_callers": [
+    {
+      "name": "fetch_webhook_payload",
+      "file": "api/integrations.py",
+      "line_start": 42,
+      "call_target": "external::requests.get",
+      "is_trust_boundary": true,
+      "is_test": false
+    }
+  ],
+  "upstream_count": 5,
+  "critical_exposure": [
+    {
+      "entry_point": "api/integrations.py::fetch_webhook_payload",
+      "call_chain": ["fetch_webhook_payload"],
+      "exposure_score": 1.0
+    }
+  ],
+  "low_exposure": [
+    { "name": "fetch_test_data", "file": "tests/fixtures.py", "is_test": true }
+  ],
+  "remediation_sequence": [
+    {
+      "step": 1,
+      "description": "Patch fetch_webhook_payload (api/integrations.py) — highest exposure",
+      "neuron": "api/integrations.py::fetch_webhook_payload",
+      "exposure_score": 1.0
+    },
+    {
+      "step": 2,
+      "description": "Pin requests >= <safe_version> in pyproject.toml after patching call sites",
+      "neuron": null,
+      "exposure_score": 0.0
+    }
+  ],
+  "memories_written": 0,
+  "epistemic": { "confidence": 0.95, "age_hours": 0.5 }
+}
+```
+
+**Exposure scoring:**
+
+| `exposure_score` | Meaning |
+|-----------------|---------|
+| `1.0` | Direct caller is a trust boundary entry point (in_degree == 0) — external input flows directly into the vulnerable call |
+| `0.6` | Direct caller is internal but has a trust boundary ancestor reachable within `depth` hops |
+| `0.1` | Test file or caller with no trust boundary ancestor found |
+
+**Workflow:**
+
+```
+# Before upgrading a dependency with a known CVE
+cerebrofy_vuln(package="requests")
+→ Identify critical_exposure entry points
+→ Patch those call sites
+→ cerebrofy_vuln(package="requests")  # verify no remaining critical exposure
+→ Upgrade requests in pyproject.toml
+```
 
 ---
 
