@@ -857,6 +857,86 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(out, indent=2))]
 
 
+def _handle_vuln(arguments: dict[str, Any]) -> list[Any]:
+    """Vulnerability blast radius — find which functions call a vulnerable package."""
+    from mcp.types import TextContent
+
+    package: str = arguments.get("package", "")
+    if not package:
+        return _make_error_content("[error] 'package' is required.")
+
+    function_pattern: str | None = arguments.get("function_pattern")
+    depth: int = int(arguments.get("depth", 2))
+    write_memories: bool = bool(arguments.get("write_memories", False))
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    conn = _open_db_ro(root)
+    try:
+        from cerebrofy.db.connection import check_schema_version
+        from cerebrofy.security.vuln_scanner import compute_vuln_blast_radius
+
+        try:
+            check_schema_version(conn)
+        except (ValueError, sqlite3.OperationalError) as exc:
+            return _make_error_content(f"Schema version mismatch: {exc}. Run 'cerebrofy migrate'.")
+
+        result = compute_vuln_blast_radius(
+            package=package,
+            function_pattern=function_pattern,
+            conn=conn,
+            depth=depth,
+            cerebrofy_dir=root / ".cerebrofy" if write_memories else None,
+            write_memories=write_memories,
+            root=root,
+        )
+    finally:
+        conn.close()
+
+    if not result.direct_callers:
+        return _make_error_content(
+            f"[PACKAGE_NOT_USED] Package '{package}' not found in the call graph. "
+            "Not imported, or index needs rebuild."
+        )
+
+    import json as _json
+    out: dict[str, Any] = {
+        "package": result.package,
+        "function_pattern": result.function_pattern,
+        "pinned_version": result.pinned_version,
+        "direct_callers": [
+            {
+                "name": c.name,
+                "file": c.file,
+                "line_start": c.line_start,
+                "call_target": c.call_target,
+                "is_trust_boundary": c.is_trust_boundary,
+                "is_test": c.is_test,
+            }
+            for c in result.direct_callers
+        ],
+        "upstream_count": result.upstream_count,
+        "critical_exposure": [
+            {
+                "entry_point": f"{p.entry_point_file}::{p.entry_point_name}",
+                "call_chain": p.call_chain,
+                "exposure_score": p.exposure_score,
+            }
+            for p in result.critical_exposure
+        ],
+        "low_exposure": [
+            {"name": c.name, "file": c.file, "is_test": c.is_test}
+            for c in result.low_exposure
+        ],
+        "remediation_sequence": result.remediation_sequence,
+        "memories_written": result.memories_written,
+    }
+    return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+
+
 # ---------------------------------------------------------------------------
 # Server entrypoint
 # ---------------------------------------------------------------------------
@@ -1126,6 +1206,37 @@ async def run_mcp_server() -> None:
                 },
                 "required": ["target"],
             }),
+            Tool(name="cerebrofy_vuln", description=(
+                "Map which of YOUR functions are exposed to a vulnerable package. "
+                "Finds all call sites of the package via the graph, traces backward to "
+                "trust boundary entry points, scores exposure, and generates a remediation sequence. "
+                "Run this before patching a dependency to know exactly what to update."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "package": {
+                        "type": "string",
+                        "description": "Package name to scan (e.g. 'requests', 'pyyaml').",
+                    },
+                    "function_pattern": {
+                        "type": "string",
+                        "description": "Specific function to trace (e.g. 'requests.get'). Omit to scan the full package.",
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "Upstream BFS depth (default: 2).",
+                        "default": 2,
+                        "minimum": 1,
+                        "maximum": 5,
+                    },
+                    "write_memories": {
+                        "type": "boolean",
+                        "description": "Write warning memories to each directly-affected neuron (default: false).",
+                        "default": False,
+                    },
+                },
+                "required": ["package"],
+            }),
         ]
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
@@ -1173,6 +1284,8 @@ async def run_mcp_server() -> None:
                 result = _handle_onboard(args)
             elif name == "cerebrofy_impact":
                 result = _handle_impact(args)
+            elif name == "cerebrofy_vuln":
+                result = _handle_vuln(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 

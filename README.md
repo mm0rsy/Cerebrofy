@@ -448,6 +448,28 @@ Output is written to `.cerebrofy/ONBOARDING.md` (or `.cerebrofy/ONBOARDING.html`
 
 ---
 
+### `cerebrofy vuln`
+
+Map which of **your** functions are exposed to a vulnerable package — before patching anything. Finds every call site via the call graph, traces backward to trust boundary entry points, scores exposure, and produces a prioritised remediation sequence.
+
+```bash
+cerebrofy vuln --package requests
+cerebrofy vuln --package requests --function requests.get
+cerebrofy vuln --package pyyaml --write-memories
+cerebrofy vuln --package requests --depth 3 --output json
+```
+
+| Output field | Meaning |
+|---|---|
+| **Direct Callers** | Neurons with a `RUNTIME_BOUNDARY` edge to the package |
+| **Critical Exposure** | Entry points where external input reaches the vulnerable call (`exposure_score 1.0 / 0.6`) |
+| **Low Exposure** | Internal callers with no detected external input path (tests, utilities) |
+| **Pinned Version** | Version pinned in `pyproject.toml` / `requirements.txt` — compare against CVE advisory manually |
+| **Remediation Sequence** | Patch highest-exposure entry points first, then pin the safe package version |
+| **Memories Written** | Warning memories auto-attached to each affected neuron (with `--write-memories`) |
+
+---
+
 ### `cerebrofy migrate`
 
 Run sequential schema migration scripts.
@@ -484,6 +506,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_trace_history` | Trace the ancestry chain of a memory through its linked predecessors. |
 | `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones, and memory warnings. |
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
+| `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
