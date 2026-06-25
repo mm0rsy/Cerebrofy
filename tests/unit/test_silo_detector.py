@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cerebrofy.analysis.silo_detector import (
+    SiloNeuron,
     SiloReport,
     _authors_for_range,
     _blame_file,
+    _get_current_commit,
     _silo_risk_label,
+    _write_silo_memories,
     compute_silo_report,
 )
 
@@ -272,3 +275,206 @@ def test_compute_silo_report_sorted_by_score_desc(tmp_path: Path) -> None:
     hot_idx = names.index("hot_fn")
     cold_idx = names.index("cold_fn")
     assert hot_idx < cold_idx  # hot_fn must rank higher
+
+
+# ---------------------------------------------------------------------------
+# _get_current_commit
+# ---------------------------------------------------------------------------
+
+def test_get_current_commit_returns_hash(tmp_path: Path) -> None:
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = "abc1234\n"
+        result = _get_current_commit(tmp_path)
+    assert result == "abc1234"
+
+
+def test_get_current_commit_returns_none_on_error(tmp_path: Path) -> None:
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 128
+        mock_run.return_value.stdout = ""
+        result = _get_current_commit(tmp_path)
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _blame_file ValueError branch (line 97-98: malformed porcelain)
+# ---------------------------------------------------------------------------
+
+_PORCELAIN_BAD_FINAL_LINE = (
+    "a" * 40 + " 1 notanint 2\n"
+    "author Alice\n"
+    "author-mail <alice@x.com>\n"
+    "\tcode line\n"
+)
+
+
+def test_blame_file_handles_non_int_final_line(tmp_path: Path) -> None:
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = _PORCELAIN_BAD_FINAL_LINE
+        result = _blame_file("hello.py", tmp_path)
+    # current_final_line stays 0, so no entry is stored — must not raise
+    assert isinstance(result, dict)
+
+
+# ---------------------------------------------------------------------------
+# _write_silo_memories
+# ---------------------------------------------------------------------------
+
+def _make_silo_neuron(risk_label: str = "HIGH") -> SiloNeuron:
+    return SiloNeuron(
+        id="n1", name="my_fn", file="auth.py", line_start=1, line_end=10,
+        lobe="auth", unique_authors=1, primary_author="alice@x.com",
+        primary_author_pct=1.0, caller_count=10, silo_score=10.0,
+        risk_label=risk_label, risk_icon="🟠",
+    )
+
+
+def test_write_silo_memories_writes_high_and_critical(tmp_path: Path) -> None:
+    neurons = [_make_silo_neuron("HIGH"), _make_silo_neuron("CRITICAL")]
+    mock_conn = MagicMock()
+
+    with patch("cerebrofy.memory.store.open_memories_db", return_value=mock_conn), \
+         patch("cerebrofy.memory.embedder.embed_memory", return_value=[0.0] * 384), \
+         patch("cerebrofy.memory.store.write_memory") as mock_write:
+        _write_silo_memories(neurons, tmp_path)
+
+    assert mock_write.call_count == 2
+
+
+def test_write_silo_memories_skips_low_risk(tmp_path: Path) -> None:
+    neurons = [_make_silo_neuron("LOW"), _make_silo_neuron("MEDIUM")]
+    mock_conn = MagicMock()
+
+    with patch("cerebrofy.memory.store.open_memories_db", return_value=mock_conn), \
+         patch("cerebrofy.memory.embedder.embed_memory", return_value=[0.0] * 384), \
+         patch("cerebrofy.memory.store.write_memory") as mock_write:
+        _write_silo_memories(neurons, tmp_path)
+
+    assert mock_write.call_count == 0
+
+
+def test_write_silo_memories_swallows_exception(tmp_path: Path) -> None:
+    neurons = [_make_silo_neuron("CRITICAL")]
+    with patch("cerebrofy.memory.store.open_memories_db", side_effect=RuntimeError("db error")):
+        _write_silo_memories(neurons, tmp_path)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# compute_silo_report — filter edge cases
+# ---------------------------------------------------------------------------
+
+def test_compute_silo_report_skips_null_file(tmp_path: Path) -> None:
+    conn = _make_db()
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("n1", "orphan_fn", None, "function", None, None, "", "", ""),
+    )
+    with patch("cerebrofy.analysis.silo_detector._blame_file", return_value={}), \
+         patch("cerebrofy.analysis.silo_detector._get_current_commit", return_value=None):
+        report = compute_silo_report(conn, tmp_path, min_callers=0)
+    assert report.neurons == []
+
+
+def test_compute_silo_report_lobe_filter_excludes_mismatches(tmp_path: Path) -> None:
+    conn = _make_db()
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("n1", "fn", "src/mod.py", "function", 1, 5, "", "", ""),
+    )
+    for i in range(3):
+        cid = f"c{i}"
+        conn.execute(
+            "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+            (cid, f"c{i}", "app.py", "function", i * 10 + 1, i * 10 + 5, "", "", ""),
+        )
+        conn.execute("INSERT INTO edges VALUES (?,?,?,?)", (cid, "n1", "CALLS", "app.py"))
+    blame = {ln: "alice@x.com" for ln in range(1, 20)}
+    with patch("cerebrofy.analysis.silo_detector._blame_file", return_value=blame), \
+         patch("cerebrofy.analysis.silo_detector._get_current_commit", return_value=None):
+        report = compute_silo_report(conn, tmp_path, lobe_filter="nonexistent", min_callers=1)
+    assert report.neurons == []
+
+
+def test_compute_silo_report_risk_filter_excludes_mismatches(tmp_path: Path) -> None:
+    conn = _make_db()
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("n1", "fn", "mod.py", "function", 1, 5, "", "", ""),
+    )
+    # 1 caller → LOW risk (score=1.0)
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("c0", "caller", "app.py", "function", 10, 15, "", "", ""),
+    )
+    conn.execute("INSERT INTO edges VALUES (?,?,?,?)", ("c0", "n1", "CALLS", "app.py"))
+    blame = {ln: "alice@x.com" for ln in range(1, 20)}
+    with patch("cerebrofy.analysis.silo_detector._blame_file", return_value=blame), \
+         patch("cerebrofy.analysis.silo_detector._get_current_commit", return_value=None):
+        report = compute_silo_report(conn, tmp_path, risk_filter="CRITICAL", min_callers=1)
+    assert report.neurons == []
+
+
+def test_compute_silo_report_author_filter_secondary_match(tmp_path: Path) -> None:
+    conn = _make_db()
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("n1", "fn", "code.py", "function", 1, 10, "", "", ""),
+    )
+    for i in range(3):
+        cid = f"c{i}"
+        conn.execute(
+            "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+            (cid, f"c{i}", "app.py", "function", i * 10 + 1, i * 10 + 5, "", "", ""),
+        )
+        conn.execute("INSERT INTO edges VALUES (?,?,?,?)", (cid, "n1", "CALLS", "app.py"))
+    # Lines 1-7: alice (primary), lines 8-10: bob (secondary)
+    blame = {ln: ("alice@x.com" if ln <= 7 else "bob@x.com") for ln in range(1, 11)}
+    with patch("cerebrofy.analysis.silo_detector._blame_file", return_value=blame), \
+         patch("cerebrofy.analysis.silo_detector._get_current_commit", return_value=None):
+        # bob is not the primary author — exercises the any() fallback (lines 266-267)
+        report = compute_silo_report(conn, tmp_path, author_filter="bob@x.com", min_callers=1)
+    assert len(report.neurons) == 1
+
+
+def test_compute_silo_report_author_filter_no_match(tmp_path: Path) -> None:
+    conn = _make_db()
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("n1", "fn", "code.py", "function", 1, 5, "", "", ""),
+    )
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("c0", "caller", "app.py", "function", 10, 15, "", "", ""),
+    )
+    conn.execute("INSERT INTO edges VALUES (?,?,?,?)", ("c0", "n1", "CALLS", "app.py"))
+    blame = {ln: "alice@x.com" for ln in range(1, 10)}
+    with patch("cerebrofy.analysis.silo_detector._blame_file", return_value=blame), \
+         patch("cerebrofy.analysis.silo_detector._get_current_commit", return_value=None):
+        report = compute_silo_report(conn, tmp_path, author_filter="unknown@x.com", min_callers=1)
+    assert report.neurons == []
+
+
+def test_compute_silo_report_write_memories_called(tmp_path: Path) -> None:
+    conn = _make_db()
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("n1", "fn", "code.py", "function", 1, 5, "", "", ""),
+    )
+    for i in range(25):
+        cid = f"c{i}"
+        conn.execute(
+            "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+            (cid, f"c{i}", "app.py", "function", i * 10 + 1, i * 10 + 5, "", "", ""),
+        )
+        conn.execute("INSERT INTO edges VALUES (?,?,?,?)", (cid, "n1", "CALLS", "app.py"))
+    blame = {ln: "alice@x.com" for ln in range(1, 30)}
+    with patch("cerebrofy.analysis.silo_detector._blame_file", return_value=blame), \
+         patch("cerebrofy.analysis.silo_detector._get_current_commit", return_value=None), \
+         patch("cerebrofy.analysis.silo_detector._write_silo_memories") as mock_write:
+        compute_silo_report(
+            conn, tmp_path, write_memories=True,
+            cerebrofy_dir=tmp_path / ".cerebrofy", min_callers=1,
+        )
+    assert mock_write.called
