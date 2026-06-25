@@ -470,6 +470,31 @@ cerebrofy vuln --package requests --depth 3 --output json
 
 ---
 
+### `cerebrofy silo`
+
+Identify knowledge silos — functions with high blast radius owned by few contributors. Overlays `git blame` authorship on the call graph to compute bus factor risk: a function called by many but written by one is a single point of failure.
+
+```bash
+cerebrofy silo                              # full report, top 20 silos
+cerebrofy silo --top 10 --min-callers 3    # high-traffic functions only
+cerebrofy silo --lobe auth                 # restrict to a specific lobe
+cerebrofy silo --author alice@company.com  # "if Alice left, what breaks?"
+cerebrofy silo --risk high                 # show only HIGH/CRITICAL silos
+cerebrofy silo --write-memories            # attach warning memories to HIGH/CRITICAL neurons
+cerebrofy silo --output json               # machine-readable output
+```
+
+| Output field | Meaning |
+|---|---|
+| **Silo score** | `caller_count ÷ unique_authors` — higher = more dangerous concentration |
+| **Primary owner** | Author with the most lines in the neuron's line range |
+| **Own%** | Fraction of lines owned by the primary author |
+| **Unique authors** | Number of distinct contributors to this neuron |
+| **Risk** | CRITICAL (≥20) / HIGH (≥8) / MEDIUM (≥3) / LOW (<3) |
+| **Memories written** | Warning memories auto-attached to each HIGH/CRITICAL neuron (with `--write-memories`) |
+
+---
+
 ### `cerebrofy migrate`
 
 Run sequential schema migration scripts.
@@ -507,6 +532,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones, and memory warnings. |
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
+| `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
