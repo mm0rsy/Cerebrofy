@@ -71,11 +71,13 @@ jobs:
   # PyPI uses OIDC Trusted Publisher — no static token needed.
   # One-time setup at pypi.org → your project → Publishing → Add a publisher:
   #   Owner: mm0rsy  |  Repo: Cerebrofy  |  Workflow: release.yml  |  Job: publish
+  #   Environment name: pypi
   # ─────────────────────────────────────────────────────────────────────────
   publish:
     name: Publish to PyPI & GitHub
     needs: build
     runs-on: ubuntu-22.04
+    environment: pypi
     permissions:
       contents: write   # create GitHub Release and upload release assets
       id-token: write   # PyPI OIDC Trusted Publisher
