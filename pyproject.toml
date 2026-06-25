@@ -98,5 +98,8 @@ warn_unused_ignores = false
 version_toml = ["pyproject.toml:project.version"]
 branch = "master"
 changelog_file = "CHANGELOG.md"
-commit_message = "chore(release): v{version} [skip ci]"
+commit_message = "chore(release): v{version}"
 upload_to_vcs_release = false
+
+[tool.semantic_release.remote]
+token = { env = "GH_TOKEN" }
