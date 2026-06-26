@@ -910,6 +910,61 @@ def _handle_silo(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(out, indent=2))]
 
 
+def _handle_coverage_gap(arguments: dict[str, Any]) -> list[Any]:
+    """Test Coverage Gap Predictor — rank uncovered neurons by blast_radius × velocity."""
+    from mcp.types import TextContent
+
+    days: int = int(arguments.get("days", 30))
+    depth: int = int(arguments.get("depth", 2))
+    min_blast: float = float(arguments.get("min_blast", 0.0))
+    top: int = int(arguments.get("top", 20))
+    lobe_filter: str | None = arguments.get("lobe")
+    risk_filter: str | None = arguments.get("risk_level")
+    write_memories: bool = bool(arguments.get("write_memories", False))
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    conn = _open_db_ro(root)
+    try:
+        from cerebrofy.db.connection import check_schema_version
+        from cerebrofy.analysis.coverage_gap import compute_coverage_gap_report
+
+        try:
+            check_schema_version(conn)
+        except (ValueError, sqlite3.OperationalError) as exc:
+            return _make_error_content(f"Schema version mismatch: {exc}. Run 'cerebrofy migrate'.")
+
+        report = compute_coverage_gap_report(
+            conn=conn,
+            repo_root=root,
+            days=days,
+            depth=depth,
+            min_blast=min_blast,
+            top=top,
+            lobe_filter=lobe_filter,
+            risk_filter=risk_filter,
+            write_memories=write_memories,
+            cerebrofy_dir=root / ".cerebrofy" if write_memories else None,
+        )
+    finally:
+        conn.close()
+
+    import dataclasses
+    import json as _json
+    out: dict[str, Any] = {
+        "as_of_commit": report.as_of_commit,
+        "total_neurons_scanned": report.total_neurons_scanned,
+        "uncovered_count": report.uncovered_count,
+        "coverage_source": report.coverage_source,
+        "velocity_days": report.velocity_days,
+        "neurons": [dataclasses.asdict(n) for n in report.neurons],
+    }
+    return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+
+
 def _handle_vuln(arguments: dict[str, Any]) -> list[Any]:
     """Vulnerability blast radius — find which functions call a vulnerable package."""
     from mcp.types import TextContent
@@ -1305,6 +1360,55 @@ async def run_mcp_server() -> None:
                     },
                 },
             }),
+            Tool(name="cerebrofy_coverage_gap", description=(
+                "Rank uncovered neurons by blast radius × change velocity to find the functions "
+                "most likely to cause production bugs. A function that is widely-called, "
+                "actively changing, and has no tests is the highest risk. "
+                "Coverage is read from coverage.xml if present (pytest-cov output), "
+                "otherwise derived from the call graph. "
+                "Use before a sprint or release to identify the most dangerous untested code."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Velocity window in days — commits within this window count (default: 30).",
+                        "default": 30,
+                        "minimum": 1,
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "BFS caller traversal depth (default: 2).",
+                        "default": 2,
+                        "minimum": 1,
+                        "maximum": 5,
+                    },
+                    "min_blast": {
+                        "type": "number",
+                        "description": "Minimum weighted blast radius (d1 + 0.4×d2) to include (default: 0).",
+                        "default": 0.0,
+                    },
+                    "top": {
+                        "type": "integer",
+                        "description": "Number of top gaps to return (default: 20).",
+                        "default": 20,
+                    },
+                    "lobe": {
+                        "type": "string",
+                        "description": "Filter analysis to a specific lobe (optional).",
+                    },
+                    "risk_level": {
+                        "type": "string",
+                        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+                        "description": "Filter by risk level (optional, default: all).",
+                    },
+                    "write_memories": {
+                        "type": "boolean",
+                        "description": "Write warning memories to HIGH/CRITICAL gap neurons (default: false).",
+                        "default": False,
+                    },
+                },
+            }),
             Tool(name="cerebrofy_vuln", description=(
                 "Map which of YOUR functions are exposed to a vulnerable package. "
                 "Finds all call sites of the package via the graph, traces backward to "
@@ -1385,6 +1489,8 @@ async def run_mcp_server() -> None:
                 result = _handle_impact(args)
             elif name == "cerebrofy_silo":
                 result = _handle_silo(args)
+            elif name == "cerebrofy_coverage_gap":
+                result = _handle_coverage_gap(args)
             elif name == "cerebrofy_vuln":
                 result = _handle_vuln(args)
             else:
