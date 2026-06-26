@@ -17,7 +17,7 @@
 [![SQLite](https://img.shields.io/badge/storage-SQLite%20%2B%20sqlite--vec-003B57?logo=sqlite&logoColor=white)](https://github.com/asg017/sqlite-vec)
 [![uv](https://img.shields.io/badge/built%20with-uv-5C4EE5?logo=astral&logoColor=white)](https://docs.astral.sh/uv/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-informational)](https://github.com/mm0rsy/Cerebrofy#platform-support)
-[![Built with Claude](https://img.shields.io/badge/built%20with-Claude-blueviolet?logo=anthropic&logoColor=white)](https://claude.ai)
+[![Built for Claude](https://img.shields.io/badge/built%20for-Claude-blueviolet?logo=anthropic&logoColor=white)](https://claude.ai)
 
 </div>
 
