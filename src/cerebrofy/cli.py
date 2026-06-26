@@ -16,6 +16,7 @@ from cerebrofy.commands.onboard import cerebrofy_onboard
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.update import cerebrofy_update
+from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
 from cerebrofy.commands.silo import cerebrofy_silo
 from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
@@ -46,6 +47,7 @@ def main() -> None:
 
 # Public commands (shown in --help)
 main.add_command(cerebrofy_blast_radius)
+main.add_command(cerebrofy_coverage_gap)
 main.add_command(cerebrofy_build)
 main.add_command(cerebrofy_context)
 main.add_command(cerebrofy_epistemic)
