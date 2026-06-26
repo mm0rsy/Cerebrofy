@@ -495,6 +495,33 @@ cerebrofy silo --output json               # machine-readable output
 
 ---
 
+### `cerebrofy coverage-gap`
+
+Rank uncovered neurons by **blast radius × change velocity** to surface functions most likely to cause production bugs. A function that is widely-called, actively changing, and has no tests is the highest-priority coverage gap.
+
+Coverage is sourced from `coverage.xml` (pytest-cov) when present; otherwise derived from the call graph (any test file with an edge to the neuron). The `coverage_source` field in every result tells you which was used.
+
+```bash
+cerebrofy coverage-gap                          # top 20 gaps, 30-day velocity window
+cerebrofy coverage-gap --days 14               # tighten velocity to 2 weeks
+cerebrofy coverage-gap --min-blast 2           # only functions with meaningful blast radius
+cerebrofy coverage-gap --lobe auth             # restrict to a specific lobe
+cerebrofy coverage-gap --risk critical         # show only CRITICAL gaps
+cerebrofy coverage-gap --write-memories        # attach warning memories to HIGH/CRITICAL neurons
+cerebrofy coverage-gap --output json           # machine-readable output
+```
+
+| Output field | Meaning |
+|---|---|
+| **Gap score** | `risk_score(blast_radius) × velocity` — higher = more dangerous gap |
+| **Callers** | Total callers at depth 1+2 from BFS traversal |
+| **Commits/Nd** | Git commits touching the file in the last N days (velocity) |
+| **Coverage source** | `coverage_xml` (pytest-cov) or `graph_topology` (call-edge fallback) |
+| **Risk** | CRITICAL (≥100) / HIGH (≥25) / MEDIUM (≥5) / LOW (<5) |
+| **Memories written** | Warning memories auto-attached to each HIGH/CRITICAL neuron (with `--write-memories`) |
+
+---
+
 ### `cerebrofy migrate`
 
 Run sequential schema migration scripts.
@@ -533,6 +560,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
 | `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
+| `cerebrofy_coverage_gap` | Test coverage gap predictor: rank uncovered neurons by blast radius × change velocity. Uses `coverage.xml` when present, falls back to graph topology. Surfaces the functions most likely to cause production bugs if a bug is introduced. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
