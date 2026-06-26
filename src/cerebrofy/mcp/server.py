@@ -1520,5 +1520,143 @@ async def run_mcp_server() -> None:
             print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
             return _make_error_content(f"[error] {exc}")
 
+    # ── MCP Resources ────────────────────────────────────────────────────────
+    # Expose codebase graph data as URI-addressable ambient context so AI
+    # clients can subscribe without an explicit tool call.
+
+    @app.list_resources()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def list_resources() -> list[Any]:
+        from mcp.types import Resource
+        from cerebrofy.mcp.resources import list_lobe_names
+
+        try:
+            root = _find_repo_root(Path.cwd())
+        except FileNotFoundError:
+            return []
+
+        static: list[Any] = [
+            Resource(
+                uri="cerebrofy://graph/map",  # type: ignore[arg-type]
+                name="Codebase Map",
+                description="Full codebase map — all lobes, neurons, and edges in Markdown.",
+                mimeType="text/markdown",
+            ),
+            Resource(
+                uri="cerebrofy://graph/entry-points",  # type: ignore[arg-type]
+                name="Entry Points",
+                description="All entry-point neurons (in_degree=0, out_degree>0).",
+                mimeType="application/json",
+            ),
+            Resource(
+                uri="cerebrofy://health/current",  # type: ignore[arg-type]
+                name="Health Snapshot",
+                description="Latest codebase health metrics from the graph.",
+                mimeType="application/json",
+            ),
+        ]
+        for lobe in list_lobe_names(root):
+            static.append(Resource(
+                uri=f"cerebrofy://lobes/{lobe}",  # type: ignore[arg-type]
+                name=f"Lobe: {lobe}",
+                description=f"Summary of the {lobe} module — neurons, edges, and highlights.",
+                mimeType="text/markdown",
+            ))
+        return static
+
+    @app.list_resource_templates()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def list_resource_templates() -> list[Any]:
+        from mcp.types import ResourceTemplate
+        return [
+            ResourceTemplate(
+                uriTemplate="cerebrofy://neurons/{neuron_id}",
+                name="Neuron",
+                description="Full details for a neuron by ID (file::name format).",
+                mimeType="application/json",
+            ),
+            ResourceTemplate(
+                uriTemplate="cerebrofy://memories/{neuron_id}",
+                name="Neuron Memories",
+                description="All memories attached to a neuron.",
+                mimeType="application/json",
+            ),
+        ]
+
+    @app.read_resource()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def read_resource(uri: Any) -> list[Any]:
+        from mcp.server.lowlevel.helper_types import ReadResourceContents
+        from cerebrofy.mcp.resources import (
+            current_health, entry_points, get_neuron,
+            memories_for_neuron, read_lobe, read_map,
+        )
+
+        uri_str = str(uri)
+
+        try:
+            root = _find_repo_root(Path.cwd())
+        except FileNotFoundError as exc:
+            raise ValueError(f"No Cerebrofy index found: {exc}") from exc
+
+        # ── cerebrofy://graph/map ────────────────────────────────────────────
+        if uri_str == "cerebrofy://graph/map":
+            return [ReadResourceContents(content=read_map(root), mime_type="text/markdown")]
+
+        # ── cerebrofy://graph/entry-points ──────────────────────────────────
+        if uri_str == "cerebrofy://graph/entry-points":
+            conn = _open_db_ro(root)
+            try:
+                data = entry_points(conn)
+            finally:
+                conn.close()
+            return [ReadResourceContents(
+                content=json.dumps(data, indent=2), mime_type="application/json"
+            )]
+
+        # ── cerebrofy://health/current ───────────────────────────────────────
+        if uri_str == "cerebrofy://health/current":
+            conn = _open_db_ro(root)
+            try:
+                snapshot = current_health(conn)
+            finally:
+                conn.close()
+            return [ReadResourceContents(
+                content=json.dumps(snapshot or {}, indent=2),
+                mime_type="application/json",
+            )]
+
+        # ── cerebrofy://lobes/{name} ─────────────────────────────────────────
+        if uri_str.startswith("cerebrofy://lobes/"):
+            name = uri_str[len("cerebrofy://lobes/"):]
+            if not name:
+                raise ValueError("Lobe name is required: cerebrofy://lobes/{name}")
+            return [ReadResourceContents(content=read_lobe(name, root), mime_type="text/markdown")]
+
+        # ── cerebrofy://neurons/{neuron_id} ──────────────────────────────────
+        if uri_str.startswith("cerebrofy://neurons/"):
+            neuron_id = uri_str[len("cerebrofy://neurons/"):]
+            if not neuron_id:
+                raise ValueError("Neuron ID is required: cerebrofy://neurons/{neuron_id}")
+            conn = _open_db_ro(root)
+            try:
+                neuron = get_neuron(neuron_id, conn)
+            finally:
+                conn.close()
+            if neuron is None:
+                raise ValueError(f"Neuron '{neuron_id}' not found in index.")
+            return [ReadResourceContents(
+                content=json.dumps(neuron, indent=2), mime_type="application/json"
+            )]
+
+        # ── cerebrofy://memories/{neuron_id} ─────────────────────────────────
+        if uri_str.startswith("cerebrofy://memories/"):
+            neuron_id = uri_str[len("cerebrofy://memories/"):]
+            if not neuron_id:
+                raise ValueError("Neuron ID is required: cerebrofy://memories/{neuron_id}")
+            mems = memories_for_neuron(neuron_id, root)
+            return [ReadResourceContents(
+                content=json.dumps(mems, indent=2), mime_type="application/json"
+            )]
+
+        raise ValueError(f"Unknown resource URI: {uri_str}")
+
     async with stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, app.create_initialization_options())
