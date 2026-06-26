@@ -75,11 +75,11 @@ architecture:
       - "#07 Refactor Impact Predictor"
       - "#08 Vulnerability Blast Radius"
       - "#09 Knowledge Silo Detector"
+      - "#13 Test Coverage Gap Predictor"
       - "#22 Epistemic Confidence Layer"
       - "#23 Product Intent Layer"
 
     next:
-      - "#13 Test Coverage Gap Predictor — rank uncovered neurons by blast radius × velocity"
       - "#16 Architecture Drift Alerts — enforce arch rules via graph queries on commit"
       - "#11 Live Agent Session Recorder — audit trail of every AI coding session"
       - "#15 Multi-Language Polyglot Graph — unified graph across Python, TypeScript, Rust, Go"
