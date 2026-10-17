@@ -1723,8 +1723,8 @@ async def run_mcp_server() -> None:
         from mcp.server.lowlevel.helper_types import ReadResourceContents
         from cerebrofy.mcp.resources import (
             blast_radius_summary, current_health, entry_points, file_neurons,
-            get_neuron, memories_for_neuron, read_lobe, read_map,
-            search_resource_results,
+            get_neuron, memories_for_neuron, neuron_callers, neuron_source,
+            read_lobe, read_map, search_resource_results,
         )
 
         _capture_session()
@@ -1806,23 +1806,26 @@ async def run_mcp_server() -> None:
 
         # ── cerebrofy://neurons/{neuron_id} ──────────────────────────────────
         if uri_str.startswith("cerebrofy://neurons/"):
-            neuron_id = uri_str[len("cerebrofy://neurons/"):]
+            neuron_id = unquote(uri_str[len("cerebrofy://neurons/"):])
             if not neuron_id:
                 raise ValueError("Neuron ID is required: cerebrofy://neurons/{neuron_id}")
             conn = _open_db_ro(root)
             try:
                 neuron = get_neuron(neuron_id, conn)
+                callers = neuron_callers(neuron_id, conn) if neuron else []
             finally:
                 conn.close()
             if neuron is None:
                 raise ValueError(f"Neuron '{neuron_id}' not found in index.")
+            neuron["callers"] = callers
+            neuron["source"] = neuron_source(neuron, root)
             return [ReadResourceContents(
                 content=json.dumps(neuron, indent=2), mime_type="application/json"
             )]
 
         # ── cerebrofy://memories/{neuron_id} ─────────────────────────────────
         if uri_str.startswith("cerebrofy://memories/"):
-            neuron_id = uri_str[len("cerebrofy://memories/"):]
+            neuron_id = unquote(uri_str[len("cerebrofy://memories/"):])
             if not neuron_id:
                 raise ValueError("Neuron ID is required: cerebrofy://memories/{neuron_id}")
             mems = memories_for_neuron(neuron_id, root)

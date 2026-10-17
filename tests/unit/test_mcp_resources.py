@@ -23,6 +23,8 @@ from cerebrofy.mcp.resources import (
     list_lobe_names,
     list_resource_entries,
     memories_for_neuron,
+    neuron_callers,
+    neuron_source,
     read_lobe,
     read_map,
     search_resource_results,
@@ -360,6 +362,45 @@ def test_blast_radius_summary_returns_payload(tmp_path: Path) -> None:
 def test_blast_radius_summary_returns_none_when_missing(tmp_path: Path) -> None:
     conn = _make_db()
     assert blast_radius_summary("nonexistent", conn) is None
+
+
+# ---------------------------------------------------------------------------
+# neuron_source / neuron_callers
+# ---------------------------------------------------------------------------
+
+def test_neuron_source_returns_line_range(tmp_path: Path) -> None:
+    src = tmp_path / "pkg"
+    src.mkdir()
+    (src / "mod.py").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+
+    source = neuron_source(
+        {"file": "pkg/mod.py", "line_start": 2, "line_end": 3}, tmp_path
+    )
+    assert source == "two\nthree"
+
+
+def test_neuron_source_returns_none_when_file_missing(tmp_path: Path) -> None:
+    neuron = {"file": "gone.py", "line_start": 1, "line_end": 2}
+    assert neuron_source(neuron, tmp_path) is None
+
+
+def test_neuron_source_returns_none_without_line_range(tmp_path: Path) -> None:
+    assert neuron_source({"file": "gone.py"}, tmp_path) is None
+
+
+def test_neuron_callers_returns_direct_callers(tmp_path: Path) -> None:
+    conn = _make_db()
+    _insert_neuron(conn, "t", "validate_token", "auth/tokens.py")
+    _insert_neuron(conn, "c1", "login_handler", "src/app.py")
+    conn.execute("INSERT INTO edges VALUES (?,?,?,?)", ("c1", "t", "CALLS", ""))
+
+    callers = neuron_callers("auth/tokens.py::validate_token", conn)
+    assert callers == [{"name": "login_handler", "file": "src/app.py", "line": 1}]
+
+
+def test_neuron_callers_returns_empty_for_unknown_neuron(tmp_path: Path) -> None:
+    conn = _make_db()
+    assert neuron_callers("nope.py::ghost", conn) == []
 
 
 # ---------------------------------------------------------------------------

@@ -106,6 +106,38 @@ def get_neuron(neuron_id: str, conn: sqlite3.Connection) -> dict[str, Any] | Non
     return dict(zip(cols, row))
 
 
+def neuron_source(neuron: dict[str, Any], root: Path) -> str | None:
+    """Return the neuron's exact source text, or None if the file is unreadable."""
+    file_rel = str(neuron.get("file") or "")
+    line_start = neuron.get("line_start")
+    if not file_rel or not isinstance(line_start, int) or line_start < 1:
+        return None
+    try:
+        text = (root / file_rel).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    line_end = neuron.get("line_end")
+    end = line_end if isinstance(line_end, int) and line_end >= line_start else line_start
+    return "\n".join(text.splitlines()[line_start - 1 : end])
+
+
+def neuron_callers(neuron_id: str, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return direct (depth-1) callers of a neuron for the neuron resource."""
+    from cerebrofy.analysis.blast_radius import (
+        compute_blast_radius_report,
+        neuron_for_target,
+    )
+
+    neuron = neuron_for_target(neuron_id, conn)
+    if neuron is None:
+        return []
+    report = compute_blast_radius_report([neuron], conn, depth=1)
+    return [
+        {"name": n.name, "file": n.file, "line": n.line_start}
+        for n in report.changed_neurons[0].callers_depth1
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Memory helper
 # ---------------------------------------------------------------------------
