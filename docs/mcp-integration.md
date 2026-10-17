@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **fourteen fully operational tools** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **22 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -94,6 +94,9 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones |
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, refactoring sequence |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, generate remediation sequence |
+| `cerebrofy_silo` | Knowledge silo detector: git-blame overlay on the call graph — bus factor risk per neuron, filterable by lobe, author, or risk level |
+| `cerebrofy_coverage_gap` | Test coverage gap predictor: ranks uncovered neurons by blast radius × change velocity |
+| `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -169,14 +172,32 @@ List all indexed lobes (named subsections of your codebase) with paths to their 
 ```json
 {
   "lobes": [
-    { "name": "auth", "summary_file": ".cerebrofy/lobes/auth_lobe.md" },
-    { "name": "api",  "summary_file": ".cerebrofy/lobes/api_lobe.md" }
+    { "name": "auth", "summary_file": "docs/cerebrofy/auth_lobe.md" },
+    { "name": "api",  "summary_file": "docs/cerebrofy/api_lobe.md" }
   ],
-  "full_map": ".cerebrofy/cerebrofy_map.md"
+  "full_map": "docs/cerebrofy/cerebrofy_map.md"
 }
 ```
 
 Read the `summary_file` for a module overview before searching within it.
+
+---
+
+### `cerebrofy_list_resources`
+
+Discover every MCP resource URI this server exposes — static resources (codebase map, entry points, health) and URI templates (neurons, files, search, memories, blast radius). Use it to discover ambient context, then read a URI via the MCP `resources/read` protocol method (resources are not tool calls).
+
+**Input schema:**
+
+```json
+{
+  "filter": "all"
+}
+```
+
+`filter` accepts `graph`, `lobes`, `neurons`, `health`, `memories`, `blast-radius`, or `all` (default).
+
+**Output:** JSON catalog with `uri`, `name`, `description`, `mime_type`, `category`, and `template` fields per entry, plus `count`. See [Available Resources](#available-resources).
 
 ---
 
@@ -419,6 +440,63 @@ Check for drift between source code and the index. Zero writes to any file or da
 **Input schema:** none
 
 **Output:** `[clean]`, `[minor_drift]`, or `[structural_drift]` followed by details.
+
+---
+
+## Available Resources
+
+In addition to tools, the server exposes URI-addressable **resources**. Clients read them via the MCP `resources/read` protocol method — no tool call required — and can subscribe to change notifications.
+
+### Static resources
+
+| URI | Type | Content |
+|-----|------|---------|
+| `cerebrofy://graph/map` | `text/markdown` | Full codebase map (`docs/cerebrofy/cerebrofy_map.md`) |
+| `cerebrofy://graph/entry-points` | `application/json` | Entry-point neurons (`in_degree=0`, `out_degree>0`) |
+| `cerebrofy://health/current` | `application/json` | Latest health snapshot |
+| `cerebrofy://lobes/{name}` | `text/markdown` | Per-lobe summary (one resource per indexed lobe) |
+
+### URI templates
+
+| Template | Type | Content |
+|----------|------|---------|
+| `cerebrofy://neurons/{neuron_id}` | `application/json` | Single neuron details (`file::name` format) |
+| `cerebrofy://neurons/file/{file_path}` | `application/json` | All neurons defined in a source file |
+| `cerebrofy://neurons/search?q={query}` | `application/json` | Hybrid semantic search results |
+| `cerebrofy://memories/{neuron_id}` | `application/json` | Memories attached to a neuron |
+| `cerebrofy://blast-radius/{neuron_id}` | `application/json` | Callers, risk score, and PR-comment summary |
+
+Discover the exact list at runtime with the [`cerebrofy_list_resources`](#cerebrofy_list_resources) tool (the lobe list depends on what has been indexed).
+
+Example reads:
+
+```
+resources/read  cerebrofy://graph/map
+resources/read  cerebrofy://lobes/auth
+resources/read  cerebrofy://neurons/auth/tokens.py::validate_token
+resources/read  cerebrofy://neurons/file/src/auth/tokens.py
+resources/read  cerebrofy://neurons/search?q=token+expiry
+resources/read  cerebrofy://blast-radius/validate_token
+```
+
+### Subscriptions
+
+The server advertises `resources.subscribe = true` and watches the index while a client is connected:
+
+| Event | Notification |
+|-------|--------------|
+| `cerebrofy build` / `cerebrofy update` rewrites `cerebrofy.db` or `memories.db` | `notifications/resources/updated` for every subscribed URI |
+| Lobe Markdown files change (lobes added/removed) | `notifications/resources/list_changed` |
+
+```
+resources/subscribe  cerebrofy://graph/map
+# ...cerebrofy update runs via the pre-commit hook → client is notified
+resources/unsubscribe  cerebrofy://graph/map
+```
+
+### Auto-include
+
+Some MCP clients can pin resources so they load into every session without an explicit read. Point them at `cerebrofy://graph/map`, `cerebrofy://graph/entry-points`, and `cerebrofy://health/current` for zero-tool-call orientation.
 
 ---
 

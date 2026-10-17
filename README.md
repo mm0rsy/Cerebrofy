@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all six tools directly — see [MCP Tools](#mcp-tools).
+Once the index is built, AI assistants with MCP configured can call all 22 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -372,7 +372,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes eighteen fully operational tools. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 22 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -562,6 +562,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
 | `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: rank uncovered neurons by blast radius × change velocity. Uses `coverage.xml` when present, falls back to graph topology. Surfaces the functions most likely to cause production bugs if a bug is introduced. |
+| `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
@@ -569,9 +570,31 @@ Full tool reference: [docs/mcp-integration.md](docs/mcp-integration.md)
 
 ---
 
+## MCP Resources
+
+Beyond tools, the server exposes URI-addressable **resources** — ambient context an AI client can read (or auto-include) without an explicit tool call:
+
+| Resource | Type | Content |
+|----------|------|---------|
+| `cerebrofy://graph/map` | Markdown | Full codebase map |
+| `cerebrofy://graph/entry-points` | JSON | Entry-point neurons (in_degree=0, out_degree>0) |
+| `cerebrofy://health/current` | JSON | Latest codebase health snapshot |
+| `cerebrofy://lobes/{name}` | Markdown | Per-lobe summary |
+| `cerebrofy://neurons/{neuron_id}` | JSON | Single neuron details (`file::name`) |
+| `cerebrofy://neurons/file/{file_path}` | JSON | All neurons defined in a source file |
+| `cerebrofy://neurons/search?q={query}` | JSON | Hybrid semantic search results |
+| `cerebrofy://memories/{neuron_id}` | JSON | Memories attached to a neuron |
+| `cerebrofy://blast-radius/{neuron_id}` | JSON | Callers, risk score, and PR-comment summary |
+
+Discover them with the `cerebrofy_list_resources` tool (filter: `graph`, `lobes`, `neurons`, `health`, `memories`, `blast-radius`, or `all`).
+
+**Live updates:** clients can `resources/subscribe` to any URI. After `cerebrofy update` or `cerebrofy build` changes the index, the server emits `notifications/resources/updated` for subscribed URIs, so the AI never works with stale graph data.
+
+---
+
 ## Lobes
 
-A **Lobe** is a named module group — typically one top-level directory in your repository. Cerebrofy auto-detects Lobes at `cerebrofy init` time. Each Lobe gets a Markdown summary at `.cerebrofy/lobes/<name>_lobe.md`.
+A **Lobe** is a named module group — typically one top-level directory in your repository. Cerebrofy auto-detects Lobes at `cerebrofy init` time. Each Lobe gets a Markdown summary at `docs/cerebrofy/<name>_lobe.md`.
 
 Lobes are configured in `.cerebrofy/config.yaml`:
 
@@ -654,8 +677,8 @@ embedding_model: local      # local | none
 | Path | Created by | Description |
 |------|-----------|-------------|
 | `.cerebrofy/db/cerebrofy.db` | `cerebrofy build` | Full index — graph + vectors |
-| `.cerebrofy/lobes/<name>_lobe.md` | `cerebrofy build` / `update` | Per-lobe Neuron + call table |
-| `.cerebrofy/cerebrofy_map.md` | `cerebrofy build` / `update` | Master index with `state_hash` |
+| `docs/cerebrofy/<name>_lobe.md` | `cerebrofy build` / `update` | Per-lobe Neuron + call table |
+| `docs/cerebrofy/cerebrofy_map.md` | `cerebrofy build` / `update` | Master index with `state_hash` |
 
 The lobe `.md` and map files are committed to git (not gitignored). They form the human-readable index of your codebase and serve as AI context when used with MCP tools.
 
@@ -663,7 +686,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with six fully operational tools.
+Cerebrofy ships an MCP stdio server with 22 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support
