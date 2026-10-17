@@ -15,5 +15,5 @@ Use the `search_code` MCP tool:
 After receiving results, use `get_neuron` to fetch full details on the top matches.
 Navigate to the exact file:line returned — do **not** read surrounding files.
 
-If `search_code` returns "not yet available", read `.cerebrofy/lobes/` summaries to orient
+If `search_code` returns "not yet available", read `docs/cerebrofy/` summaries to orient
 yourself, then use `get_neuron(name="...")` if you know the symbol name.

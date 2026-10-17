@@ -35,6 +35,6 @@ Navigate only to the exact file:line returned.
 | Fetch specific symbol | `get_neuron(name="MyClass")` |
 | Fetch by location | `get_neuron(file="auth.py", line=42)` |
 | List all modules | `list_lobes()` |
-| Module overview | Read `.cerebrofy/lobes/<name>_lobe.md` |
-| Full map | Read `.cerebrofy/cerebrofy_map.md` |
+| Module overview | Read `docs/cerebrofy/<name>_lobe.md` |
+| Full map | Read `docs/cerebrofy/cerebrofy_map.md` |
 ````

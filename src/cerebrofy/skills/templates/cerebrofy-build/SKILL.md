@@ -38,8 +38,8 @@ An interrupted build leaves **no corrupted state** — the swap only happens on 
 ## Output
 
 - `.cerebrofy/db/cerebrofy.db` — SQLite database with nodes, edges, vectors, file hashes.
-- `.cerebrofy/lobes/*_lobe.md` — per-lobe Markdown documentation.
-- `.cerebrofy/cerebrofy_map.md` — full codebase map.
+- `docs/cerebrofy/*_lobe.md` — per-lobe Markdown documentation.
+- `docs/cerebrofy/cerebrofy_map.md` — full codebase map.
 
 ## Important
 
