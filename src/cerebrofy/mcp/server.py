@@ -61,7 +61,10 @@ class CerebrofyMCPServer(Server):  # type: ignore[type-arg, misc]
 # Resource subscription plumbing
 # ---------------------------------------------------------------------------
 
-_INDEX_WATCH_INTERVAL_SECONDS = 2.0
+# Fingerprint poll interval (seconds). Worst-case notification latency after
+# `cerebrofy update` is one interval; 0.5s keeps it under the <1s target from
+# idea #10 — the fingerprint itself is only three stat/glob calls.
+_INDEX_WATCH_INTERVAL_SECONDS = 0.5
 
 
 async def _notify_resource_changes(

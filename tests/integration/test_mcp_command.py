@@ -334,7 +334,7 @@ def test_mcp_resources_subscription_notification(tmp_path: Path) -> None:
                 stat = db.stat()
                 os.utime(db, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10_000_000_000))
 
-                # The watcher polls every ~2s; allow generous headroom for CI.
+                # The watcher polls every ~0.5s; allow generous headroom for CI.
                 deadline = time.monotonic() + 15
                 while time.monotonic() < deadline and not received:
                     await asyncio.sleep(0.2)
