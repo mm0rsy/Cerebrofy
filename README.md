@@ -577,10 +577,10 @@ Beyond tools, the server exposes URI-addressable **resources** — ambient conte
 | Resource | Type | Content |
 |----------|------|---------|
 | `cerebrofy://graph/map` | Markdown | Full codebase map |
-| `cerebrofy://graph/entry-points` | JSON | Entry-point neurons (in_degree=0, out_degree>0) |
+| `cerebrofy://graph/entry-points` | JSON | Entry-point neurons (no non-runtime callers, with outgoing edges) |
 | `cerebrofy://health/current` | JSON | Latest codebase health snapshot |
 | `cerebrofy://lobes/{name}` | Markdown | Per-lobe summary |
-| `cerebrofy://neurons/{neuron_id}` | JSON | Single neuron details (`file::name`) |
+| `cerebrofy://neurons/{neuron_id}` | JSON | Single neuron details — source, signature, direct callers (`file::name`) |
 | `cerebrofy://neurons/file/{file_path}` | JSON | All neurons defined in a source file |
 | `cerebrofy://neurons/search?q={query}` | JSON | Hybrid semantic search results |
 | `cerebrofy://memories/{neuron_id}` | JSON | Memories attached to a neuron |

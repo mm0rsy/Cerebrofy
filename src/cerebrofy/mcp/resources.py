@@ -7,11 +7,11 @@ Resources expose codebase graph data for AI clients as ambient context
   cerebrofy://graph/entry-points            → entry-point neurons JSON
   cerebrofy://health/current                → latest health snapshot JSON
   cerebrofy://lobes/{name}                  → {name}_lobe.md summary Markdown
-  cerebrofy://neurons/{neuron_id}           → single neuron details JSON
+  cerebrofy://neurons/{neuron_id}           → single neuron details + source + callers JSON
   cerebrofy://neurons/file/{file_path}      → all neurons in a source file JSON
   cerebrofy://neurons/search?q={query}      → hybrid semantic search results JSON
   cerebrofy://memories/{neuron_id}          → memories attached to a neuron JSON
-  cerebrofy://blast-radius/{neuron_id}      → pre-computed blast radius JSON
+  cerebrofy://blast-radius/{neuron_id}      → blast radius JSON (computed on demand)
 
 `list_resource_entries` is the single source of truth for the resource
 catalog — both the server's `resources/list` handler and the
@@ -314,7 +314,7 @@ def list_resource_entries(root: Path) -> list[dict[str, Any]]:
         {
             "uri": "cerebrofy://graph/entry-points",
             "name": "Entry Points",
-            "description": "All entry-point neurons (in_degree=0, out_degree>0).",
+            "description": "Entry-point neurons — no non-runtime callers, with outgoing edges.",
             "mime_type": "application/json",
             "category": "graph",
             "template": False,
@@ -330,7 +330,7 @@ def list_resource_entries(root: Path) -> list[dict[str, Any]]:
         {
             "uri": "cerebrofy://neurons/{neuron_id}",
             "name": "Neuron",
-            "description": "Full details for a neuron by ID (file::name format).",
+            "description": "Full details for a neuron by ID (file::name): source, signature, direct callers.",
             "mime_type": "application/json",
             "category": "neurons",
             "template": True,
@@ -362,7 +362,7 @@ def list_resource_entries(root: Path) -> list[dict[str, Any]]:
         {
             "uri": "cerebrofy://blast-radius/{neuron_id}",
             "name": "Blast Radius",
-            "description": "Pre-computed blast radius for a neuron — callers, risk score, PR comment.",
+            "description": "Blast radius for a neuron — callers, risk score, PR comment.",
             "mime_type": "application/json",
             "category": "blast-radius",
             "template": True,

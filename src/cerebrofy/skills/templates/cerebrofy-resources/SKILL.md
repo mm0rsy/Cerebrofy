@@ -21,7 +21,7 @@ Only open a specific source file *after* cerebrofy has returned its exact file p
 | URI | Type | Content |
 |-----|------|---------|
 | `cerebrofy://graph/map` | Markdown | Full codebase map — all lobes, neurons, and edges |
-| `cerebrofy://graph/entry-points` | JSON | Entry-point neurons (in_degree=0, out_degree>0) |
+| `cerebrofy://graph/entry-points` | JSON | Entry-point neurons (no non-runtime callers, with outgoing edges) |
 | `cerebrofy://health/current` | JSON | Latest codebase health snapshot |
 | `cerebrofy://lobes/{name}` | Markdown | Per-lobe summary (one resource per indexed lobe) |
 
@@ -29,11 +29,11 @@ Only open a specific source file *after* cerebrofy has returned its exact file p
 
 | Template | Type | Content |
 |----------|------|---------|
-| `cerebrofy://neurons/{neuron_id}` | JSON | Single neuron details (`file::name` format) |
+| `cerebrofy://neurons/{neuron_id}` | JSON | Single neuron details — source, signature, direct callers (`file::name` format) |
 | `cerebrofy://neurons/file/{file_path}` | JSON | All neurons defined in a source file |
 | `cerebrofy://neurons/search?q={query}` | JSON | Hybrid semantic search results |
 | `cerebrofy://memories/{neuron_id}` | JSON | Memories attached to a neuron |
-| `cerebrofy://blast-radius/{neuron_id}` | JSON | Pre-computed callers, risk score, PR-comment summary |
+| `cerebrofy://blast-radius/{neuron_id}` | JSON | Callers, risk score, PR-comment summary |
 
 ## How to use via MCP
 

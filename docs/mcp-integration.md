@@ -452,7 +452,7 @@ In addition to tools, the server exposes URI-addressable **resources**. Clients 
 | URI | Type | Content |
 |-----|------|---------|
 | `cerebrofy://graph/map` | `text/markdown` | Full codebase map (`docs/cerebrofy/cerebrofy_map.md`) |
-| `cerebrofy://graph/entry-points` | `application/json` | Entry-point neurons (`in_degree=0`, `out_degree>0`) |
+| `cerebrofy://graph/entry-points` | `application/json` | Entry-point neurons (no non-runtime callers, with outgoing edges) |
 | `cerebrofy://health/current` | `application/json` | Latest health snapshot |
 | `cerebrofy://lobes/{name}` | `text/markdown` | Per-lobe summary (one resource per indexed lobe) |
 
@@ -460,7 +460,7 @@ In addition to tools, the server exposes URI-addressable **resources**. Clients 
 
 | Template | Type | Content |
 |----------|------|---------|
-| `cerebrofy://neurons/{neuron_id}` | `application/json` | Single neuron details (`file::name` format) |
+| `cerebrofy://neurons/{neuron_id}` | `application/json` | Single neuron details — source, signature, direct callers (`file::name` format) |
 | `cerebrofy://neurons/file/{file_path}` | `application/json` | All neurons defined in a source file |
 | `cerebrofy://neurons/search?q={query}` | `application/json` | Hybrid semantic search results |
 | `cerebrofy://memories/{neuron_id}` | `application/json` | Memories attached to a neuron |
