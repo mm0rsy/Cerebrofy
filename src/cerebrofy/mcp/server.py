@@ -1765,7 +1765,7 @@ async def run_mcp_server() -> None:
 
         # ── cerebrofy://lobes/{name} ─────────────────────────────────────────
         if uri_str.startswith("cerebrofy://lobes/"):
-            name = uri_str[len("cerebrofy://lobes/"):]
+            name = unquote(uri_str[len("cerebrofy://lobes/"):])
             if not name:
                 raise ValueError("Lobe name is required: cerebrofy://lobes/{name}")
             return [ReadResourceContents(content=read_lobe(name, root), mime_type="text/markdown")]

@@ -97,6 +97,17 @@ def test_read_lobe_raises_when_missing(tmp_path: Path) -> None:
         assert "nonexistent" in str(exc)
 
 
+def test_read_lobe_rejects_path_traversal(tmp_path: Path) -> None:
+    _make_docs(tmp_path, lobes=["auth"])
+    (tmp_path / "secret_lobe.md").write_text("SECRET", encoding="utf-8")
+
+    try:
+        read_lobe("../../secret", tmp_path)
+        assert False, "Expected FileNotFoundError"
+    except FileNotFoundError as exc:
+        assert "not found" in str(exc)
+
+
 # ---------------------------------------------------------------------------
 # list_lobe_names
 # ---------------------------------------------------------------------------

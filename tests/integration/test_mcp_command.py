@@ -270,6 +270,39 @@ def test_mcp_resources_protocol_surface(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_mcp_resources_read_roundtrip(tmp_path: Path) -> None:
+    """File-backed resource reads and their errors work over a real stdio session."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    from pydantic import AnyUrl
+
+    root = _make_resource_repo(tmp_path)
+    docs = root / "docs" / "cerebrofy"
+    docs.mkdir(parents=True)
+    (docs / "cerebrofy_map.md").write_text("# Map\n\nAll neurons.", encoding="utf-8")
+    (docs / "my lobe_lobe.md").write_text("# my lobe summary", encoding="utf-8")
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                contents = await session.read_resource(AnyUrl("cerebrofy://graph/map"))
+                assert "# Map" in contents.contents[0].text  # type: ignore[union-attr]
+
+                contents = await session.read_resource(AnyUrl("cerebrofy://lobes/my%20lobe"))
+                assert "my lobe summary" in contents.contents[0].text  # type: ignore[union-attr]
+
+                with pytest.raises(Exception, match="not found"):
+                    await session.read_resource(AnyUrl("cerebrofy://lobes/../../secret"))
+
+    asyncio.run(scenario())
+
+
 def test_mcp_resources_subscription_notification(tmp_path: Path) -> None:
     """Subscribed URIs get notifications/resources/updated after an index change."""
     pytest.importorskip("mcp")

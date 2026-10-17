@@ -45,13 +45,16 @@ def read_map(root: Path) -> str:
 
 
 def read_lobe(name: str, root: Path) -> str:
-    """Return {name}_lobe.md content, raising FileNotFoundError if not indexed."""
-    path = _docs_dir(root) / f"{name}_lobe.md"
-    if not path.exists():
+    """Return {name}_lobe.md content, raising FileNotFoundError if not indexed.
+
+    The name must match an indexed lobe, so crafted URIs such as
+    ``cerebrofy://lobes/../../secret`` cannot escape the docs directory.
+    """
+    if name not in list_lobe_names(root):
         raise FileNotFoundError(
             f"Lobe '{name}' not found. Run 'cerebrofy build' first."
         )
-    return path.read_text(encoding="utf-8")
+    return (_docs_dir(root) / f"{name}_lobe.md").read_text(encoding="utf-8")
 
 
 def list_lobe_names(root: Path) -> list[str]:
