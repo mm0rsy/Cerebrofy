@@ -35,7 +35,7 @@ embedding_model: local       # local | none
 **Required**: yes
 **Auto-detected by**: `cerebrofy init`
 
-Maps a short lobe name to a directory path (relative to repo root). Each lobe gets its own Markdown summary at `.cerebrofy/lobes/<name>_lobe.md`.
+Maps a short lobe name to a directory path (relative to repo root). Each lobe gets its own Markdown summary at `docs/cerebrofy/<name>_lobe.md`.
 
 ```yaml
 lobes:

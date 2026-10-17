@@ -1,16 +1,19 @@
 """MCP stdio server for cerebrofy.
 
-Exposes six tools:
-  search_code         — hybrid KNN + BFS semantic search (primary navigation)
-  get_neuron          — fetch a single Neuron by name or file:line
-  list_lobes          — return available lobes with summary file paths
-  cerebrofy_build     — full atomic re-index
-  cerebrofy_update    — incremental re-index of changed files
-  cerebrofy_validate  — drift check (zero writes)
+Exposes the full tool surface — semantic search, blast radius, context
+packing, memory, health, onboarding, and more — plus URI-addressable MCP
+*resources* for ambient navigation context (codebase map, entry points,
+lobes, neurons, memories, blast radius).
+
+Resources are discoverable via the ``cerebrofy_list_resources`` tool and
+support client subscriptions: when ``cerebrofy build``/``update`` modifies the
+index, the server emits ``notifications/resources/updated`` for subscribed
+URIs so clients never work with stale graph data.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 import subprocess
@@ -18,9 +21,118 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from mcp import types as mcp_types
+from mcp.server import Server
+from mcp.server.lowlevel.server import NotificationOptions
+from pydantic import AnyUrl
+
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
 from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
+
+
+# ---------------------------------------------------------------------------
+# Server subclass — advertise resource subscription support
+# ---------------------------------------------------------------------------
+
+# The base degrades to Any when mypy runs without the optional mcp extra.
+class CerebrofyMCPServer(Server):  # type: ignore[type-arg, misc]
+    """MCP server that advertises resource subscriptions once wired.
+
+    The mcp SDK (1.x) hard-codes ``subscribe=False`` in the resources
+    capability even when ``@subscribe_resource`` handlers are registered (the
+    2.x SDK derives it from registered handlers). This subclass flips the flag
+    back on when our subscribe handler is present, so well-behaved clients
+    know they can subscribe to ``notifications/resources/updated``.
+    """
+
+    def get_capabilities(
+        self,
+        notification_options: NotificationOptions,
+        experimental_capabilities: dict[str, dict[str, Any]],
+    ) -> Any:
+        caps = super().get_capabilities(notification_options, experimental_capabilities)
+        if caps.resources is not None and mcp_types.SubscribeRequest in self.request_handlers:
+            caps.resources.subscribe = True
+        return caps
+
+
+# ---------------------------------------------------------------------------
+# Resource subscription plumbing
+# ---------------------------------------------------------------------------
+
+# Fingerprint poll interval (seconds). Worst-case notification latency after
+# `cerebrofy update` is one interval; 0.5s keeps it under the <1s target from
+# idea #10 — the fingerprint itself is only three stat/glob calls.
+_INDEX_WATCH_INTERVAL_SECONDS = 0.5
+
+
+async def _notify_resource_changes(
+    session: Any,
+    subscriptions: set[str],
+    *,
+    db_changed: bool,
+    docs_changed: bool,
+) -> None:
+    """Emit change notifications for subscribed resources.
+
+    ``resources/updated`` is sent per subscribed URI whenever the index or the
+    generated docs changed; ``resources/list_changed`` is sent when lobe
+    Markdown files changed (the resource list may have gained/lost entries).
+    """
+    if db_changed or docs_changed:
+        for uri in sorted(subscriptions):
+            await session.send_resource_updated(AnyUrl(uri))
+    if docs_changed:
+        await session.send_resource_list_changed()
+
+
+async def _watch_index_changes(session: Any, subscriptions: set[str], root: Path) -> None:
+    """Poll the index fingerprint and notify the client when it changes."""
+    from cerebrofy.mcp.resources import index_fingerprint
+
+    previous = index_fingerprint(root)
+    while True:
+        await asyncio.sleep(_INDEX_WATCH_INTERVAL_SECONDS)
+        current = index_fingerprint(root)
+        if current == previous:
+            continue
+        db_changed = current[0] != previous[0] or current[1] != previous[1]
+        docs_changed = current[2] != previous[2]
+        previous = current
+        try:
+            await _notify_resource_changes(
+                session, subscriptions, db_changed=db_changed, docs_changed=docs_changed
+            )
+        except Exception:
+            return  # write failed — client connection is gone; stop quietly
+
+
+def _start_index_watcher(app: Any, subscriptions: set[str], state: dict[str, Any]) -> None:
+    """Start the background index watcher once, capturing the active session.
+
+    Called from request handlers (any request proves a session exists). Safe
+    to call repeatedly — only the first successful call starts the task.
+    """
+    if state.get("started"):
+        return
+    try:
+        session = app.request_context.session
+    except LookupError:
+        return
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError:
+        return
+    state["started"] = True
+    task = asyncio.create_task(_watch_index_changes(session, subscriptions, root))
+    state["task"] = task
+
+    def _reset(_t: Any) -> None:
+        state["started"] = False
+        state["task"] = None
+
+    task.add_done_callback(_reset)
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +330,29 @@ def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
     }, indent=2))]
 
 
+def _handle_list_resources(arguments: dict[str, Any]) -> list[Any]:
+    """Return the catalog of available MCP resources (optionally filtered)."""
+    from mcp.types import TextContent
+
+    filter_value: str = arguments.get("filter", "all") or "all"
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[NO_INDEX] {exc}")
+
+    from cerebrofy.mcp.resources import filter_resource_entries, list_resource_entries
+
+    try:
+        entries = filter_resource_entries(list_resource_entries(root), filter_value)
+    except ValueError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    return [TextContent(type="text", text=json.dumps(
+        {"resources": entries, "count": len(entries)}, indent=2
+    ))]
+
+
 def _handle_context(arguments: dict[str, Any]) -> list[Any]:
     """Budget-aware context window optimizer."""
     from mcp.types import TextContent
@@ -279,50 +414,27 @@ def _handle_blast_radius(arguments: dict[str, Any]) -> list[Any]:
 
     conn = _open_db_ro(root)
     try:
-        from cerebrofy.analysis.blast_radius import (
-            compute_blast_radius_report,
-            format_pr_comment,
-            neuron_for_target,
-        )
         from cerebrofy.db.connection import check_schema_version
+        from cerebrofy.mcp.resources import blast_radius_summary
 
         try:
             check_schema_version(conn)
         except ValueError as exc:
             return _make_error_content(f"Schema version mismatch: {exc}. Run 'cerebrofy migrate'.")
 
-        neuron = neuron_for_target(target, conn)
-        if neuron is None:
-            return _make_error_content(
-                f"[NEURON_NOT_FOUND] Neuron '{target}' not found. Run 'cerebrofy build' first."
-            )
-
-        report = compute_blast_radius_report([neuron], conn, depth=depth)
+        payload = blast_radius_summary(target, conn, depth=depth)
     finally:
         conn.close()
 
-    if fmt == "markdown":
-        return [TextContent(type="text", text=format_pr_comment(report))]
+    if payload is None:
+        return _make_error_content(
+            f"[NEURON_NOT_FOUND] Neuron '{target}' not found. Run 'cerebrofy build' first."
+        )
 
-    import json as _json
-    nbr = report.changed_neurons[0]
-    out: dict[str, Any] = {
-        "target_neuron": {"name": nbr.neuron.name, "file": nbr.neuron.file, "line": nbr.neuron.line_start},
-        "callers": [
-            {"name": n.name, "file": n.file, "line": n.line_start, "depth": 1}
-            for n in nbr.callers_depth1
-        ] + [
-            {"name": n.name, "file": n.file, "line": n.line_start, "depth": 2}
-            for n in nbr.callers_depth2
-        ],
-        "uncovered_callers": nbr.uncovered_callers,
-        "risk_score": round(nbr.risk_score, 3),
-        "risk_label": nbr.risk_label,
-        "lobe_spread": nbr.lobe_spread,
-        "runtime_boundary_callers": nbr.runtime_boundary_callers,
-        "summary": format_pr_comment(report),
-    }
-    return [TextContent(type="text", text=_json.dumps(out, indent=2))]
+    if fmt == "markdown":
+        return [TextContent(type="text", text=str(payload["summary"]))]
+
+    return [TextContent(type="text", text=json.dumps(payload, indent=2))]
 
 
 def _compute_epistemic(root: Path) -> "Any | None":
@@ -1051,11 +1163,10 @@ def _handle_vuln(arguments: dict[str, Any]) -> list[Any]:
 
 async def run_mcp_server() -> None:
     """Start the cerebrofy MCP stdio server."""
-    from mcp.server import Server
     from mcp.server.stdio import stdio_server
     from mcp.types import Tool
 
-    app = Server("cerebrofy")
+    app = CerebrofyMCPServer("cerebrofy")
 
     _EMPTY: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
 
@@ -1085,6 +1196,21 @@ async def run_mcp_server() -> None:
         },
     }
 
+    _RESOURCES_SCHEMA: dict[str, Any] = {
+        "type": "object",
+        "properties": {
+            "filter": {
+                "type": "string",
+                "description": (
+                    "Filter resource types: 'graph', 'lobes', 'neurons', 'health', "
+                    "'memories', 'blast-radius', or 'all' (default)."
+                ),
+                "default": "all",
+            },
+        },
+        "required": [],
+    }
+
     @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
     async def list_tools() -> list[Tool]:
         return [
@@ -1102,6 +1228,13 @@ async def run_mcp_server() -> None:
                 "List all indexed lobes (modules/packages) with summary file paths. "
                 "Use for high-level orientation before searching."
             ), inputSchema=_EMPTY),
+            Tool(name="cerebrofy_list_resources", description=(
+                "List every MCP resource URI this server exposes — static resources "
+                "(codebase map, entry points, health) and URI templates (neurons, files, "
+                "search, memories, blast radius). Use this to discover ambient context, "
+                "then read a URI directly via the MCP resources/read protocol method. "
+                "Supports subscribing to resources/updated notifications."
+            ), inputSchema=_RESOURCES_SCHEMA),
             Tool(name="cerebrofy_context", description=(
                 "Build the optimal context window for a coding task within a token budget. "
                 "Embeds the task, runs KNN + BFS, scores candidates by relevance, and "
@@ -1467,6 +1600,8 @@ async def run_mcp_server() -> None:
                 result = _handle_get_neuron(args)
             elif name == "list_lobes":
                 result = _handle_list_lobes(args)
+            elif name == "cerebrofy_list_resources":
+                return _handle_list_resources(args)
             elif name == "cerebrofy_build":
                 return _handle_build(args)
             elif name == "cerebrofy_update":
@@ -1520,5 +1655,208 @@ async def run_mcp_server() -> None:
             print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
             return _make_error_content(f"[error] {exc}")
 
+    # ── MCP Resources ────────────────────────────────────────────────────────
+    # Expose codebase graph data as URI-addressable ambient context so AI
+    # clients can subscribe without an explicit tool call.
+
+    _watcher_state: dict[str, Any] = {"started": False, "task": None}
+    _subscriptions: set[str] = set()
+
+    def _capture_session() -> None:
+        """Remember the active client session and start the index watcher (once)."""
+        _start_index_watcher(app, _subscriptions, _watcher_state)
+
+    @app.list_resources()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def list_resources() -> list[Any]:
+        from mcp.types import Resource
+        from cerebrofy.mcp.resources import list_resource_entries
+
+        _capture_session()
+
+        try:
+            root = _find_repo_root(Path.cwd())
+        except FileNotFoundError:
+            return []
+
+        return [
+            Resource(
+                uri=e["uri"],
+                name=e["name"],
+                description=e["description"],
+                mimeType=e["mime_type"],
+            )
+            for e in list_resource_entries(root)
+            if not e["template"]
+        ]
+
+    @app.list_resource_templates()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def list_resource_templates() -> list[Any]:
+        from mcp.types import ResourceTemplate
+        from cerebrofy.mcp.resources import list_resource_entries
+
+        try:
+            root = _find_repo_root(Path.cwd())
+        except FileNotFoundError:
+            root = Path.cwd()  # templates are index-independent; lobes will be empty
+
+        return [
+            ResourceTemplate(
+                uriTemplate=e["uri"],
+                name=e["name"],
+                description=e["description"],
+                mimeType=e["mime_type"],
+            )
+            for e in list_resource_entries(root)
+            if e["template"]
+        ]
+
+    @app.subscribe_resource()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def subscribe_resource(uri: Any) -> None:
+        _subscriptions.add(str(uri))
+        _capture_session()
+
+    @app.unsubscribe_resource()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def unsubscribe_resource(uri: Any) -> None:
+        _subscriptions.discard(str(uri))
+
+    @app.read_resource()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def read_resource(uri: Any) -> list[Any]:
+        from urllib.parse import parse_qs, unquote, urlsplit
+
+        from mcp.server.lowlevel.helper_types import ReadResourceContents
+        from cerebrofy.mcp.resources import (
+            blast_radius_summary, current_health, entry_points, file_neurons,
+            get_neuron, memories_for_neuron, neuron_callers, neuron_source,
+            read_lobe, read_map, search_resource_results,
+        )
+
+        _capture_session()
+
+        uri_str = str(uri)
+
+        try:
+            root = _find_repo_root(Path.cwd())
+        except FileNotFoundError as exc:
+            raise ValueError(f"No Cerebrofy index found: {exc}") from exc
+
+        # ── cerebrofy://graph/map ────────────────────────────────────────────
+        if uri_str == "cerebrofy://graph/map":
+            return [ReadResourceContents(content=read_map(root), mime_type="text/markdown")]
+
+        # ── cerebrofy://graph/entry-points ──────────────────────────────────
+        if uri_str == "cerebrofy://graph/entry-points":
+            conn = _open_db_ro(root)
+            try:
+                data = entry_points(conn)
+            finally:
+                conn.close()
+            return [ReadResourceContents(
+                content=json.dumps(data, indent=2), mime_type="application/json"
+            )]
+
+        # ── cerebrofy://health/current ───────────────────────────────────────
+        if uri_str == "cerebrofy://health/current":
+            conn = _open_db_ro(root)
+            try:
+                snapshot = current_health(conn)
+            finally:
+                conn.close()
+            return [ReadResourceContents(
+                content=json.dumps(snapshot or {}, indent=2),
+                mime_type="application/json",
+            )]
+
+        # ── cerebrofy://lobes/{name} ─────────────────────────────────────────
+        if uri_str.startswith("cerebrofy://lobes/"):
+            name = unquote(uri_str[len("cerebrofy://lobes/"):])
+            if not name:
+                raise ValueError("Lobe name is required: cerebrofy://lobes/{name}")
+            return [ReadResourceContents(content=read_lobe(name, root), mime_type="text/markdown")]
+
+        # ── cerebrofy://neurons/search?q={query} ─────────────────────────────
+        # Must be matched before the generic cerebrofy://neurons/{id} branch.
+        if uri_str == "cerebrofy://neurons/search" or uri_str.startswith("cerebrofy://neurons/search?"):
+            query = (parse_qs(urlsplit(uri_str).query).get("q") or [""])[0].strip()
+            if not query:
+                raise ValueError(
+                    "Query parameter 'q' is required: cerebrofy://neurons/search?q={query}"
+                )
+            try:
+                results = search_resource_results(query, root)
+            except ValueError as exc:
+                raise ValueError(f"Search unavailable: {exc}") from exc
+            return [ReadResourceContents(
+                content=json.dumps(
+                    {"query": query, "results": results, "count": len(results)}, indent=2
+                ),
+                mime_type="application/json",
+            )]
+
+        # ── cerebrofy://neurons/file/{file_path} ─────────────────────────────
+        # Must be matched before the generic cerebrofy://neurons/{id} branch.
+        if uri_str.startswith("cerebrofy://neurons/file/"):
+            file_path = unquote(uri_str[len("cerebrofy://neurons/file/"):])
+            if not file_path:
+                raise ValueError("File path is required: cerebrofy://neurons/file/{file_path}")
+            conn = _open_db_ro(root)
+            try:
+                neurons = file_neurons(file_path, conn)
+            finally:
+                conn.close()
+            return [ReadResourceContents(
+                content=json.dumps(neurons, indent=2), mime_type="application/json"
+            )]
+
+        # ── cerebrofy://neurons/{neuron_id} ──────────────────────────────────
+        if uri_str.startswith("cerebrofy://neurons/"):
+            neuron_id = unquote(uri_str[len("cerebrofy://neurons/"):])
+            if not neuron_id:
+                raise ValueError("Neuron ID is required: cerebrofy://neurons/{neuron_id}")
+            conn = _open_db_ro(root)
+            try:
+                neuron = get_neuron(neuron_id, conn)
+                callers = neuron_callers(neuron_id, conn) if neuron else []
+            finally:
+                conn.close()
+            if neuron is None:
+                raise ValueError(f"Neuron '{neuron_id}' not found in index.")
+            neuron["callers"] = callers
+            neuron["source"] = neuron_source(neuron, root)
+            return [ReadResourceContents(
+                content=json.dumps(neuron, indent=2), mime_type="application/json"
+            )]
+
+        # ── cerebrofy://memories/{neuron_id} ─────────────────────────────────
+        if uri_str.startswith("cerebrofy://memories/"):
+            neuron_id = unquote(uri_str[len("cerebrofy://memories/"):])
+            if not neuron_id:
+                raise ValueError("Neuron ID is required: cerebrofy://memories/{neuron_id}")
+            mems = memories_for_neuron(neuron_id, root)
+            return [ReadResourceContents(
+                content=json.dumps(mems, indent=2), mime_type="application/json"
+            )]
+
+        # ── cerebrofy://blast-radius/{neuron_id} ─────────────────────────────
+        if uri_str.startswith("cerebrofy://blast-radius/"):
+            target = unquote(uri_str[len("cerebrofy://blast-radius/"):])
+            if not target:
+                raise ValueError("Neuron ID is required: cerebrofy://blast-radius/{neuron_id}")
+            conn = _open_db_ro(root)
+            try:
+                payload = blast_radius_summary(target, conn)
+            finally:
+                conn.close()
+            if payload is None:
+                raise ValueError(f"Neuron '{target}' not found in index.")
+            return [ReadResourceContents(
+                content=json.dumps(payload, indent=2), mime_type="application/json"
+            )]
+
+        raise ValueError(f"Unknown resource URI: {uri_str}")
+
     async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+        await app.run(
+            read_stream,
+            write_stream,
+            app.create_initialization_options(NotificationOptions(resources_changed=True)),
+        )

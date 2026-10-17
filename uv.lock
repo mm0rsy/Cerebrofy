@@ -50,7 +50,7 @@ wheels = [
 
 [[package]]
 name = "cerebrofy"
-version = "2.9.0"
+version = "3.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -81,7 +81,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.1" },
     { name = "fastembed", specifier = ">=0.3" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.3" },
     { name = "pathspec", specifier = ">=0.12" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rich-click", specifier = ">=1.9.7" },
