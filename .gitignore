@@ -40,3 +40,5 @@ coverage.*
 docs/competitive-landscape-2026-06.md
 .mcp.json
 
+
+.opencode/*

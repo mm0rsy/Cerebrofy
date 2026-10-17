@@ -187,7 +187,6 @@ cerebrofy viz
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
 
-
 <!-- cerebrofy:start -->
 ## Codebase Navigation — Cerebrofy Index
 
