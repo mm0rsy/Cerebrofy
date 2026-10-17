@@ -75,6 +75,7 @@ architecture:
       - "#07 Refactor Impact Predictor"
       - "#08 Vulnerability Blast Radius"
       - "#09 Knowledge Silo Detector"
+      - "#10 MCP Resource Streaming"
       - "#13 Test Coverage Gap Predictor"
       - "#22 Epistemic Confidence Layer"
       - "#23 Product Intent Layer"
@@ -86,7 +87,6 @@ architecture:
 
     later:
       - "#04 Cross-Repo Dependency Graph"
-      - "#10 MCP Resource Streaming"
       - "#12 NL Refactor Planner"
       - "#14 Semantic Changelog Generator"
       - "#17 AI Review Copilot"
