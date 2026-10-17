@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import sys
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -194,5 +199,112 @@ def test_mcp_handle_build_no_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert "cerebrofy init" in result[0].text.lower()
 
 
-
 # ---------------------------------------------------------------------------
+# T080: resources protocol — list/read/subscribe over the real stdio transport
+# ---------------------------------------------------------------------------
+
+_STATIC_RESOURCES = {
+    "cerebrofy://graph/map",
+    "cerebrofy://graph/entry-points",
+    "cerebrofy://health/current",
+}
+_RESOURCE_TEMPLATES = {
+    "cerebrofy://neurons/{neuron_id}",
+    "cerebrofy://neurons/file/{file_path}",
+    "cerebrofy://neurons/search{?q}",
+    "cerebrofy://memories/{neuron_id}",
+    "cerebrofy://blast-radius/{neuron_id}",
+}
+
+
+def _make_resource_repo(tmp_path: Path) -> Path:
+    """Create a minimal indexed-layout repo (config + placeholder db)."""
+    (tmp_path / ".cerebrofy").mkdir()
+    (tmp_path / ".cerebrofy" / "config.yaml").write_text("lobes: {}\n", encoding="utf-8")
+    db_dir = tmp_path / ".cerebrofy" / "db"
+    db_dir.mkdir()
+    (db_dir / "cerebrofy.db").write_text("v1", encoding="utf-8")
+    return tmp_path
+
+
+def test_mcp_resources_protocol_surface(tmp_path: Path) -> None:
+    """Resources capability, catalog, and list tool work over a real stdio session."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_resource_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                init = await session.initialize()
+                assert init.capabilities.resources is not None
+                assert init.capabilities.resources.subscribe is True
+                assert init.capabilities.resources.listChanged is True
+
+                resources = await session.list_resources()
+                uris = {str(r.uri) for r in resources.resources}
+                assert _STATIC_RESOURCES <= uris
+
+                templates = await session.list_resource_templates()
+                assert {t.uriTemplate for t in templates.resourceTemplates} == _RESOURCE_TEMPLATES
+
+                tool = await session.call_tool("cerebrofy_list_resources", {})
+                payload = json.loads(tool.content[0].text)
+                assert payload["count"] == len(_STATIC_RESOURCES | _RESOURCE_TEMPLATES)
+                assert {r["uri"] for r in payload["resources"]} == (
+                    _STATIC_RESOURCES | _RESOURCE_TEMPLATES
+                )
+
+                tool = await session.call_tool("cerebrofy_list_resources", {"filter": "neurons"})
+                payload = json.loads(tool.content[0].text)
+                assert payload["count"] == 3
+
+                tool = await session.call_tool("cerebrofy_list_resources", {"filter": "bogus"})
+                assert "[error]" in tool.content[0].text
+
+    asyncio.run(scenario())
+
+
+def test_mcp_resources_subscription_notification(tmp_path: Path) -> None:
+    """Subscribed URIs get notifications/resources/updated after an index change."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession, types
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    from pydantic import AnyUrl
+
+    root = _make_resource_repo(tmp_path)
+    db = root / ".cerebrofy" / "db" / "cerebrofy.db"
+
+    received: list[str] = []
+
+    async def handler(message: object) -> None:
+        if isinstance(message, types.ServerNotification):
+            notification = message.root
+            if isinstance(notification, types.ResourceUpdatedNotification):
+                received.append(str(notification.params.uri))
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write, message_handler=handler) as session:
+                await session.initialize()
+                await session.subscribe_resource(AnyUrl("cerebrofy://graph/map"))
+
+                # Simulate `cerebrofy update` touching the index (mtime-only change).
+                stat = db.stat()
+                os.utime(db, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10_000_000_000))
+
+                # The watcher polls every ~2s; allow generous headroom for CI.
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline and not received:
+                    await asyncio.sleep(0.2)
+
+    asyncio.run(scenario())
+    assert received == ["cerebrofy://graph/map"]
