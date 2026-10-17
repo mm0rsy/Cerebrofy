@@ -35,7 +35,8 @@ from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
 # Server subclass — advertise resource subscription support
 # ---------------------------------------------------------------------------
 
-class CerebrofyMCPServer(Server):  # type: ignore[type-arg]
+# The base degrades to Any when mypy runs without the optional mcp extra.
+class CerebrofyMCPServer(Server):  # type: ignore[type-arg, misc]
     """MCP server that advertises resource subscriptions once wired.
 
     The mcp SDK (1.x) hard-codes ``subscribe=False`` in the resources

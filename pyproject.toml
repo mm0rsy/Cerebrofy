@@ -81,10 +81,11 @@ line-length = 100
 python_version = "3.11"
 strict = true
 
-# mcp is an optional dependency that ships no type stubs.
-# Suppress import-not-found for the whole mcp namespace.
+# mcp is an optional extra that ships no type stubs; pydantic comes only with
+# it. Suppress import-not-found for these namespaces when mypy runs without the
+# mcp extra installed (e.g. the CI lint job).
 [[tool.mypy.overrides]]
-module = ["mcp", "mcp.*", "tiktoken"]
+module = ["mcp", "mcp.*", "pydantic", "pydantic.*", "tiktoken"]
 ignore_missing_imports = true
 
 # mcp decorators (list_tools, call_tool) raise either no-untyped-call or
