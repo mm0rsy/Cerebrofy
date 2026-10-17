@@ -15,10 +15,11 @@ The semantic index lives at `.cerebrofy/db/cerebrofy.db`.
    - `search_code` — find code by meaning (semantic + graph search)
    - `get_neuron` — fetch a specific function or class by name or file:line
    - `list_lobes` — get the list of all modules with summary file paths
+   - `cerebrofy_list_resources` — discover ambient MCP resources (map, lobes, health, neurons)
 
 3. Use the pre-built summaries for orientation — no parsing needed:
-   - `.cerebrofy/cerebrofy_map.md` — full codebase map
-   - `.cerebrofy/lobes/<name>_lobe.md` — per-module summaries
+   - `docs/cerebrofy/cerebrofy_map.md` — full codebase map
+   - `docs/cerebrofy/<name>_lobe.md` — per-module summaries
 
 4. **Only open a specific source file** after cerebrofy has returned its file path and
    line number — and only to read or edit *that exact location*.
