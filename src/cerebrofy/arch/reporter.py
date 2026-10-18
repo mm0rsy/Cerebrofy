@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from cerebrofy.arch.checker import CheckResult, Violation, fix_hint
+from cerebrofy.epistemic.state import EpistemicState
 
 _DIVIDER = "─" * 64
 _MAX_ANNOTATION = 400  # GitHub annotation message cap
@@ -41,10 +42,17 @@ def render_text(result: CheckResult, *, hook_mode: bool = False) -> str:
             lines.append(f"  ⚠️  Warnings: {len(warnings)}")
         for name, error in result.config_errors:
             lines.append(f"  ⛔ Config: rule '{name}' — {error}")
+        if result.epistemic is not None:
+            lines.append(_epistemic_line(result.epistemic))
         lines.append("")
 
     for rr in result.rule_results:
         title = "🔴 RULE VIOLATION" if rr.rule.severity == "error" else "⚠️  WARNING"
+        if rr.escalated_lobes and rr.violations:
+            lines.append(
+                f"  Escalated: sprint priority lobe(s) {', '.join(rr.escalated_lobes)} "
+                "— warning rules block this sprint"
+            )
         for v in rr.violations:
             lines.append(f"  {title}: {v.rule_name}")
             lines.append(f"  {_DIVIDER}")
@@ -82,6 +90,28 @@ def _plural(count: int) -> str:
     return "" if count == 1 else "s"
 
 
+def _confidence_pct(state: EpistemicState) -> int:
+    return int(state.overall_confidence * 100)
+
+
+def _confidence_badge(state: EpistemicState) -> str:
+    if state.overall_confidence >= 0.7:
+        return "✅"
+    return "⚠️" if state.overall_confidence >= 0.5 else "🔴"
+
+
+def _confidence_detail(state: EpistemicState) -> str:
+    if state.overall_confidence >= 0.7:
+        return ""
+    return f" — {state.caveats[0]}" if state.caveats else ""
+
+
+def _epistemic_line(state: EpistemicState) -> str:
+    """Compact index-confidence line, honest about stale graphs (Idea #22)."""
+    pct = _confidence_pct(state)
+    return f"  Index confidence: {pct}% {_confidence_badge(state)}{_confidence_detail(state)}"
+
+
 # ---------------------------------------------------------------------------
 # Markdown
 # ---------------------------------------------------------------------------
@@ -101,8 +131,14 @@ def render_markdown(result: CheckResult) -> str:
         "## 🧠 Cerebrofy Architecture Check",
         "",
         f"**Result: {icon} {result.result}** — {len(result.rule_results)} rules checked · {summary}",
-        "",
     ]
+    if result.epistemic is not None:
+        pct = _confidence_pct(result.epistemic)
+        lines.append(
+            f"**Index confidence:** {pct}% {_confidence_badge(result.epistemic)}"
+            f"{_confidence_detail(result.epistemic)}"
+        )
+    lines.append("")
     for rr in result.rule_results:
         if rr.error is not None:
             lines.append(f"> ⛔ **{rr.rule.name}** skipped — {rr.error}")
@@ -112,6 +148,12 @@ def render_markdown(result: CheckResult) -> str:
         severity = "error" if rr.rule.severity == "error" else "warning"
         lines.append(f"### {glyph} {rr.rule.name} ({severity})")
         lines.append("")
+        if rr.escalated_lobes:
+            lines.append(
+                f"*Escalated: sprint priority lobe(s) {', '.join(rr.escalated_lobes)} "
+                "— warning rules block this sprint.*"
+            )
+            lines.append("")
         for v in rr.violations:
             detail = f" — {v.detail}" if v.detail else ""
             introduced = f" *(introduced in {v.introduced_in})*" if v.introduced_in else ""
@@ -147,26 +189,36 @@ def _json_dict(result: CheckResult) -> dict[str, Any]:
         elif not rr.violations:
             passing.append(rr.rule.name)
         elif rr.rule.severity == "error":
-            failing.append({"rule": rr.rule.name, "severity": "error", "violations": [
-                {
-                    "from_neuron": v.src_name,
-                    "to_neuron": v.dst_name,
-                    "file": v.file,
-                    "line": v.line,
-                }
-                for v in rr.violations
-            ]})
+            entry: dict[str, Any] = {
+                "rule": rr.rule.name,
+                "severity": "error",
+                "violations": [
+                    {
+                        "from_neuron": v.src_name,
+                        "to_neuron": v.dst_name,
+                        "file": v.file,
+                        "line": v.line,
+                    }
+                    for v in rr.violations
+                ],
+            }
+            if rr.escalated_lobes:
+                entry["escalated_lobes"] = list(rr.escalated_lobes)
+            failing.append(entry)
         else:
             for v in rr.violations:
                 message = v.location + (f" — {v.detail}" if v.detail else "")
                 warnings.append({"rule": rr.rule.name, "message": message})
-    return {
+    data: dict[str, Any] = {
         "rules_checked": len(result.rule_results),
         "passing": passing,
         "failing": failing,
         "warnings": warnings,
         "result": result.result,
     }
+    if result.epistemic is not None:
+        data["epistemic"] = result.epistemic.to_dict()
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +232,11 @@ def render_annotations(result: CheckResult) -> str:
         lines.append(_annotation("error", v))
     for v in result.warning_violations:
         lines.append(_annotation("warning", v))
+    state = result.epistemic
+    if state is not None and state.overall_confidence < 0.7:
+        detail = state.caveats[0] if state.caveats else state.recommendation
+        message = f"[cerebrofy] index confidence {_confidence_pct(state)}% — {detail}"
+        lines.append(f"::warning::{message[:_MAX_ANNOTATION]}")
     return "\n".join(lines)
 
 

@@ -23,6 +23,7 @@ from cerebrofy.arch.rules import (
     NoEdgeCheck,
     RulesConfig,
 )
+from cerebrofy.epistemic.state import EpistemicState
 
 
 # ---------------------------------------------------------------------------
@@ -580,3 +581,153 @@ def test_fix_hint_prefers_description() -> None:
 
 def test_unknown_lobe_constant() -> None:
     assert UNKNOWN_LOBE == "__unknown__"
+
+
+# ---------------------------------------------------------------------------
+# sprint-priority escalation (Idea #23)
+# ---------------------------------------------------------------------------
+
+
+def _edge_db() -> sqlite3.Connection:
+    conn = _make_conn()
+    _add_node(conn, "src/api/views.py::endpoint")
+    _add_node(conn, "src/db/writer.py::write_nodes")
+    _add_edge(conn, "src/api/views.py::endpoint", "src/db/writer.py::write_nodes")
+    return conn
+
+
+def test_priority_lobes_escalate_warning_to_error() -> None:
+    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    result = run_arch_check(
+        RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"api"})
+    )
+    assert result.result == "FAIL"
+    assert len(result.error_violations) == 1
+    assert result.warning_violations == ()
+    assert result.error_violations[0].severity == "error"
+    rr = result.rule_results[0]
+    assert rr.rule.severity == "error"  # effective severity for this run
+    assert rr.escalated_lobes == ("api",)
+
+
+def test_priority_lobes_no_escalation_outside_overlap() -> None:
+    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    result = run_arch_check(
+        RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"commands"})
+    )
+    assert result.result == "WARN"
+    assert result.rule_results[0].escalated_lobes == ()
+    assert result.rule_results[0].rule.severity == "warning"
+
+
+def test_error_rules_do_not_mark_escalation() -> None:
+    rule = _edge_rule("no-db", severity="error", **{"from_lobe": "api", "to_lobe": "db"})
+    result = run_arch_check(
+        RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"api"})
+    )
+    assert result.result == "FAIL"
+    assert result.rule_results[0].escalated_lobes == ()
+
+
+def test_rules_without_explicit_lobes_never_escalate() -> None:
+    cycle_rule = ArchRule(name="c", severity="warning", check=NoCyclesCheck(scope="lobes"))
+    result = run_arch_check(
+        RulesConfig(rules=(cycle_rule,)),
+        _cycle_graph(),
+        _LOBES,
+        priority_lobes=frozenset({"commands", "embedder", "db"}),
+    )
+    assert result.result == "WARN"
+    assert result.rule_results[0].escalated_lobes == ()
+
+    radius = ArchRule(name="r", severity="warning", check=MaxBlastRadiusCheck(limit=0))
+    result2 = run_arch_check(
+        RulesConfig(rules=(radius,)),
+        _edge_db(),
+        _LOBES,
+        priority_lobes=frozenset({"api", "db"}),
+    )
+    assert result2.result == "WARN"  # nodes have callers > 0 → violation stays a warning
+    assert result2.rule_results[0].escalated_lobes == ()
+
+
+def test_escalated_lobes_sorted_and_full_overlap() -> None:
+    from cerebrofy.arch.checker import escalated_priority_lobes
+
+    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    assert escalated_priority_lobes(rule, frozenset({"db", "api"})) == ("api", "db")
+    assert escalated_priority_lobes(rule, frozenset()) == ()
+
+
+# ---------------------------------------------------------------------------
+# epistemic enrichment (Idea #22)
+# ---------------------------------------------------------------------------
+
+
+def _epistemic_sentinel() -> EpistemicState:
+    return EpistemicState(
+        graph_age_hours=1.0,
+        neurons_changed_since_build=0,
+        unindexed_languages=(),
+        dynamic_dispatch_count=0,
+        memory_stale_count=0,
+        missing_test_paths=0,
+        overall_confidence=0.9,
+        caveats=(),
+        recommendation="Looks good.",
+    )
+
+
+def test_epistemic_attached_when_tracked_extensions_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.arch import checker
+
+    sentinel = _epistemic_sentinel()
+    monkeypatch.setattr(checker, "compute_epistemic_state", lambda *a, **k: sentinel)
+    result = run_arch_check(
+        RulesConfig(rules=()),
+        _make_conn(),
+        _LOBES,
+        repo_root=tmp_path,
+        tracked_extensions=[".py"],
+    )
+    assert result.epistemic is sentinel
+
+
+def test_epistemic_skipped_without_tracked_extensions(tmp_path: Path) -> None:
+    result = run_arch_check(
+        RulesConfig(rules=()), _make_conn(), _LOBES, repo_root=tmp_path
+    )
+    assert result.epistemic is None
+
+
+def test_epistemic_failure_is_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.arch import checker
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("git unavailable")
+
+    monkeypatch.setattr(checker, "compute_epistemic_state", boom)
+    result = run_arch_check(
+        RulesConfig(rules=()),
+        _make_conn(),
+        _LOBES,
+        repo_root=tmp_path,
+        tracked_extensions=[".py"],
+    )
+    assert result.epistemic is None  # never fails the check
+
+
+def test_lobe_references_public_helper() -> None:
+    from cerebrofy.arch.checker import lobe_references
+
+    assert lobe_references(NoEdgeCheck(from_lobe="api", to_lobe=None)) == {"api"}
+    assert lobe_references(NoEdgeCheck(from_patterns=("src/**",), to_lobe="db")) == {"db"}
+    assert lobe_references(NoCyclesCheck(scope="lobes")) == set()
+    assert lobe_references(MaxBlastRadiusCheck(limit=5)) == set()
+    assert lobe_references(
+        AllowedCallersCheck(neuron="*x/*", from_lobes=("api", "db"))
+    ) == {"api", "db"}

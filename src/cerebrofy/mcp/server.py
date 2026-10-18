@@ -1208,6 +1208,7 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
         from cerebrofy.arch.reporter import render_annotations, render_json, render_markdown
         from cerebrofy.config.loader import load_config
         from cerebrofy.db.connection import open_db_readonly
+        from cerebrofy.intent.loader import sprint_priority_lobes
 
         config = load_config(root / ".cerebrofy" / "config.yaml")
         conn = open_db_readonly(db_path)
@@ -1219,6 +1220,10 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
                 repo_root=root,
                 rule_name=None if rule_name == "all" else rule_name,
                 changed_files=changed_files,
+                # Idea #23: escalate warning rules on sprint-priority lobes.
+                # Epistemic confidence (Idea #22) is injected by _with_epistemic
+                # at dispatch time, so it is not recomputed here.
+                priority_lobes=sprint_priority_lobes(root / ".cerebrofy"),
             )
         finally:
             conn.close()

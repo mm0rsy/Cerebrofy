@@ -197,7 +197,7 @@ def test_check_json_format_carries_spec_keys(repo: Path) -> None:
     result = CliRunner().invoke(main, ["arch", "check", "--format", "json"])
     assert result.exit_code == 1
     data = json.loads(result.output)
-    assert {"rules_checked", "passing", "failing", "warnings", "result"} <= set(data)
+    assert {"rules_checked", "passing", "failing", "warnings", "result", "epistemic"} <= set(data)
     assert data["result"] == "FAIL"
     assert data["passing"] == []
     assert data["failing"][0]["rule"] == "no-intra-lobe-calls"
@@ -310,11 +310,12 @@ def test_history_lists_runs_and_json(repo: Path) -> None:
 
 
 def test_hook_flag_records_no_history(repo: Path) -> None:
-    """--hook mode never writes history and skips the human header."""
+    """--hook mode never writes history, skips the human header, and stays fast."""
     _write_rules(repo, RULES_VIOLATED)
     result = CliRunner().invoke(main, ["arch", "check", "--hook", "pre-commit"])
     assert result.exit_code == 1, result.output
     assert "🧠" not in result.output  # hook_mode: no banner
+    assert "Index confidence" not in result.output  # epistemic scan is CLI-only
     assert not (repo / ".cerebrofy" / "arch-history.jsonl").exists()
 
 
@@ -323,6 +324,87 @@ def test_hook_mode_quiet_when_clean(repo: Path) -> None:
     result = CliRunner().invoke(main, ["arch", "check", "--hook", "pre-push"])
     assert result.exit_code == 0
     assert result.output.strip() == ""
+
+
+# ---------------------------------------------------------------------------
+# arch check — index confidence (Idea #22) and sprint escalation (Idea #23)
+# ---------------------------------------------------------------------------
+
+
+RULES_WARNING = """\
+rules:
+  - name: noisy-caller
+    severity: warning
+    check:
+      no_edge:
+        from_lobe: src
+        to_lobe: src
+"""
+
+
+def _write_intent(root: Path, priority_lobes: str = "[src]") -> None:
+    (root / ".cerebrofy" / "intent.yaml").write_text(
+        "sprint:\n"
+        "  name: Sprint 1\n"
+        "  goal: ship it\n"
+        "  deadline: ''\n"
+        f"  priority_lobes: {priority_lobes}\n",
+        encoding="utf-8",
+    )
+
+
+def test_check_reports_index_confidence(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    result = CliRunner().invoke(main, ["arch", "check"])
+    assert result.exit_code == 1, result.output
+    assert "Index confidence:" in result.output
+
+
+def test_check_json_includes_epistemic_block(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    result = CliRunner().invoke(main, ["arch", "check", "--format", "json"])
+    data = json.loads(result.output)
+    assert 0.0 < data["epistemic"]["overall_confidence"] <= 1.0
+    assert "caveats" in data["epistemic"]
+
+
+def test_sprint_priority_escalates_warning_to_blocking(repo: Path) -> None:
+    _write_rules(repo, RULES_WARNING)
+    base = CliRunner().invoke(main, ["arch", "check"])
+    assert base.exit_code == 0, base.output  # warn-only: not blocking
+    assert "WARN" in base.output
+
+    _write_intent(repo, "[src]")
+    escalated = CliRunner().invoke(main, ["arch", "check"])
+    assert escalated.exit_code == 1, escalated.output
+    assert "Escalated: sprint priority lobe(s) src" in escalated.output
+    assert "RESULT: ❌ FAILED" in escalated.output
+
+
+def test_sprint_priority_unrelated_lobe_keeps_warning(repo: Path) -> None:
+    _write_rules(repo, RULES_WARNING)
+    _write_intent(repo, "[commands]")
+    result = CliRunner().invoke(main, ["arch", "check"])
+    assert result.exit_code == 0, result.output
+    assert "WARN" in result.output
+
+
+def test_sprint_priority_escalation_in_json(repo: Path) -> None:
+    _write_rules(repo, RULES_WARNING)
+    _write_intent(repo, "[src]")
+    result = CliRunner().invoke(main, ["arch", "check", "--format", "json"])
+    data = json.loads(result.output)
+    assert data["result"] == "FAIL"
+    assert data["warnings"] == []
+    assert data["failing"][0]["escalated_lobes"] == ["src"]
+
+
+def test_sprint_priority_escalation_blocks_hook(repo: Path) -> None:
+    """Escalated warnings exit non-zero in --hook mode too (commit/push blocked)."""
+    _write_rules(repo, RULES_WARNING)
+    _write_intent(repo, "[src]")
+    result = CliRunner().invoke(main, ["arch", "check", "--hook", "pre-push"])
+    assert result.exit_code == 1, result.output
 
 
 # ---------------------------------------------------------------------------

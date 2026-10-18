@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -125,6 +126,45 @@ def load_intent(config_dir: Path) -> IntentConfig | None:
         architecture=architecture,
         team_context=team_context,
     )
+
+
+def active_sprint(
+    intent: IntentConfig | None,
+    today: datetime.date | None = None,
+) -> SprintContext | None:
+    """Return the sprint context while its deadline has not passed.
+
+    A sprint with an empty or unparseable deadline counts as active (the
+    scaffold ships 'YYYY-MM-DD' placeholders); an ISO 'YYYY-MM-DD' deadline
+    goes inactive the day after it passes.
+    """
+    if intent is None or intent.sprint is None:
+        return None
+    deadline = intent.sprint.deadline.strip()
+    if not deadline:
+        return intent.sprint
+    try:
+        due = datetime.date.fromisoformat(deadline)
+    except ValueError:
+        return intent.sprint
+    return intent.sprint if (today or datetime.date.today()) <= due else None
+
+
+def sprint_priority_lobes(
+    config_dir: Path,
+    today: datetime.date | None = None,
+) -> frozenset[str]:
+    """Priority lobe names for the active sprint; empty when none.
+
+    Convenience for integrations (e.g. Idea #23 rule escalation) — never
+    raises, including on a malformed intent.yaml.
+    """
+    try:
+        intent = load_intent(config_dir)
+    except Exception:
+        return frozenset()
+    sprint = active_sprint(intent, today)
+    return frozenset(sprint.priority_lobes) if sprint else frozenset()
 
 
 def validate_intent(intent: IntentConfig, known_lobes: set[str]) -> list[str]:

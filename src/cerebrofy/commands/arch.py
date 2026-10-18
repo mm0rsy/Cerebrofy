@@ -14,6 +14,7 @@ import rich_click as click
 from cerebrofy.arch.checker import (
     CheckResult,
     changed_files_since,
+    escalated_priority_lobes,
     fix_hint,
     run_arch_check,
 )
@@ -82,14 +83,25 @@ def _load_rules(root: Path) -> RulesConfig | None:
         sys.exit(_EXIT_CONFIG)
 
 
-def _load_lobes(root: Path) -> dict[str, str]:
-    """Load config.yaml and return its lobe mapping; any failure exits 2."""
+def _load_config(root: Path) -> CerebrоfyConfig:
+    """Load config.yaml; any failure exits 2."""
     try:
-        config = load_config(root / ".cerebrofy" / "config.yaml")
+        return load_config(root / ".cerebrofy" / "config.yaml")
     except Exception as exc:
         click.echo(f"Error: .cerebrofy/config.yaml could not be loaded — {exc}", err=True)
         sys.exit(_EXIT_CONFIG)
-    return config.lobes
+
+
+def _load_lobes(root: Path) -> dict[str, str]:
+    """Load config.yaml and return its lobe mapping; any failure exits 2."""
+    return _load_config(root).lobes
+
+
+def _sprint_priority_lobes(root: Path) -> frozenset[str]:
+    """Priority lobes of the active sprint (empty when intent.yaml is absent/expired)."""
+    from cerebrofy.intent.loader import sprint_priority_lobes
+
+    return sprint_priority_lobes(root / ".cerebrofy")
 
 
 def _apply_since(root: Path, since_ref: str | None) -> frozenset[str] | None:
@@ -119,8 +131,16 @@ def _run_check(
     lobes: dict[str, str],
     rule_name: str | None,
     changed_files: frozenset[str] | None,
+    *,
+    tracked_extensions: list[str] | None = None,
+    priority_lobes: frozenset[str] = frozenset(),
 ) -> CheckResult:
-    """Open the index read-only and evaluate the rules."""
+    """Open the index read-only and evaluate the rules.
+
+    tracked_extensions enables the epistemic-confidence enrichment (Idea #22);
+    priority_lobes escalates warning rules touching sprint-priority lobes
+    (Idea #23).
+    """
     conn: sqlite3.Connection = open_db_readonly(root / ".cerebrofy" / "db" / "cerebrofy.db")
     try:
         return run_arch_check(
@@ -130,6 +150,8 @@ def _run_check(
             repo_root=root,
             rule_name=rule_name,
             changed_files=changed_files,
+            tracked_extensions=tracked_extensions,
+            priority_lobes=priority_lobes,
         )
     finally:
         conn.close()
@@ -292,10 +314,21 @@ def arch_check(
             click.echo("Warning: no index yet — run 'cerebrofy build' first. Check skipped.", err=True)
         return
 
-    lobes = _load_lobes(root)
+    config = _load_config(root)
     changed_files = _apply_since(root, since_ref)
+    # Hooks stay fast: epistemic confidence needs git/rglob scans, so only
+    # interactive/CI runs pay for it. Sprint escalation applies everywhere.
+    tracked = None if hook_name is not None else config.tracked_extensions
 
-    result = _run_check(root, rules, lobes, rule_name, changed_files)
+    result = _run_check(
+        root,
+        rules,
+        config.lobes,
+        rule_name,
+        changed_files,
+        tracked_extensions=tracked,
+        priority_lobes=_sprint_priority_lobes(root),
+    )
     text = _render(result, fmt, hook_mode=hook_name is not None)
     if text:
         click.echo(text)
@@ -330,10 +363,17 @@ def arch_explain(rule_name: str) -> None:
         )
         sys.exit(_EXIT_CONFIG)
     rule = _rule_by_name(rules, rule_name)
+    priority = _sprint_priority_lobes(root)
 
     click.echo(f"\n🧠 Rule: {rule.name}")
     blocking = "blocks commits/CI" if rule.severity == "error" else "informational only"
     click.echo(f"   Severity: {rule.severity} ({blocking})")
+    escalated = escalated_priority_lobes(rule, priority)
+    if escalated:
+        click.echo(
+            f"   Escalated: sprint priority lobe(s) {', '.join(escalated)} — "
+            "warning rules block this sprint"
+        )
     click.echo(f"   Check: {_describe_check(rule)}")
     click.echo(f"   Fix hint: {fix_hint(rule.check.__class__.__name__, rule.description)}")
     click.echo()
@@ -343,7 +383,16 @@ def arch_explain(rule_name: str) -> None:
         click.echo("No index found — run 'cerebrofy build' first to see current violations.")
         return
 
-    result = _run_check(root, rules, _load_lobes(root), rule_name, None)
+    config = _load_config(root)
+    result = _run_check(
+        root,
+        rules,
+        config.lobes,
+        rule_name,
+        None,
+        tracked_extensions=config.tracked_extensions,
+        priority_lobes=priority,
+    )
     click.echo(render_text(result))
     _exit_with_code(result)
 
@@ -586,7 +635,12 @@ def arch_watch(
     def sample() -> WatchSample:
         try:
             result = _run_check(
-                root, rules, _load_lobes(root), rule_name, _apply_since_quiet(root, since_ref)
+                root,
+                rules,
+                _load_lobes(root),
+                rule_name,
+                _apply_since_quiet(root, since_ref),
+                priority_lobes=_sprint_priority_lobes(root),
             )
             drift = sorted(
                 (v.rule_name, v.location, v.detail)

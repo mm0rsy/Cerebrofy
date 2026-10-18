@@ -13,6 +13,7 @@ from cerebrofy.arch.reporter import (
     render_text,
 )
 from cerebrofy.arch.rules import ArchRule, NoEdgeCheck
+from cerebrofy.epistemic.state import EpistemicState
 
 
 def _rule(name: str, severity: str) -> ArchRule:
@@ -278,3 +279,124 @@ def test_blast_radius_violation_uses_kind_fallback_fix() -> None:
     """max_blast_radius violations fall back to the blast_radius fix hint."""
     text = render_text(_warn_result())
     assert "Fix: Consider splitting this function into smaller components." in text
+
+
+# ---------------------------------------------------------------------------
+# index confidence (Idea #22)
+# ---------------------------------------------------------------------------
+
+
+def _epistemic(confidence: float, caveats: tuple[str, ...] = ()) -> EpistemicState:
+    return EpistemicState(
+        graph_age_hours=2.0,
+        neurons_changed_since_build=12,
+        unindexed_languages=(),
+        dynamic_dispatch_count=0,
+        memory_stale_count=0,
+        missing_test_paths=0,
+        overall_confidence=confidence,
+        caveats=caveats,
+        recommendation="Rebuild the index.",
+    )
+
+
+def test_text_shows_confidence_when_present() -> None:
+    result = _fail_result()
+    result.epistemic = _epistemic(0.92)
+    text = render_text(result)
+    assert "Index confidence: 92% ✅" in text
+
+
+def test_text_low_confidence_shows_caveat() -> None:
+    result = _fail_result()
+    result.epistemic = _epistemic(0.62, ("12 neurons changed since last build",))
+    assert "Index confidence: 62% ⚠️ — 12 neurons changed since last build" in render_text(result)
+
+
+def test_text_very_low_confidence_is_red() -> None:
+    result = _fail_result()
+    result.epistemic = _epistemic(0.55)
+    assert "Index confidence: 55% ⚠️" in render_text(result)
+    result.epistemic = _epistemic(0.45)
+    assert "Index confidence: 45% 🔴" in render_text(result)
+
+
+def test_text_hook_mode_omits_confidence() -> None:
+    result = _fail_result()
+    result.epistemic = _epistemic(0.92)
+    assert "Index confidence" not in render_text(result, hook_mode=True)
+
+
+def test_markdown_shows_confidence_line() -> None:
+    result = _fail_result()
+    result.epistemic = _epistemic(0.62, ("12 neurons changed since last build",))
+    md = render_markdown(result)
+    assert "**Index confidence:** 62% ⚠️ — 12 neurons changed since last build" in md
+
+
+def test_json_includes_epistemic_block() -> None:
+    result = _fail_result()
+    result.epistemic = _epistemic(0.62, ("stale graph",))
+    data = json.loads(render_json(result))
+    assert data["epistemic"]["overall_confidence"] == 0.62
+    assert data["epistemic"]["recommendation"] == "Rebuild the index."
+
+
+def test_json_omits_epistemic_when_skipped() -> None:
+    data = json.loads(render_json(_fail_result()))
+    assert "epistemic" not in data
+
+
+def test_annotations_warn_on_low_confidence_only() -> None:
+    low = _fail_result()
+    low.epistemic = _epistemic(0.62, ("12 neurons changed since last build",))
+    lines = render_annotations(low).splitlines()
+    assert lines[-1] == (
+        "::warning::[cerebrofy] index confidence 62% — 12 neurons changed since last build"
+    )
+
+    high = _fail_result()
+    high.epistemic = _epistemic(0.95)
+    assert "index confidence" not in render_annotations(high)
+
+
+# ---------------------------------------------------------------------------
+# sprint-priority escalation (Idea #23)
+# ---------------------------------------------------------------------------
+
+
+def _escalated_result(lobes: tuple[str, ...]) -> CheckResult:
+    # After escalation the stored rule carries the effective (error) severity.
+    rule = _rule("no-db", "error")
+    return CheckResult(
+        rule_results=[
+            RuleResult(
+                rule=rule,
+                violations=(_violation("no-db", "error"),),
+                escalated_lobes=lobes,
+            )
+        ]
+    )
+
+
+def test_text_escalation_note() -> None:
+    text = render_text(_escalated_result(("api",)))
+    assert "Escalated: sprint priority lobe(s) api — warning rules block this sprint" in text
+    assert "🔴 RULE VIOLATION: no-db" in text
+
+
+def test_markdown_escalation_note() -> None:
+    md = render_markdown(_escalated_result(("api", "db")))
+    assert (
+        "*Escalated: sprint priority lobe(s) api, db — warning rules block this sprint.*" in md
+    )
+
+
+def test_json_escalated_lobes_on_failing_entry() -> None:
+    data = json.loads(render_json(_escalated_result(("api",))))
+    assert data["failing"][0]["escalated_lobes"] == ["api"]
+
+
+def test_json_omits_escalated_lobes_when_empty() -> None:
+    data = json.loads(render_json(_fail_result()))
+    assert "escalated_lobes" not in data["failing"][0]
