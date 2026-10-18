@@ -15,7 +15,16 @@ from cerebrofy.commands.plan import cerebrofy_plan
 from cerebrofy.db.schema import create_schema
 from cerebrofy.graph.edges import LOCAL_CALL
 from cerebrofy.planning.planner import CLUSTER_TOO_LARGE, PlanError
-from cerebrofy.mcp.tools.plan import handle_plan
+
+# mcp is an optional extra — skip MCP handler tests when not installed
+try:
+    from cerebrofy.mcp.tools.plan import handle_plan
+    _HAS_MCP = True
+except ImportError:
+    handle_plan = None  # type: ignore[assignment,misc]
+    _HAS_MCP = False
+
+_mcp_skip = pytest.mark.skipif(not _HAS_MCP, reason="mcp extra not installed")
 
 _EXACT = [1.0, 0.0, 0.0, 0.0]
 _NEAR = [0.9, 0.1, 0.0, 0.0]
@@ -224,20 +233,23 @@ def test_cli_plan_error_is_rendered_with_code(
 
 
 # ---------------------------------------------------------------------------
-# MCP handler
+# MCP handler (skipped when mcp extra not installed)
 # ---------------------------------------------------------------------------
 
+@_mcp_skip
 def test_mcp_plan_requires_description() -> None:
     result = handle_plan({})
     assert "description" in result[0].text
     assert "required" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_rejects_whitespace_description() -> None:
     result = handle_plan({"description": "   "})
     assert "'description' is required" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_rejects_unknown_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -247,6 +259,7 @@ def test_mcp_plan_rejects_unknown_format(
     assert "'format' must be 'markdown' or 'json'" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_no_index_reports_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -255,6 +268,7 @@ def test_mcp_plan_no_index_reports_code(
     assert "NO_INDEX" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_missing_db_reports_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -265,6 +279,7 @@ def test_mcp_plan_missing_db_reports_code(
     assert "cerebrofy build" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_json_payload_matches_spec_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -283,6 +298,7 @@ def test_mcp_plan_json_payload_matches_spec_schema(
     assert data["proposed_structure"]["new_module"] == "payments"
 
 
+@_mcp_skip
 def test_mcp_plan_markdown_default_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -297,6 +313,7 @@ def test_mcp_plan_markdown_default_format(
     assert "## Execution Handoff" not in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_dry_run_false_adds_handoff(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -318,6 +335,7 @@ def test_mcp_plan_dry_run_false_adds_handoff(
     assert "handoff window ready" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_handler_never_writes_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -333,6 +351,7 @@ def test_mcp_plan_handler_never_writes_files(
     assert before == after
 
 
+@_mcp_skip
 def test_mcp_plan_surfaces_value_error_shape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -351,6 +370,7 @@ def test_mcp_plan_surfaces_value_error_shape(
     assert "[error] boom" in result[0].text
 
 
+@_mcp_skip
 def test_mcp_plan_is_importable_with_simple_namespace_result_shape() -> None:
     """The handler always returns TextContent-compatible items."""
     result = handle_plan({"description": ""})
