@@ -17,7 +17,8 @@ src/cerebrofy/
 │   ├── validate.py               ← cerebrofy validate: drift classification
 │   ├── arch.py                   ← cerebrofy arch: check/explain/history/init/watch
 │   ├── migrate.py                ← cerebrofy migrate: sequential schema migrations
-│   └── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
+│   ├── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
+│   └── session.py                ← cerebrofy session: list/show/diff/search/export replays
 │
 ├── parser/
 │   ├── engine.py                 ← Tree-sitter runner; dispatches to .scm queries
@@ -61,7 +62,13 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: tool + resource dispatch (23 tools)
+│   └── server.py                 ← MCPServer: tool + resource dispatch (26 tools)
+│
+├── session/                      ← (Idea #11) Live Agent Session Recorder
+│   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
+│   ├── replay.py                 ← build_session_diff() — graph delta + risk verdict
+│   ├── reporter.py               ← render_markdown() + render_html() replay renderers
+│   └── middleware.py             ← SessionMiddleware: thin recorder wired into the MCP dispatcher
 │
 ├── config/
 │   └── loader.py                 ← CerebrофyConfig dataclass + YAML I/O
@@ -324,6 +331,42 @@ returns TextContent(type="text", text=<json ranked results>)
 ```
 
 ---
+
+## Session Recorder (Idea #11)
+
+The **Live Agent Session Recorder** captures every MCP tool call of an agent session as a structured, local-only replay: which neurons were touched, in what order, what changed in the call graph, and how the blast radius (Idea #01) moved. Recording is **opt-in** (`record_sessions: true` in `.cerebrofy/config.yaml`) and **zero-impact** on tools that run without it.
+
+Storage is split from the index for the same reason `memories.db` (#05) is split from `cerebrofy.db`: the index is rebuilt atomically by `cerebrofy build` and written under `BEGIN IMMEDIATE` by `cerebrofy update`, while the audit trail must survive rebuilds and never contend with the index writer.
+
+- `session/recorder.py` — `sessions` + `session_events` tables in `.cerefy/db/sessions.db`; `start_session`, `record_event`, `end_session`, `search_sessions`. Argument/result payloads are truncated so storage stays well under 1 MB/hour.
+- `session/middleware.py` — thin `SessionMiddleware` with a module-level `record_tool_call()` hook; recording only fires when opt-in is enabled and a session is active, and never raises.
+- `session/replay.py` — `build_session_diff()` computes the graph delta (touched / missing / appeared / index-refreshed) and a blast-radius verdict.
+- `session/reporter.py` — self-contained Markdown + HTML renderers for `cerebrofy session show/export`.
+- `mcp/tools/session.py` — `cerebrofy_session_start` / `cerebrofy_session_end` / `cerebrofy_session_show` handlers.
+
+### Recording flow
+
+```mermaid
+flowchart TD
+    A[AI agent starts a coding task] --> B{record_sessions<br/>enabled in config?}
+    B -- yes --> C[cerebrofy_session_start&#40;task, agent&#41;<br/>INSERT sessions row → sess_id]
+    B -- no --> D[tools run normally<br/>no recording]
+    C --> E[MCP dispatcher wraps every tool call<br/>call_tool → SessionMiddleware.record]
+    E --> F[record_event&#40;sessions.db&#41;<br/>args/result truncated < 1KB]
+    F --> G[resolve_neuron_refs&#40;&#41; + depth-2<br/>blast-radius lookup into cerebrofy.db<br/>captured once per neuron]
+    G --> E
+    E --> H[cerebrofy_session_end&#40;outcome, summary&#41;<br/>ends session + blast_radius_after + outcome]
+    H --> I[sessions.db: closed session]
+    I --> J[cerebrofy session show/show/diff/export<br/>replay_session + build_session_diff<br/>+ render_markdown&#40;&#41; / render_html&#40;&#41;]
+    style D fill:#f6f8fa,stroke:#e1e4e8
+    style J fill:#f6f8fa,stroke:#e1e4e8
+```
+
+The `SessionMiddleware.record()` path is bounded for latency: one indexed `INSERT` per tool call plus a single depth-2 blast-radius lookup per *new* neuron referenced (capped at `MAX_TRACKED_NEURONS = 50`). The `cerebrofy_session_start/end/show` tools are deliberately excluded from recording so they never appear nested inside their own session.
+
+### Database layout
+
+`cerebrofy.db` (schema version 1, rebuilt by `cerebrofy build`) and `sessions.db` / `memories.db` are peer local databases under `.cerebrofy/db/`. Session recording reads `cerebrofy.db` in read-only mode (`?mode=ro`) for blast-radius lookups and writes only to `sessions.db`.
 
 ## Adding Language Support
 

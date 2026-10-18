@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **22 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **26 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -101,6 +101,9 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
+| `cerebrofy_session_start` | Start recording an agent session (opt-in via `record_sessions`). Returns a `session_id`. |
+| `cerebrofy_session_end` | End the active session: outcome, duration, neurons touched, events, and blast-radius before/after. |
+| `cerebrofy_session_show` | Full replay of a session (latest when omitted): timeline, neurons touched, graph diff, blast-radius verdict. |
 
 ---
 
@@ -463,6 +466,80 @@ Check for drift between source code and the index. Zero writes to any file or da
 **Input schema:** none
 
 **Output:** `[clean]`, `[minor_drift]`, or `[structural_drift]` followed by details.
+
+---
+
+### `cerebrofy_session_start`
+
+Start recording an agent session. Every MCP tool call made while the session is open is recorded locally into a replayable session. **Opt-in** — see `record_sessions` in [docs/configuration.md](configuration.md).
+
+**Input schema:**
+
+```json
+{
+  "task": "Add rate limiting to login endpoint",
+  "agent": "claude-sonnet-4-6"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `task` | string | yes | Human-readable description of the coding task |
+| `agent` | string | no | Agent identifier (e.g. `claude-sonnet-4-6`, `human:alice`) |
+
+**Output:** `{"session_id": "sess_abc123", "task": "...", "agent": "...", "started_at": 1718..., "recording": true}`. When other sessions are still open, a `warning` field lists them.
+
+**Error codes:** `[NO_INDEX]` when no `.cerebrofy` directory is found; `[RECORDING_DISABLED]` when `record_sessions` is false.
+
+---
+
+### `cerebrofy_session_end`
+
+Close the active session and fold in the outcome, blast-radius "after" metric (Idea #01), and event count.
+
+**Input schema:**
+
+```json
+{
+  "session_id": "sess_abc123",
+  "outcome": "success",
+  "summary": "Added a token-bucket rate limiter and wired it into the login route."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `session_id` | string | yes | ID returned by `cerebrofy_session_start` |
+| `outcome` | string | no | `success` · `partial` · `failed` · `unknown` (default `unknown`) |
+| `summary` | string | no | Free-text summary written to `outcome_notes` |
+
+**Output:** `{"session_id": "...", "duration_seconds": 120, "neurons_touched": 3, "events_recorded": 9, "outcome": "success", "blast_radius_before": 14, "blast_radius_after": 14}`.
+
+**Error codes:** `[SESSION_NOT_FOUND]` when the session id does not exist; `[NO_ACTIVE_SESSION]` when the session is already ended.
+
+---
+
+### `cerebrofy_session_show`
+
+Return a full replay of a session (default: the most recent). The `cerebrofy_session_show` tool and the `cerebrofy session show` / `diff` / `export` CLI commands all derive from this replay.
+
+**Input schema:**
+
+```json
+{
+  "session_id": "sess_abc123",
+  "format": "markdown"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `session_id` | string | no | Session to retrieve; omit for the most recent session |
+| `format` | string | no | `markdown` (default) · `json` |
+
+**Output (JSON):** the session record plus its events and graph diff — `session_id`, `task`, `agent`, `started_at`, `ended_at`, `outcome`, `outcome_notes`, `duration_seconds`, `neurons_touched[]`, `blast_radius_before`, `blast_radius_after`, `events[]` (`ts`, `tool`, `args`, `result_summary`), and a `diff` object (`present`, `missing`, `appeared`, `graph_refreshed`, `risk_verdict`).
+
+**Error codes:** `[SESSION_NOT_FOUND]` when no session (or the requested id) exists.
 
 ---
 

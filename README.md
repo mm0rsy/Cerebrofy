@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 23 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 26 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 23 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 26 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -555,6 +555,29 @@ Scripts live in `.cerebrofy/scripts/migrations/`. Safe to run multiple times —
 
 ---
 
+### `cerebrofy session`
+
+Record, replay, and audit AI agent sessions — closing the "what did the agent actually do?" gap. Recording is **opt-in** (`record_sessions: true` in `.cerebrofy/config.yaml`) and **local-only**: every MCP tool call is stored in `.cerebrofy/db/sessions.db`, which is separate from the index database so it survives rebuilds.
+
+```bash
+cerebrofy session list                                   # list recorded sessions
+cerebrofy session show sess_abc123                       # full replay (latest when omitted)
+cerebrofy session diff sess_abc123                       # graph changes the session made
+cerebrofy session search "rate limiting"                 # semantic search across session tasks
+cerebrofy session export sess_abc123 --format html       # shareable self-contained HTML report
+cerebrofy session export --format html --output report.html
+```
+
+A session is started and ended via the MCP tools `cerebrofy_session_start` / `cerebrofy_session_end`; every tool call in between is recorded automatically by the `SessionMiddleware` woven into the MCP dispatcher. `cerebrofy session diff` answers "what did this session do to the graph?" — which neurons it touched, which disappeared, and whether the blast radius (Idea #01) grew, shrank, or stayed flat.
+
+| Command | Purpose |
+|---|---|
+| `list` | Sessions newest-first with outcome and event count |
+| `show` | Full Markdown timeline + graph diff + risk assessment (JSON with `--format json`) |
+| `diff` | Graph delta (touched / missing / appeared / refreshed) and blast-radius verdict |
+| `search` | Semantic KNN over task text (fallback: task-text match when embeddings are unavailable) |
+| `export` | Self-contained HTML / Markdown / JSON report |
+
 ## MCP Tools
 
 When configured via `cerebrofy init`, AI assistants can call these tools directly against your index:
@@ -583,6 +606,9 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
 | `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: rank uncovered neurons by blast radius × change velocity. Uses `coverage.xml` when present, falls back to graph topology. Surfaces the functions most likely to cause production bugs if a bug is introduced. |
+| `cerebrofy_session_start` | Start recording an agent session (opt-in via `record_sessions: true`). Call before a coding task. |
+| `cerebrofy_session_end` | End the active session: records outcome, duration, neurons touched, events, and blast-radius before/after. |
+| `cerebrofy_session_show` | Return a full replay of a session (latest when omitted): timeline, neurons touched, graph diff, blast-radius verdict. |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
@@ -711,7 +737,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 23 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 26 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support
