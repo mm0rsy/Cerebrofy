@@ -8,6 +8,13 @@ from pathlib import Path
 import sqlite_vec  # type: ignore[import-untyped]
 
 
+def open_db_readonly(db_path: Path) -> sqlite3.Connection:
+    """Open the index in read-only mode (safe alongside builders and MCP servers)."""
+    if not db_path.exists():
+        raise FileNotFoundError(f"Index not found at {db_path}. Run 'cerebrofy build' first.")
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
 def open_db(db_path: Path) -> sqlite3.Connection:
     """Open cerebrofy.db, load the sqlite-vec extension, and enable WAL mode.
 
