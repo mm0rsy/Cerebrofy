@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **27 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **28 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -99,6 +99,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_silo` | Knowledge silo detector: git-blame overlay on the call graph — bus factor risk per neuron, filterable by lobe, author, or risk level |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: ranks uncovered neurons by blast radius × change velocity |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type |
+| `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -471,6 +472,7 @@ Check for drift between source code and the index. Zero writes to any file or da
 ---
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ### `cerebrofy_session_start`
 
 Start recording an agent session. Every MCP tool call made while the session is open is recorded locally into a replayable session. **Opt-in** — see `record_sessions` in [docs/configuration.md](configuration.md).
@@ -479,11 +481,17 @@ Start recording an agent session. Every MCP tool call made while the session is 
 
 Generate a step-by-step, graph-aware refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. The plan is a human-in-the-loop pre-flight checklist; it **never modifies files**. `dry_run` defaults to true — set it to false to also prepare an execution-handoff context window for the agent that will implement the plan.
 >>>>>>> 101a7bf (docs(plan): document the plan command and MCP cerebrofy_plan tool)
+=======
+### `cerebrofy_changelog`
+
+Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories, never from commit messages. Entry types: `feat`, `fix`, `refactor`, `security`, `breaking`, `perf`, `internal`, `intent_update`.
+>>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 
 **Input schema:**
 
 ```json
 {
+<<<<<<< HEAD
 <<<<<<< HEAD
   "task": "Add rate limiting to login endpoint",
   "agent": "claude-sonnet-4-6"
@@ -536,10 +544,15 @@ Return a full replay of a session (default: the most recent). The `cerebrofy_ses
 ```json
 {
   "session_id": "sess_abc123",
+=======
+  "since": "v1.2.0",
+  "audience": "developer",
+>>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
   "format": "markdown"
 }
 ```
 
+<<<<<<< HEAD
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `session_id` | string | no | Session to retrieve; omit for the most recent session |
@@ -591,6 +604,59 @@ cerebrofy_plan(description="extract the payment logic into a payments service", 
 ```
 
 >>>>>>> 101a7bf (docs(plan): document the plan command and MCP cerebrofy_plan tool)
+=======
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `since` | string | ✅ | Start point: git tag, commit hash, `last-build` (commit of the newest health snapshot), or `project-start`. |
+| `audience` | string | — | Target prose audience: `developer` (default), `pm`, or `user`. |
+| `format` | string | — | Output format for `full_text`: `markdown` (default), `github`, or `slack`. |
+
+**Output schema** (exact keys):
+
+```json
+{
+  "since": "v1.2.0",
+  "until": "a1b2c3d4e5f6...",
+  "entries": [
+    {
+      "type": "feat",
+      "title": "Added new_feature",
+      "description": "src/api/views.py::new_feature (added). Callers: 0 direct...",
+      "neurons": ["src/api/views.py::new_feature"],
+      "blast_radius": 0,
+      "audience_text": "**new_feature** (src/api/views.py): Added new_feature."
+    }
+  ],
+  "breaking_changes": [
+    {
+      "title": "BREAKING: validate_token changed",
+      "description": "src/auth/tokens.py::validate_token (signature_changed)...",
+      "neurons": ["src/auth/tokens.py::validate_token"]
+    }
+  ],
+  "health_delta": { "coupling": 0.3, "avg_blast": 2.0 },
+  "full_text": "## Changelog v1.2.0 → a1b2c3d\n..."
+}
+```
+
+**Entry types and triggers:**
+
+| Type | Trigger |
+|------|---------|
+| `feat` | New neuron with no predecessor in the index |
+| `fix` | Structural change to an existing neuron with a warning memory |
+| `refactor` | Neuron moved across lobes (same name, different file lobe) |
+| `security` | Neuron with security/CVE-tagged memories changed |
+| `breaking` | >3 cross-lobe callers, signature change on a public surface, or removal with callers |
+| `perf` | Neuron with performance-tagged memories changed |
+| `internal` | Everything else — no user-visible impact |
+| `intent_update` | `.cerebrofy/intent.yaml` changed in the range |
+
+**Error codes:** `NO_INDEX` (run `cerebrofy build` first), `REF_NOT_FOUND` (unknown git ref).
+
+Breaking changes are listed separately in `breaking_changes[]` so release notes never miss them. Use `--narrative` from the CLI to also persist every entry into the `narrative_events` table (idempotent per range — feeds the Codebase Narrative Engine, Idea #26).
+
+>>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 ---
 
 ## Available Resources

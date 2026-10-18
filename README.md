@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 27 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 28 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 27 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 28 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -581,6 +581,7 @@ Scripts live in `.cerebrofy/scripts/migrations/`. Safe to run multiple times —
 
 ---
 
+<<<<<<< HEAD
 ### `cerebrofy session`
 
 Record, replay, and audit AI agent sessions — closing the "what did the agent actually do?" gap. Recording is **opt-in** (`record_sessions: true` in `.cerebrofy/config.yaml`) and **local-only**: every MCP tool call is stored in `.cerebrofy/db/sessions.db`, which is separate from the index database so it survives rebuilds.
@@ -603,6 +604,30 @@ A session is started and ended via the MCP tools `cerebrofy_session_start` / `ce
 | `diff` | Graph delta (touched / missing / appeared / refreshed) and blast-radius verdict |
 | `search` | Semantic KNN over task text (fallback: task-text match when embeddings are unavailable) |
 | `export` | Self-contained HTML / Markdown / JSON report |
+=======
+### `cerebrofy changelog`
+
+Generate a semantic changelog from the call graph — classified from drift records, blast radius, agent memories, and product intent, never from commit messages.
+
+```bash
+cerebrofy changelog --since v1.2.0                              # developer-level markdown
+cerebrofy changelog --since last-build --audience pm         # PM-level, no code
+cerebrofy changelog --since v1.2.0 --audience user            # plain-English, user-facing
+cerebrofy changelog --since v1.2.0 --format github           # GitHub release body
+cerebrofy changelog --since v1.2.0 --format slack             # Slack announcement
+cerebrofy changelog --narrative --since project-start        # also write narrative_events rows
+```
+
+Entry types: `feat`, `fix`, `refactor`, `security`, `breaking`, `perf`, `internal`, `intent_update`.
+
+The `--since` value accepts a git tag, commit hash, `last-build` (commit of the newest health snapshot), or `project-start` (root commit). Use `--audience` to tailor prose for developers, product managers, or end users. Use `--narrative` to persist every entry into the `narrative_events` table — idempotent per range, feeding the Codebase Narrative Engine (#26).
+
+Error codes: `NO_INDEX` (no index found — run `cerebrofy build` first) and `REF_NOT_FOUND` (unknown git ref).
+
+The same capability is available as an MCP tool: `cerebrofy_changelog(since="v1.2.0", audience="pm", format="slack")`. See [docs/mcp-integration.md](docs/mcp-integration.md#cerebrofy_changelog) for the schema.
+
+---
+>>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 
 ## MCP Tools
 
@@ -637,6 +662,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_session_end` | End the active session: records outcome, duration, neurons touched, events, and blast-radius before/after. |
 | `cerebrofy_session_show` | Return a full replay of a session (latest when omitted): timeline, neurons touched, graph diff, blast-radius verdict. |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type. |
+| `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories, never from commit messages. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
@@ -764,7 +790,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 27 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 28 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support
