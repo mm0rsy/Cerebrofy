@@ -364,6 +364,42 @@ def test_init_ci_writes_workflow(repo: Path) -> None:
     assert "already exists" not in forced.output
 
 
+def test_init_ai_writes_arch_ci_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Idea #16 deviation: 'cerebrofy init --ai' auto-generates the CI workflow."""
+    monkeypatch.chdir(tmp_path)
+    _setup_git_repo(tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["init", "--ai", "claude", "--no-mcp"])
+    assert result.exit_code == 0, result.output
+    assert "Architecture CI workflow written to" in result.output
+    workflow = tmp_path / ".github" / "workflows" / "cerebrofy-arch.yml"
+    assert "cerebrofy arch check" in workflow.read_text(encoding="utf-8")
+
+    # forced re-init overwrites with the latest template
+    again = runner.invoke(main, ["init", "--ai", "claude", "--no-mcp", "--force"])
+    assert again.exit_code == 0, again.output
+    assert "Architecture CI workflow written to" in again.output
+
+
+def test_init_ai_preserves_existing_ci_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user-authored workflow file is never clobbered without --force."""
+    monkeypatch.chdir(tmp_path)
+    _setup_git_repo(tmp_path)
+    workflow = tmp_path / ".github" / "workflows" / "cerebrofy-arch.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text("# custom workflow\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["init", "--ai", "claude", "--no-mcp"])
+    assert result.exit_code == 0, result.output
+    assert "Architecture CI workflow already exists" in result.output
+    assert workflow.read_text(encoding="utf-8") == "# custom workflow\n"
+
+
 def test_arch_requires_cerebrofy_init(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Running arch commands without cerebrofy init is a config error (exit 2)."""
     monkeypatch.chdir(tmp_path)
