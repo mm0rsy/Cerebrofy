@@ -1677,7 +1677,9 @@ async def run_mcp_server() -> None:
                 "Check .cerebrofy/arch-rules.yaml architecture drift rules against the "
                 "live call graph: forbidden lobe-to-lobe edges, circular lobe dependencies, "
                 "allowed-callers isolation, and max blast radius. Use after making changes "
-                "to catch architectural drift before merge. Returns NO_INDEX / "
+                "to catch architectural drift before merge. Results include the index "
+                "confidence score and flag warning rules escalated by the active sprint's "
+                "priority lobes (treat escalated rules as failures). Returns NO_INDEX / "
                 "NO_RULES_FILE / RULE_NOT_FOUND guidance when prerequisites are missing."
             ), inputSchema={
                 "type": "object",
