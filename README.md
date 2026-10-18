@@ -581,7 +581,6 @@ Scripts live in `.cerebrofy/scripts/migrations/`. Safe to run multiple times —
 
 ---
 
-<<<<<<< HEAD
 ### `cerebrofy session`
 
 Record, replay, and audit AI agent sessions — closing the "what did the agent actually do?" gap. Recording is **opt-in** (`record_sessions: true` in `.cerebrofy/config.yaml`) and **local-only**: every MCP tool call is stored in `.cerebrofy/db/sessions.db`, which is separate from the index database so it survives rebuilds.
@@ -604,7 +603,7 @@ A session is started and ended via the MCP tools `cerebrofy_session_start` / `ce
 | `diff` | Graph delta (touched / missing / appeared / refreshed) and blast-radius verdict |
 | `search` | Semantic KNN over task text (fallback: task-text match when embeddings are unavailable) |
 | `export` | Self-contained HTML / Markdown / JSON report |
-=======
+
 ### `cerebrofy changelog`
 
 Generate a semantic changelog from the call graph — classified from drift records, blast radius, agent memories, and product intent, never from commit messages.
@@ -627,7 +626,6 @@ Error codes: `NO_INDEX` (no index found — run `cerebrofy build` first) and `RE
 The same capability is available as an MCP tool: `cerebrofy_changelog(since="v1.2.0", audience="pm", format="slack")`. See [docs/mcp-integration.md](docs/mcp-integration.md#cerebrofy_changelog) for the schema.
 
 ---
->>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 
 ## MCP Tools
 

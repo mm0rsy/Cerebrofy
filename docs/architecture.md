@@ -397,7 +397,6 @@ returns TextContent(type="text", text=<json ranked results>)
 
 ---
 
-<<<<<<< HEAD
 ## Session Recorder (Idea #11)
 
 The **Live Agent Session Recorder** captures every MCP tool call of an agent session as a structured, local-only replay: which neurons were touched, in what order, what changed in the call graph, and how the blast radius (Idea #01) moved. Recording is **opt-in** (`record_sessions: true` in `.cerebrofy/config.yaml`) and **zero-impact** on tools that run without it.
@@ -433,7 +432,7 @@ The `SessionMiddleware.record()` path is bounded for latency: one indexed `INSER
 ### Database layout
 
 `cerebrofy.db` (schema version 1, rebuilt by `cerebrofy build`) and `sessions.db` / `memories.db` are peer local databases under `.cerebrofy/db/`. Session recording reads `cerebrofy.db` in read-only mode (`?mode=ro`) for blast-radius lookups and writes only to `sessions.db`.
-=======
+
 ## Semantic Changelog (#14)
 
 The changelog pipeline classifies changes from the **semantic graph** — not commit messages — and renders them as audience-specific entries. It is exposed via the `cerebrofy changelog` CLI command and the `cerebrofy_changelog` MCP tool.
@@ -518,7 +517,6 @@ flowchart TD
 > **Template-based generation only.** The optional LLM-assisted path is not implemented (see `# TODO(llm)` markers in `generator.py`).
 
 ---
->>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 
 ## Adding Language Support
 

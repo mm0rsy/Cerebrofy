@@ -471,28 +471,20 @@ Check for drift between source code and the index. Zero writes to any file or da
 
 ---
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 ### `cerebrofy_session_start`
 
 Start recording an agent session. Every MCP tool call made while the session is open is recorded locally into a replayable session. **Opt-in** — see `record_sessions` in [docs/configuration.md](configuration.md).
-=======
 ### `cerebrofy_plan`
 
 Generate a step-by-step, graph-aware refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. The plan is a human-in-the-loop pre-flight checklist; it **never modifies files**. `dry_run` defaults to true — set it to false to also prepare an execution-handoff context window for the agent that will implement the plan.
->>>>>>> 101a7bf (docs(plan): document the plan command and MCP cerebrofy_plan tool)
-=======
 ### `cerebrofy_changelog`
 
 Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories, never from commit messages. Entry types: `feat`, `fix`, `refactor`, `security`, `breaking`, `perf`, `internal`, `intent_update`.
->>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 
 **Input schema:**
 
 ```json
 {
-<<<<<<< HEAD
-<<<<<<< HEAD
   "task": "Add rate limiting to login endpoint",
   "agent": "claude-sonnet-4-6"
 }
@@ -544,15 +536,12 @@ Return a full replay of a session (default: the most recent). The `cerebrofy_ses
 ```json
 {
   "session_id": "sess_abc123",
-=======
   "since": "v1.2.0",
   "audience": "developer",
->>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
   "format": "markdown"
 }
 ```
 
-<<<<<<< HEAD
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `session_id` | string | no | Session to retrieve; omit for the most recent session |
@@ -562,7 +551,6 @@ Return a full replay of a session (default: the most recent). The `cerebrofy_ses
 
 **Error codes:** `[SESSION_NOT_FOUND]` when no session (or the requested id) exists.
 
-=======
   "description": "extract the payment logic into a payments service",
   "format": "markdown",
   "dry_run": true
@@ -603,8 +591,6 @@ Return a full replay of a session (default: the most recent). The `cerebrofy_ses
 cerebrofy_plan(description="extract the payment logic into a payments service", dry_run=true)
 ```
 
->>>>>>> 101a7bf (docs(plan): document the plan command and MCP cerebrofy_plan tool)
-=======
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `since` | string | ✅ | Start point: git tag, commit hash, `last-build` (commit of the newest health snapshot), or `project-start`. |
@@ -656,7 +642,6 @@ cerebrofy_plan(description="extract the payment logic into a payments service", 
 
 Breaking changes are listed separately in `breaking_changes[]` so release notes never miss them. Use `--narrative` from the CLI to also persist every entry into the `narrative_events` table (idempotent per range — feeds the Codebase Narrative Engine, Idea #26).
 
->>>>>>> dc0e47e (docs(changelog): changelog command, MCP tool docs, and architecture diagrams)
 ---
 
 ## Available Resources
