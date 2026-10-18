@@ -15,6 +15,7 @@ src/cerebrofy/
 │   ├── build.py                  ← cerebrofy build: 6-step atomic pipeline
 │   ├── update.py                 ← cerebrofy update: partial atomic re-index
 │   ├── validate.py               ← cerebrofy validate: drift classification
+│   ├── arch.py                   ← cerebrofy arch: check/explain/history/init/watch
 │   ├── migrate.py                ← cerebrofy migrate: sequential schema migrations
 │   └── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
 │
@@ -46,13 +47,21 @@ src/cerebrofy/
 ├── hooks/
 │   └── installer.py              ← install_hooks(), upgrade_hook(), add_gitignore_entry()
 │
+├── arch/
+│   ├── rules.py                  ← Arch rule DSL: parse/validate .cerebrofy/arch-rules.yaml
+│   ├── checker.py                ← Rule evaluation engine: graph queries → violations
+│   ├── reporter.py               ← Reports: text / markdown / json / GitHub annotations
+│   ├── watcher.py                ← cerebrofy arch watch: live monitor + Slack notifications
+│   ├── history.py                ← arch-history.jsonl: when each rule was first violated
+│   ├── memory.py                 ← arch check --write-memories: violation → warning memory
+│   └── ci.py                     ← CI workflow template (init --ai / arch init --ci)
+│
 ├── ignore/
 │   └── ruleset.py                ← IgnoreRuleSet (pathspec, gitignore dialect)
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: 6 tools (search_code, get_neuron, list_lobes,
-│                                    cerebrofy_build, cerebrofy_update, cerebrofy_validate)
+│   └── server.py                 ← MCPServer: tool + resource dispatch (23 tools)
 │
 ├── config/
 │   └── loader.py                 ← CerebrофyConfig dataclass + YAML I/O
@@ -269,9 +278,22 @@ cerebrofy update  (completes in < 2s)
                 exit 1
             fi
             # END cerebrofy
+
+.cerebrofy/arch-rules.yaml exists  (scaffolded by init, extended by arch init)
+    └── upgrade_hook() → version 4 (validate section + blocking arch section)
+            # BEGIN cerebrofy
+            # cerebrofy-hook-version: 4
+            <validate section: warn-only or hard-block, per .cerebrofy/ gitignore state>
+            if [ -f ".cerebrofy/arch-rules.yaml" ]; then
+                if ! cerebrofy arch check --hook pre-push; then
+                    echo 'Cerebrofy: Architecture violations detected. Push blocked.' >&2
+                    exit 1
+                fi
+            fi
+            # END cerebrofy
 ```
 
-The sentinel format `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` allows `upgrade_hook()` to locate and replace exactly the Cerebrofy block without disturbing any pre-existing hook logic.
+The sentinel format `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` allows `upgrade_hook()` to locate and replace exactly the Cerebrofy block without disturbing any pre-existing hook logic. v4 is upgrade-only and always hard-blocks on architecture violations — the gitignore consent model applies to the validate section only. Removing the rules file disarms the arch segment at runtime; it never downgrades an installed hook.
 
 ---
 

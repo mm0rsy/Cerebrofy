@@ -217,16 +217,17 @@ cerebrofy init --ai opencode             # Also write rules to .opencode/instruc
 ```
 .cerebrofy/
 ├── config.yaml          ← Lobe map, tracked extensions, embed model
+├── arch-rules.yaml      ← Architecture drift rules (scaffolded sample)
 ├── db/                  ← cerebrofy.db lives here (gitignored)
 └── queries/             ← Tree-sitter .scm files per language
 .cerebrofy-ignore        ← Ignore rules (gitignore syntax)
 .gitignore               ← .cerebrofy/db/ appended automatically
-.git/hooks/pre-commit    ← Auto-runs cerebrofy update on every commit (silent, never blocks)
-.git/hooks/pre-push      ← Validates index before push; auto-updates if drift detected
+.git/hooks/pre-commit    ← Auto-runs cerebrofy update + arch check on every commit
+.git/hooks/pre-push      ← Validates index + runs the arch check before push
 .git/hooks/post-merge    ← state_hash sync check after git pull
 ```
 
-The `--ai` flag appends a fenced navigation rules block to the target instructions file. The block is idempotent — re-running replaces the existing block rather than appending a second copy.
+The `--ai` flag appends a fenced navigation rules block to the target instructions file. The block is idempotent — re-running replaces the existing block rather than appending a second copy. It also writes `.github/workflows/cerebrofy-arch.yml` so CI runs the architecture check on every pull request (an existing workflow file is kept unless `--force`).
 
 ---
 
@@ -332,6 +333,25 @@ cerebrofy health --trend coupling     # ASCII sparkline for a metric over time
 cerebrofy health --export json        # machine-readable snapshot
 cerebrofy health --watch              # live-update: re-renders after each build
 ```
+
+---
+
+### `cerebrofy arch`
+
+Enforce architecture rules as queries over the live call graph — "the API layer must never call the database directly" is checked against real call edges, not imports, so violations that regex- or import-based tools miss are caught here. Rules live in `.cerebrofy/arch-rules.yaml` (scaffolded by `cerebrofy init`; four check kinds: `no_edge`, `no_cycles`, `allowed_callers`, `max_blast_radius`).
+
+```bash
+cerebrofy arch init                                         # interactive rule builder
+cerebrofy arch check                                        # all rules; exit 1 on error-severity violations
+cerebrofy arch check --rule no-direct-db-in-api
+cerebrofy arch check --since HEAD~1 --format github-annotations
+cerebrofy arch check --write-memories                       # record violations as warning memories
+cerebrofy arch explain no-direct-db-in-api                  # rule definition + every current violation
+cerebrofy arch history                                      # when each rule was first violated
+cerebrofy arch watch --interval 2                           # live terminal monitor
+```
+
+While `.cerebrofy/arch-rules.yaml` exists, the git hooks run the check on every commit and push and the verdict is always blocking. `cerebrofy init --ai` writes `.github/workflows/cerebrofy-arch.yml` for the same gate in CI. Results include the index confidence score, warning rules that touch a sprint-priority lobe (`.cerebrofy/intent.yaml`) escalate to errors for the sprint, and violation counts trend in `cerebrofy health --trend arch_violations`.
 
 ---
 
@@ -549,6 +569,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_epistemic` | Return index confidence score and staleness warnings. |
 | `cerebrofy_health` | Longitudinal codebase health metrics from the call graph. |
 | `cerebrofy_intent` | Return sprint goals, incidents, and architectural direction. |
+| `cerebrofy_arch_check` | Check `.cerebrofy/arch-rules.yaml` architecture rules against the call graph; results carry index confidence and sprint-priority escalations. |
 | `cerebrofy_build` | Trigger a full atomic re-index from the AI client. |
 | `cerebrofy_update` | Trigger an incremental re-index. Pass `path` to target a specific file. |
 | `cerebrofy_validate` | Check for drift. Returns `clean`, `minor_drift`, or `structural_drift`. Zero writes. |
@@ -639,11 +660,13 @@ Cerebrofy installs three hooks at `cerebrofy init` time:
 
 | Hook | Trigger | Behavior |
 |------|---------|----------|
-| `pre-commit` | After every `git commit` | **Auto-runs `cerebrofy update`** silently. Never blocks commits. Index is always fresh. |
-| `pre-push` | Before `git push` | Validates the index. If drift slipped through, auto-runs `cerebrofy update`. Blocks only if update fails. |
+| `pre-commit` | After every `git commit` | **Auto-runs `cerebrofy update`** silently, then the architecture check. Index drift never blocks; **architecture violations do**. |
+| `pre-push` | Before `git push` | Validates the index (auto-runs `cerebrofy update` if drift slipped through) and runs the architecture check with a full report. Blocks if the update fails or rules are violated. |
 | `post-merge` | After `git pull` / merge | Compares remote `state_hash` against local index; warns if out of sync. |
 
 All three hooks are installed by `cerebrofy init`. **You should never need to run `cerebrofy update` manually** — the pre-commit hook does it on every commit. The pre-push hook is a safety net for cases where the pre-commit hook wasn't installed or was bypassed.
+
+The architecture gate is armed by the rules file: the check only runs while `.cerebrofy/arch-rules.yaml` exists, and when it runs its verdict is always blocking — error-severity violations, including warnings escalated by a sprint-priority lobe, refuse the commit or push. `cerebrofy update` upgrades existing hooks in place to the current version; it never downgrades them.
 
 ### Windows
 
@@ -679,6 +702,8 @@ embedding_model: local      # local | none
 | `.cerebrofy/db/cerebrofy.db` | `cerebrofy build` | Full index — graph + vectors |
 | `docs/cerebrofy/<name>_lobe.md` | `cerebrofy build` / `update` | Per-lobe Neuron + call table |
 | `docs/cerebrofy/cerebrofy_map.md` | `cerebrofy build` / `update` | Master index with `state_hash` |
+| `.cerebrofy/arch-rules.yaml` | `cerebrofy init` / `arch init` | Architecture rules — the gate is armed while this file exists |
+| `.cerebrofy/arch-history.jsonl` | `cerebrofy arch check` | Append-only check history — feeds `health --trend arch_violations` |
 
 The lobe `.md` and map files are committed to git (not gitignored). They form the human-readable index of your codebase and serve as AI context when used with MCP tools.
 
