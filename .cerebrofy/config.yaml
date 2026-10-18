@@ -15,3 +15,4 @@ tracked_extensions:
 - .cpp
 - .c
 - .h
+record_sessions: false

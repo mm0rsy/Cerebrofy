@@ -72,6 +72,7 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "lobes": lobes,
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
+        "record_sessions": False,
     }
 
 
