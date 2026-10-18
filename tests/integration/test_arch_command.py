@@ -222,7 +222,9 @@ def test_check_since_head_filters_all_violations(repo: Path) -> None:
 
 def test_check_since_touched_file_still_reports(repo: Path) -> None:
     _write_rules(repo, RULES_VIOLATED)
-    _git(["git", "commit", "--allow-empty", "-m", "anchor"], repo)
+    # --no-verify: v4 hooks always block commits while rules are violated;
+    # the anchor commit only needs to exist for `--since HEAD` diffing.
+    _git(["git", "commit", "--allow-empty", "--no-verify", "-m", "anchor"], repo)
     # actually modify the file so `git diff --name-only HEAD` reports it
     (repo / "src" / "module.py").write_text(
         "def existing(x: int) -> int:\n    return x + 1\n\n"

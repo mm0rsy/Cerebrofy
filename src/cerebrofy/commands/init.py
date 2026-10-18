@@ -167,8 +167,9 @@ def cerebrofy_init(
     click.echo("Cerebrofy: Writing .cerebrofy-ignore")
     write_cerebrofy_ignore(root)
 
-    # Architecture drift rules scaffold — the sample file activates the v3 hook
-    # blocks (guard-checked at runtime), so write it BEFORE install_hooks.
+    # Architecture drift rules scaffold — the sample file activates the
+    # arch-aware hook blocks (guard-checked at runtime), so write it BEFORE
+    # install_hooks.
     _scaffold_arch_rules(root)
 
     # FR-019: keep .cerebrofy/db/ out of git — must run before install_hooks so
@@ -179,7 +180,7 @@ def cerebrofy_init(
         hook_warnings = install_hooks(root)
         from cerebrofy.hooks.installer import _is_cerebrofy_db_gitignored
         hook_mode = "warn-only" if _is_cerebrofy_db_gitignored(root) else "hard-block"
-        click.echo(f"Cerebrofy: Installing git hooks ({hook_mode} mode)")
+        click.echo(f"Cerebrofy: Installing git hooks (validate: {hook_mode}; arch: blocking)")
         for w in hook_warnings:
             click.echo(w, err=True)
     except OSError as exc:

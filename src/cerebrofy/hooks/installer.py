@@ -18,6 +18,9 @@ HOOK_VERSION_MARKER = "# cerebrofy-hook-version:"
 
 # Version 1 = warn-only (Phase 1). Version 2 = hard-block (Phase 3 upgrade).
 # Version 3 adds the architecture drift check (v2/v1 body + arch segment).
+# Version 4 upgrades the arch segment to always block violations (spec Alert
+# Modes: pre-commit / pre-push "Blocks commit/push"); the validate section
+# keeps following the gitignore consent model.
 # Use {hook_name} placeholder — filled by create_hook_file() / append_to_hook().
 _VALIDATE_WARN_BODY = """\
 if ! cerebrofy validate --hook {hook_name} 2>/dev/null; then
@@ -64,59 +67,55 @@ _HOOK_SCRIPT_V2: str = (
 )
 
 
-def _arch_segment(hook_name: str, hard: bool) -> str:
+def _arch_segment(hook_name: str) -> str:
     """Return the shell segment invoking 'cerebrofy arch check'.
 
-    The segment is inert unless .cerebrofy/arch-rules.yaml exists, which makes
-    architecture alerts strictly opt-in (the rules file is created by
-    'cerebrofy arch init').
+    Architecture violations always block the operation (spec Alert Modes:
+    "Blocks commit/push"); only error-severity violations exit non-zero, so
+    warning rules stay informational. The segment is inert unless
+    .cerebrofy/arch-rules.yaml exists, which makes architecture alerts
+    strictly opt-in (the rules file is created by 'cerebrofy arch init').
     """
-    if hard:
-        return (
-            'if [ -f ".cerebrofy/arch-rules.yaml" ]; then\n'
-            f"    if ! cerebrofy arch check --hook {hook_name}; then\n"
-            f"        echo 'Cerebrofy: Architecture violations detected. "
-            f"{'Push' if hook_name == 'pre-push' else 'Commit'} blocked.' >&2\n"
-            "        exit 1\n"
-            "    fi\n"
-            "fi\n"
-        )
     return (
         'if [ -f ".cerebrofy/arch-rules.yaml" ]; then\n'
-        f"    cerebrofy arch check --hook {hook_name} || true\n"
+        f"    if ! cerebrofy arch check --hook {hook_name}; then\n"
+        f"        echo 'Cerebrofy: Architecture violations detected. "
+        f"{'Push' if hook_name == 'pre-push' else 'Commit'} blocked.' >&2\n"
+        "        exit 1\n"
+        "    fi\n"
         "fi\n"
     )
 
 
-def _v3_pre_push_block(hard: bool) -> str:
-    """v3 pre-push block: validate section (warn or hard) + arch drift section."""
+def _v4_pre_push_block(hard: bool) -> str:
+    """v4 pre-push block: validate section (warn or hard) + blocking arch section."""
     if hard:
         validate_part = _HOOK_SCRIPT_V2_BODY
     else:
         validate_part = _VALIDATE_WARN_BODY.format(hook_name="pre-push")
     return (
         f"{HOOK_SENTINEL_BEGIN}\n"
-        f"{HOOK_VERSION_MARKER} 3\n"
+        f"{HOOK_VERSION_MARKER} 4\n"
         f"{validate_part}"
-        f"{_arch_segment('pre-push', hard)}"
+        f"{_arch_segment('pre-push')}"
         f"{HOOK_SENTINEL_END}\n"
     )
 
 
-def _v3_pre_commit_block(hard: bool) -> str:
-    """v3 pre-commit block: silent index sync + arch drift section."""
+def _v4_pre_commit_block() -> str:
+    """v4 pre-commit block: silent index sync + blocking arch section."""
     return (
         f"{HOOK_SENTINEL_BEGIN}\n"
-        f"{HOOK_VERSION_MARKER} 3\n"
+        f"{HOOK_VERSION_MARKER} 4\n"
         "if [ -f \".cerebrofy/db/cerebrofy.db\" ]; then\n"
         "    cerebrofy update >/dev/null 2>&1 || true\n"
         "fi\n"
-        f"{_arch_segment('pre-commit', hard)}"
+        f"{_arch_segment('pre-commit')}"
         f"{HOOK_SENTINEL_END}\n"
     )
 
 
-# Hard-block validate body (v2 form), reused by the v3 pre-push builder.
+# Hard-block validate body (v2 form), reused by the v4 pre-push builder.
 _HOOK_SCRIPT_V2_BODY: str = (
     "if ! cerebrofy validate --hook pre-push; then\n"
     "    echo 'Cerebrofy: Structural drift detected. Run cerebrofy update to sync.'\n"
@@ -172,9 +171,10 @@ def _replace_hook_block(hook_content: str, new_block: str) -> str:
 def upgrade_hook(hook_path: Path, root: Path | None = None) -> str | None:
     """Upgrade a cerebrofy hook block to the newest version this repo supports.
 
-    Versions: pre-push 1 (warn) / 2 (hard-block) / 3 (+ architecture alerts);
-    pre-commit 1 (index sync) / 3 (+ architecture alerts). The arch-aware v3 is
-    chosen whenever .cerebrofy/arch-rules.yaml exists under root.
+    Versions: pre-push 1 (warn) / 2 (hard-block) / 3 (+ architecture alerts,
+    warn-or-hard) / 4 (architecture violations always block); pre-commit 1
+    (index sync) / 3 / 4. The arch-aware v4 is chosen whenever
+    .cerebrofy/arch-rules.yaml exists under root.
 
     Idempotent: a no-op (returns None) when the file is missing, is not managed
     by cerebrofy, already carries the desired version, or is post-merge (v1
@@ -193,9 +193,9 @@ def upgrade_hook(hook_path: Path, root: Path | None = None) -> str | None:
         root = hook_path.parent.parent.parent  # <repo>/.git/hooks/<name>
     if rules_file_exists(root):
         desired, block = (
-            (3, _v3_pre_push_block(_hook_hard_mode(root)))
+            (4, _v4_pre_push_block(_hook_hard_mode(root)))
             if name == "pre-push"
-            else (3, _v3_pre_commit_block(_hook_hard_mode(root)))
+            else (4, _v4_pre_commit_block())
         )
     elif name == "pre-push":
         desired, block = 2, _HOOK_SCRIPT_V2
@@ -282,7 +282,11 @@ CEREBROFY_PM_CHECK
 
 
 def _hook_hard_mode(root: Path) -> bool:
-    """Hard blocking mode when .cerebrofy/ is tracked by git (not gitignored)."""
+    """Hard mode for the validate segment when .cerebrofy/ is tracked by git.
+
+    The arch segment always blocks independently of this; only the
+    validate-drift section follows the gitignore consent model.
+    """
     return not _is_cerebrofy_db_gitignored(root)
 
 
@@ -305,13 +309,14 @@ def _is_cerebrofy_db_gitignored(root: Path) -> bool:
 def install_hooks(root: Path, config: object = None) -> list[str]:
     """Install cerebrofy pre-push and post-merge hooks. Returns any warning messages.
 
-    Chooses the hook blocking mode based on .gitignore state:
+    Chooses the validate blocking mode based on .gitignore state:
     - If .cerebrofy/ is gitignored → warn-only (v1): DB drift won't corrupt git state.
     - If .cerebrofy/ is tracked by git → hard-block (v2): stale DB in commits breaks state.
 
     When .cerebrofy/arch-rules.yaml exists (created by 'cerebrofy arch init'),
-    v3 blocks are installed instead — same validate behavior plus the
-    architecture drift check segment (warn-only or hard-block by the same rule).
+    v4 blocks are installed instead — same validate behavior plus the
+    architecture drift check segment, which always blocks error-severity
+    violations (warnings stay informational).
 
     config is accepted for forward compatibility but paths are derived from root.
     """
@@ -319,12 +324,13 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
     hooks_dir.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
 
-    # Choose blocking mode: gitignore consent model, upgraded to v3 when the
-    # arch rules file is present (architecture alerts are opt-in via arch init).
+    # Choose blocking mode: gitignore consent model for validate, upgraded to
+    # v4 when the arch rules file is present (architecture alerts are opt-in
+    # via arch init; their violations always block).
     hard = _hook_hard_mode(root)
     if rules_file_exists(root):
-        pre_push_block = _v3_pre_push_block(hard)
-        pre_commit_block = _v3_pre_commit_block(hard)
+        pre_push_block = _v4_pre_push_block(hard)
+        pre_commit_block = _v4_pre_commit_block()
     else:
         pre_push_block = (
             _HOOK_SCRIPT_V2 if hard else HOOK_SCRIPT_BLOCK.format(hook_name="pre-push")
