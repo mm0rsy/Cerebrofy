@@ -1,4 +1,8 @@
-"""Unit tests for cerebrofy.arch.rules — the arch-rules.yaml DSL loader."""
+"""Unit tests for cerebrofy.arch.rules — the arch-rules.yaml DSL loader.
+
+Parsing lives in cerebrofy.arch.rules; file loading goes through
+cerebrofy.config.loader.load_arch_rules() per the Idea #16 spec.
+"""
 
 from __future__ import annotations
 
@@ -16,11 +20,11 @@ from cerebrofy.arch.rules import (
     RulesConfig,
     RulesError,
     dump_arch_rules,
-    load_arch_rules,
     rules_file_exists,
     rules_path,
     scaffold_arch_rules,
 )
+from cerebrofy.config.loader import load_arch_rules
 
 
 def _write_rules(root: Path, text: str) -> None:

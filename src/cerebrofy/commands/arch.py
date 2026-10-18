@@ -42,12 +42,11 @@ from cerebrofy.arch.rules import (
     RulesError,
     SLACK_WEBHOOK_ENV,
     dump_arch_rules,
-    load_arch_rules,
     rules_path,
     scaffold_arch_rules,
 )
 from cerebrofy.arch.watcher import WatchSample, send_slack, watch_forever
-from cerebrofy.config.loader import load_config
+from cerebrofy.config.loader import CerebrоfyConfig, load_arch_rules, load_config
 from cerebrofy.db.connection import open_db_readonly
 
 _EXIT_VIOLATIONS = 1

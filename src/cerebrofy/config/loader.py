@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:  # pragma: no cover
+    from cerebrofy.arch.rules import RulesConfig
 
 
 @dataclass(frozen=True)
@@ -105,3 +109,39 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         for warning in validate_config(config, queries_dir):
             print(f"Warning: {warning}", file=sys.stderr)
     return config
+
+
+# ---------------------------------------------------------------------------
+# arch-rules.yaml (Idea #16) — the architecture drift rules are part of the
+# project configuration surface, so they load through this module per spec.
+# ---------------------------------------------------------------------------
+
+_MAX_ARCH_RULES_BYTES = 50 * 1024  # 50KB
+
+
+def load_arch_rules(root: Path) -> RulesConfig | None:
+    """Load .cerebrofy/arch-rules.yaml under *root*.
+
+    Returns None when the file does not exist; raises RulesError when it exists
+    but is malformed.
+    """
+    from cerebrofy.arch.rules import RulesError, parse_rules_config, rules_path
+
+    path = rules_path(root)
+    if not path.exists():
+        return None
+
+    size = path.stat().st_size
+    if size > _MAX_ARCH_RULES_BYTES:
+        import sys
+        print(
+            f"Warning: arch-rules.yaml exceeds 50KB ({size} bytes) — loading anyway.",
+            file=sys.stderr,
+        )
+
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+
+    if not isinstance(data, dict):
+        raise RulesError(f"{path}: top-level YAML mapping expected")
+    return parse_rules_config(data, path)

@@ -197,3 +197,63 @@ def test_load_config_memory_null_key_uses_defaults(tmp_path: Path) -> None:
     cfg_file.write_text("lobes:\n  src: src/\ntracked_extensions:\n  - .py\nmemory:\n")
     config = load_config(cfg_file)
     assert config.memory == MemoryConfig()  # all defaults
+
+
+# ---------------------------------------------------------------------------
+# load_arch_rules (Idea #16 — rules load through the config layer)
+# ---------------------------------------------------------------------------
+
+
+def _write_arch_rules_file(root: Path, text: str) -> None:
+    rules_dir = root / ".cerebrofy"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    (rules_dir / "arch-rules.yaml").write_text(text, encoding="utf-8")
+
+
+def test_load_arch_rules_none_when_missing(tmp_path: Path) -> None:
+    from cerebrofy.config.loader import load_arch_rules
+
+    assert load_arch_rules(tmp_path) is None
+
+
+def test_load_arch_rules_parses_file(tmp_path: Path) -> None:
+    from cerebrofy.config.loader import load_arch_rules
+
+    _write_arch_rules_file(
+        tmp_path, "rules:\n  - name: r\n    check:\n      no_cycles: lobes\n"
+    )
+    cfg = load_arch_rules(tmp_path)
+    assert cfg is not None
+    assert cfg.rule_names == ("r",)
+
+
+def test_load_arch_rules_raises_on_invalid_rule(tmp_path: Path) -> None:
+    from cerebrofy.arch.rules import RulesError
+    from cerebrofy.config.loader import load_arch_rules
+
+    _write_arch_rules_file(tmp_path, "rules: not-a-list\n")
+    with pytest.raises(RulesError, match="'rules' must be a list"):
+        load_arch_rules(tmp_path)
+
+
+def test_load_arch_rules_raises_on_non_mapping_top_level(tmp_path: Path) -> None:
+    from cerebrofy.arch.rules import RulesError
+    from cerebrofy.config.loader import load_arch_rules
+
+    _write_arch_rules_file(tmp_path, "- just\n- a list\n")
+    with pytest.raises(RulesError, match="top-level YAML mapping"):
+        load_arch_rules(tmp_path)
+
+
+def test_load_arch_rules_warns_when_oversized(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from cerebrofy.config.loader import load_arch_rules
+
+    padding = "# " + "x" * 100 + "\n"
+    _write_arch_rules_file(
+        tmp_path, padding * 600 + "rules:\n  - name: r\n    check:\n      no_cycles: lobes\n"
+    )
+    cfg = load_arch_rules(tmp_path)
+    assert cfg is not None
+    assert "exceeds 50KB" in capsys.readouterr().err

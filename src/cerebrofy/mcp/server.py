@@ -1170,7 +1170,8 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
-    from cerebrofy.arch.rules import RulesError, load_arch_rules
+    from cerebrofy.arch.rules import RulesError
+    from cerebrofy.config.loader import load_arch_rules
 
     try:
         rules = load_arch_rules(root)
