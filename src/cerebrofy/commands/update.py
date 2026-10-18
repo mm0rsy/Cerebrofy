@@ -13,6 +13,7 @@ import rich_click as click
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
+from cerebrofy.hooks.installer import upgrade_hook
 from cerebrofy.db.writer import (
     build_neuron_text,
     compute_state_hash,
@@ -60,6 +61,26 @@ def _record_health_snapshot_update(
         click.echo("Cerebrofy: Health snapshot recorded.")
     except Exception as exc:
         click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
+
+
+def _upgrade_git_hooks(root: Path) -> None:
+    """Best-effort hook block upgrade after a successful update (non-fatal).
+
+    Keeps installed cerebrofy hook blocks at the newest version supported by
+    the current repo state — notably the v3 blocks that add the architecture
+    drift check once .cerebrofy/arch-rules.yaml exists.
+    """
+    hooks_dir = root / ".git" / "hooks"
+    for name in ("pre-commit", "pre-push"):
+        hook_path = hooks_dir / name
+        if not hook_path.exists():
+            continue
+        try:
+            message = upgrade_hook(hook_path, root=root)
+        except Exception as exc:  # defensive: hook upkeep must never fail an update
+            message = f"Warning: hook upgrade failed for {hook_path.name}: {exc}"
+        if message:
+            click.echo(message)
 
 
 def _recompute_memory_decay_update(
@@ -337,6 +358,10 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         _record_health_snapshot_update(conn, config.lobes, str(root))
         _recompute_memory_decay_update(root, config, scope.affected_node_ids)
         conn.close()
+
+        # Step 10: Keep installed hook blocks current (e.g. upgrade to v3 with
+        # the architecture drift check after 'cerebrofy arch init').
+        _upgrade_git_hooks(root)
 
         elapsed = time.monotonic() - start
 

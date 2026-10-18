@@ -93,6 +93,20 @@ def write_cerebrofy_ignore(root: Path) -> None:
         target.write_text(DEFAULT_IGNORE_CONTENT, encoding="utf-8")
 
 
+def _scaffold_arch_rules(root: Path) -> None:
+    """Write .cerebrofy/arch-rules.yaml with commented examples (no-op if present)."""
+    from cerebrofy.arch.rules import scaffold_arch_rules
+
+    path = root / ".cerebrofy" / "arch-rules.yaml"
+    if path.exists():
+        return
+    scaffold_arch_rules(path)
+    click.echo(
+        "Cerebrofy: Wrote .cerebrofy/arch-rules.yaml (commented rule examples — "
+        "activate via 'cerebrofy arch init')."
+    )
+
+
 @click.command("init")
 @click.option("--here", is_flag=True, default=False,
               help="Initialize in the current working directory (explicit alias for default behaviour).")
@@ -152,6 +166,10 @@ def cerebrofy_init(
 
     click.echo("Cerebrofy: Writing .cerebrofy-ignore")
     write_cerebrofy_ignore(root)
+
+    # Architecture drift rules scaffold — the sample file activates the v3 hook
+    # blocks (guard-checked at runtime), so write it BEFORE install_hooks.
+    _scaffold_arch_rules(root)
 
     # FR-019: keep .cerebrofy/db/ out of git — must run before install_hooks so
     # _is_cerebrofy_db_gitignored() sees the entry and selects the correct hook mode.
