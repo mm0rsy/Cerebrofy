@@ -29,6 +29,9 @@ from pydantic import AnyUrl
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
 from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
+from cerebrofy.mcp.tools.session import handle_session_end as _handle_session_end
+from cerebrofy.mcp.tools.session import handle_session_show as _handle_session_show
+from cerebrofy.mcp.tools.session import handle_session_start as _handle_session_start
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +180,22 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
             f"Index not found at {db_path}. Run 'cerebrofy build' first."
         )
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+
+def _record_session_event(
+    name: str, arguments: dict[str, Any], result: list[Any]
+) -> None:
+    """Lend the dispatched tool call to the session recorder (Idea #11).
+
+    Thin by design: all logic lives in ``cerebrofy.session.middleware`` and is a
+    no-op unless opt-in recording is enabled and a session is active. Never raises.
+    """
+    try:
+        from cerebrofy.session.middleware import record_tool_call
+
+        record_tool_call(Path.cwd(), tool=name, arguments=arguments, result=result)
+    except Exception:
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -1704,10 +1723,70 @@ async def run_mcp_server() -> None:
                     },
                 },
             }),
+            Tool(name="cerebrofy_session_start", description=(
+                "Start recording an agent session. Call this BEFORE a coding task, then "
+                "cerebrofy_session_end when done. Every MCP tool call in between is "
+                "recorded locally into a replayable session (opt-in: record_sessions: true)."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "Human-readable description of the coding task being started.",
+                    },
+                    "agent": {
+                        "type": "string",
+                        "description": "Agent identifier (e.g. 'claude-sonnet-4-6', 'human:alice').",
+                    },
+                },
+                "required": ["task"],
+            }),
+            Tool(name="cerebrofy_session_end", description=(
+                "End the current agent session: records the outcome and returns the "
+                "session's duration, neurons touched, events recorded, and blast-radius "
+                "before/after (Idea #01)."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID returned by cerebrofy_session_start.",
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": ["success", "partial", "failed", "unknown"],
+                        "description": "Session outcome (default: unknown).",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Optional human-readable summary of what was accomplished.",
+                    },
+                },
+                "required": ["session_id"],
+            }),
+            Tool(name="cerebrofy_session_show", description=(
+                "Return a recorded session as a full replay — timeline of tool calls, "
+                "neurons touched, graph diff, and blast-radius risk verdict. Omit "
+                "session_id for the most recent session. Use before reviewing "
+                "AI-authored changes to see what the agent actually did."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "Session ID to retrieve; omit for the most recent session.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "json"],
+                        "default": "markdown",
+                        "description": "Output format (default: markdown).",
+                    },
+                },
+            }),
         ]
 
-    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
-    async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
+    async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         args = arguments or {}
         # Subprocess tools don't benefit from epistemic injection
         _subprocess_tools = {"cerebrofy_build", "cerebrofy_update", "cerebrofy_validate"}
@@ -1761,6 +1840,12 @@ async def run_mcp_server() -> None:
                 result = _handle_vuln(args)
             elif name == "cerebrofy_arch_check":
                 result = _handle_arch_check(args)
+            elif name == "cerebrofy_session_start":
+                return _handle_session_start(args)
+            elif name == "cerebrofy_session_end":
+                return _handle_session_end(args)
+            elif name == "cerebrofy_session_show":
+                return _handle_session_show(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
@@ -1787,6 +1872,13 @@ async def run_mcp_server() -> None:
         except Exception as exc:
             print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
             return _make_error_content(f"[error] {exc}")
+
+    @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
+        """Dispatch the tool call, then offer it to the session recorder (#11)."""
+        result = await _dispatch_tool(name, arguments)
+        _record_session_event(name, arguments or {}, result)
+        return result
 
     # ── MCP Resources ────────────────────────────────────────────────────────
     # Expose codebase graph data as URI-addressable ambient context so AI
@@ -1988,6 +2080,8 @@ async def run_mcp_server() -> None:
         raise ValueError(f"Unknown resource URI: {uri_str}")
 
     async with stdio_server() as (read_stream, write_stream):
+        # TODO(integration-20): add an SSE transport option here (cloud sessions,
+        # opt-in sync); recording itself stays local-only until then.
         await app.run(
             read_stream,
             write_stream,
