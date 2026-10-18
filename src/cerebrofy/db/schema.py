@@ -112,6 +112,48 @@ def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
         conn.execute(vec_neurons_ddl)
 
 
+def create_session_schema(conn: sqlite3.Connection) -> None:
+    """Create sessions, session_events, and vec_sessions tables (idempotent).
+
+    Applied to sessions.db on every open (fresh-create and upgrade paths are
+    the same code path, mirroring create_memory_schema for memories.db).
+
+    TODO(integration-25): sessions.id will be foreign-key-referenced by the
+    active agent registry (multi-agent coordination) once that lands.
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id                   TEXT PRIMARY KEY,
+            started_at           INTEGER NOT NULL,
+            ended_at             INTEGER,
+            agent                TEXT,
+            task                 TEXT NOT NULL,
+            outcome              TEXT NOT NULL DEFAULT 'unknown',
+            outcome_notes        TEXT,
+            neurons_touched      TEXT,
+            blast_radius_before  INTEGER,
+            blast_radius_after   INTEGER,
+            event_count          INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_sessions_ended   ON sessions(ended_at);
+        CREATE TABLE IF NOT EXISTS session_events (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id     TEXT NOT NULL REFERENCES sessions(id),
+            ts             INTEGER NOT NULL,
+            tool           TEXT NOT NULL,
+            args           TEXT,
+            result_summary TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id, id);
+    """)
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS vec_sessions "
+        "USING vec0(rowid integer primary key, embedding float[384])"
+    )
+    conn.commit()
+
+
 def create_memory_schema(conn: sqlite3.Connection) -> None:
     """Create memories, vec_memories, and memory_edges tables (idempotent)."""
     conn.executescript("""

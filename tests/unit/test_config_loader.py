@@ -28,6 +28,7 @@ def test_build_default_config_returns_dict() -> None:
     assert result["lobes"] == {"src": "src/"}
     assert result["tracked_extensions"] == DEFAULT_TRACKED_EXTENSIONS
     assert result["embedding_model"] == "local"
+    assert result["record_sessions"] is False
     assert "top_k" not in result
     assert "system_prompt_template" not in result
 

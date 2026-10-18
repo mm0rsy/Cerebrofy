@@ -29,6 +29,7 @@ class CerebrоfyConfig:
     tracked_extensions: list[str]
     embedding_model: str = "local"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    record_sessions: bool = False
 
 
 DEFAULT_TRACKED_EXTENSIONS: list[str] = [
@@ -71,6 +72,7 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "lobes": lobes,
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
+        "record_sessions": False,
     }
 
 
@@ -104,6 +106,7 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         tracked_extensions=data["tracked_extensions"],
         embedding_model=data.get("embedding_model", "local"),
         memory=memory_cfg,
+        record_sessions=bool(data.get("record_sessions", False)),
     )
     if queries_dir is not None:
         for warning in validate_config(config, queries_dir):

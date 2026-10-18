@@ -499,3 +499,162 @@ def test_mcp_resources_subscription_notification(tmp_path: Path) -> None:
 
     asyncio.run(scenario())
     assert received == ["cerebrofy://graph/map"]
+
+
+# ---------------------------------------------------------------------------
+# T078g: session recorder (Idea #11) — start/end/show + error codes
+# ---------------------------------------------------------------------------
+
+
+def _make_recording_repo(tmp_path: Path) -> Path:
+    """Create a minimal repo with record_sessions: true."""
+    config_dir = tmp_path / ".cerebrofy"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "config.yaml").write_text(
+        "lobes:\n  root: .\n"
+        "tracked_extensions: [.py]\n"
+        "embedding_model: local\n"
+        "record_sessions: true\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_mcp_session_start_end_show_cycle(tmp_path: Path) -> None:
+    """Full session lifecycle over a single stdio session: start → end → show."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_recording_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # 1. Start a session
+                start = await session.call_tool(
+                    "cerebrofy_session_start", {"task": "Fix bug in parser"}
+                )
+                start_data = json.loads(start.content[0].text)
+                assert start_data["task"] == "Fix bug in parser"
+                assert start_data["recording"] is True
+                session_id = start_data["session_id"]
+
+                # 2. End the session
+                end = await session.call_tool(
+                    "cerebrofy_session_end",
+                    {"session_id": session_id, "outcome": "success", "summary": "Fixed it"},
+                )
+                end_data = json.loads(end.content[0].text)
+                assert end_data["session_id"] == session_id
+                assert end_data["outcome"] == "success"
+                assert end_data["events_recorded"] == 0
+
+                # 3. Show the session (JSON format)
+                show = await session.call_tool(
+                    "cerebrofy_session_show",
+                    {"session_id": session_id, "format": "json"},
+                )
+                show_data = json.loads(show.content[0].text)
+                assert show_data["session_id"] == session_id
+                assert show_data["task"] == "Fix bug in parser"
+                assert show_data["outcome"] == "success"
+                assert show_data["outcome_notes"] == "Fixed it"
+                assert show_data["ended_at"] is not None
+
+    asyncio.run(scenario())
+
+
+def test_mcp_session_start_recording_disabled(tmp_path: Path) -> None:
+    """cerebrofy_session_start returns RECORDING_DISABLED when flag is false."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    # config without record_sessions → defaults to false
+    _make_config(tmp_path)
+    root = tmp_path
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "cerebrofy_session_start", {"task": "should be blocked"}
+                )
+                text = result.content[0].text
+                assert "RECORDING_DISABLED" in text
+
+    asyncio.run(scenario())
+
+
+def test_mcp_session_end_not_found(tmp_path: Path) -> None:
+    """cerebrofy_session_end returns SESSION_NOT_FOUND for an unknown session id."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_recording_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "cerebrofy_session_end",
+                    {"session_id": "sess_does_not_exist", "outcome": "success"},
+                )
+                text = result.content[0].text
+                assert "SESSION_NOT_FOUND" in text
+
+    asyncio.run(scenario())
+
+
+def test_mcp_session_end_already_ended(tmp_path: Path) -> None:
+    """cerebrofy_session_end returns NO_ACTIVE_SESSION when session is already closed."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_recording_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+
+                # Start a session
+                start = await session.call_tool("cerebrofy_session_start", {"task": "T"})
+                session_id = json.loads(start.content[0].text)["session_id"]
+
+                # End it once — should succeed
+                end = await session.call_tool(
+                    "cerebrofy_session_end",
+                    {"session_id": session_id, "outcome": "success"},
+                )
+                end_data = json.loads(end.content[0].text)
+                assert end_data["session_id"] == session_id
+
+                # End it again — should report NO_ACTIVE_SESSION
+                result = await session.call_tool(
+                    "cerebrofy_session_end",
+                    {"session_id": session_id, "outcome": "success"},
+                )
+                text = result.content[0].text
+                assert "NO_ACTIVE_SESSION" in text
+
+    asyncio.run(scenario())
