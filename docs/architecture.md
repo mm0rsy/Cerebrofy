@@ -63,7 +63,7 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: tool + resource dispatch (27 tools)
+│   └── server.py                 ← MCPServer: tool + resource dispatch (28 tools)
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
@@ -75,7 +75,11 @@ src/cerebrofy/
     ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
     ├── formatter.py              ← Markdown + JSON plan output
     └── planner.py                ← pipeline orchestration + feature integrations
-│
+├── changelog/                    ← Semantic Changelog Generator (Idea #14)
+    ├── classifier.py             ← drift records + blast radius + memories → entry types
+    ├── generator.py              ← audience-specific text (developer/pm/user)
+    ├── formatter.py              ← markdown | github | slack output
+    └── __init__.py               ← public API surface
 ├── config/
 │   └── loader.py                 ← CerebrофyConfig dataclass + YAML I/O
 │
@@ -93,8 +97,14 @@ src/cerebrofy/
 │   ├── installer.py              ← install_skills() + install_instructions()
 │   └── templates/                ← Bundled SKILL.md + slash-command templates per AI client
 │
-└── validate/
-    └── drift_classifier.py       ← DriftRecord: hash scan → re-parse → Neuron diff
+├── validate/
+│   └── drift_classifier.py       ← DriftRecord: hash scan → re-parse → Neuron diff
+│
+└── changelog/
+    ├── classifier.py               ← Changes → semantic entry types (breaking-first)
+    ├── generator.py                ← Classified changes → ChangelogReport + narrative events
+    ├── formatter.py                ← Markdown / GitHub / Slack output formatters
+    └── __init__.py                 ← Public API: collect_changes, generate_changelog, etc.
 ```
 
 ---
@@ -422,6 +432,91 @@ The `SessionMiddleware.record()` path is bounded for latency: one indexed `INSER
 ### Database layout
 
 `cerebrofy.db` (schema version 1, rebuilt by `cerebrofy build`) and `sessions.db` / `memories.db` are peer local databases under `.cerebrofy/db/`. Session recording reads `cerebrofy.db` in read-only mode (`?mode=ro`) for blast-radius lookups and writes only to `sessions.db`.
+
+## Semantic Changelog (#14)
+
+The changelog pipeline classifies changes from the **semantic graph** — not commit messages — and renders them as audience-specific entries. It is exposed via the `cerebrofy changelog` CLI command and the `cerebrofy_changelog` MCP tool.
+
+### Flow
+
+```
+cerebrofy changelog --since <ref> --audience <dev|pm|user> --format <md|gh|slack>
+    │
+    ▼
+resolve_range()              ← git tag/hash ↔ commit hash (or last-build, project-start)
+    │                          raises ChangelogError(REF_NOT_FOUND) if the ref is missing
+    ▼
+detect_changes_between_refs() ← git diff --name-status since_ref..until_ref
+    │
+    ├── DriftRecord per file from classify_drift(drift_classifier.py)
+    │       reads: nodes.name, nodes.signature, nodes.type, file_hashes
+    │       returns: neuron-level change kind (added/removed/signature_changed)
+    │
+    ▼
+collect_changes()            ← NeuronChange list (file, name, lobe, kind)
+    │
+    ▼
+classify_changes()           ← breaking-first precedence:
+│                                 added → breaking → security → perf → fix → internal
+│                               refactor for cross-lobe moves
+│                               is_breaking_change(): removed w/ callers, sig change on
+│                               public surface, >BREAKING_CROSS_LOBE_CALLERS cross-lobe
+│
+▼
+build_entries()              ← ordered ChangelogEntry list per audience
+    │                          (pm/user: internal & intent_update text suppressed)
+    ▼
+format_changelog()           ← markdown | github | slack
+    │
+    ▼
+ChangelogReport.to_dict()    ← exact spec schema:
+                              {since, until, entries[], breaking_changes[],
+                               health_delta, full_text}
+```
+
+### Classification matrix
+
+| Entry type | Trigger |
+|---|---|
+| `feat` | New neuron (no predecessor in index) |
+| `fix` | Existing neuron modified + warning memory |
+| `refactor` | Same name removed from one lobe, added in another |
+| `security` | Security/CVE-tagged memories on a changed neuron |
+| `breaking` | Removal with callers · signature change on public surface · >3 cross-lobe callers |
+| `perf` | Performance-tagged memories on a changed neuron |
+| `internal` | No other signal matched |
+| `intent_update` | `.cerebrofy/intent.yaml` changed in range (#23) |
+
+### Narrative events (#26 feed)
+
+With `--narrative`, each entry is written to the `narrative_events` table (migration `006_narrative_events.sql`, managed by `ensure_narrative_schema()`). Event IDs are deterministic per `(commit_ref, type, title)`, so re-running the same range replaces rows instead of duplicating them. The Narrative Engine (#26) reads this table to synthesise eras and stories — this lane only writes.
+
+```mermaid
+flowchart TD
+    A[CLI / MCP Tool] --> B[resolve_range]
+    B --> C[detect_changes_between_refs]
+    C --> D{classify_drift}
+    D --> E[collect_changes: NeuronChange list]
+    E --> F[classify_changes: ClassifiedChange list]
+    F --> G[build_entries: ChangelogEntry list]
+    G --> H[format_changelog: markdown/github/slack]
+    H --> I[ChangelogReport]
+    F --> J{is breaking?}
+    J -->|yes| K[breaking_changes[]]
+    J -->|no| L[regular entries]
+    K --> I
+    L --> I
+    I --> M{narrative?}
+    M -->|yes| N[write_narrative_events]
+    N --> O[narrative_events table]
+    M -->|no| P[emit full_text]
+    I -.-> Q[health_snapshots delta]
+    I -.-> R[memories by neuron]
+```
+
+> **Template-based generation only.** The optional LLM-assisted path is not implemented (see `# TODO(llm)` markers in `generator.py`).
+
+---
 
 ## Adding Language Support
 

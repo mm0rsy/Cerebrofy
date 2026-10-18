@@ -26,6 +26,7 @@ from mcp.server import Server
 from mcp.server.lowlevel.server import NotificationOptions
 from pydantic import AnyUrl
 
+from cerebrofy.mcp.tools.changelog import handle_changelog as _handle_changelog
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
 from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
@@ -1813,6 +1814,40 @@ async def run_mcp_server() -> None:
                 },
                 "required": ["description"],
             }),
+            Tool(name="cerebrofy_changelog", description=(
+                "Generate a semantic changelog for a git range — classified from the "
+                "call graph, drift records, and memories, never from commit messages. "
+                "Entry types: feat, fix, refactor, security, breaking, perf, internal. "
+                "Audiences: developer (default), pm, user. Formats: markdown (default), "
+                "github, slack. 'since' accepts a tag, commit hash, 'last-build', or "
+                "'project-start'. Returns structured entries, breaking_changes, "
+                "health_delta, and the formatted full_text. "
+                "Error codes: NO_INDEX, REF_NOT_FOUND."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "since": {
+                        "type": "string",
+                        "description": (
+                            "Start point: git tag, commit hash, 'last-build' "
+                            "(commit of the newest health snapshot), or 'project-start'."
+                        ),
+                    },
+                    "audience": {
+                        "type": "string",
+                        "enum": ["developer", "pm", "user"],
+                        "default": "developer",
+                        "description": "Target audience for the generated prose.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["markdown", "github", "slack"],
+                        "default": "markdown",
+                        "description": "Output format for full_text.",
+                    },
+                },
+                "required": ["since"],
+            }),
         ]
 
     async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
@@ -1879,6 +1914,8 @@ async def run_mcp_server() -> None:
                 return _handle_session_end(args)
             elif name == "cerebrofy_session_show":
                 return _handle_session_show(args)
+            elif name == "cerebrofy_changelog":
+                result = _handle_changelog(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 

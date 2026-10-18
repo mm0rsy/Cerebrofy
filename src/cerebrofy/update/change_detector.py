@@ -142,6 +142,28 @@ def _detect_via_hash(
     return ChangeSet(changes=tuple(changes), detected_via="hash_comparison")
 
 
+def detect_changes_between_refs(
+    repo_root: Path,
+    since_ref: str,
+    until_ref: str = "HEAD",
+) -> ChangeSet:
+    """Detect committed file changes between two git refs.
+
+    Unlike :func:`detect_changes` this only reports the diff *between two
+    commits* — not working-tree edits — which is what a changelog for a
+    released range needs. The caller is responsible for resolving and
+    validating the refs (see ``cerebrofy.changelog.classifier.resolve_range``).
+    """
+    code, out = _run_git_cmd(
+        ["git", "diff", "--name-status", since_ref, until_ref], repo_root
+    )
+    if code != 0:
+        raise ValueError(
+            f"git diff failed between '{since_ref}' and '{until_ref}'"
+        )
+    return ChangeSet(changes=tuple(_parse_name_status(out)), detected_via="git")
+
+
 def detect_changes(
     repo_root: Path,
     conn: sqlite3.Connection,
