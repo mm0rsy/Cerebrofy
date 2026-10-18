@@ -276,6 +276,12 @@ def _rule_by_name(rules: RulesConfig, name: str) -> ArchRule:
     hidden=True,
     help="Invoked by a git hook — suppresses history and stays quiet when clean.",
 )
+@click.option(
+    "--write-memories/--no-write-memories",
+    "write_memories",
+    default=False,
+    help="Write a warning memory for each violation (max 10 new per run).",
+)
 def arch_check(
     rule_name: str | None,
     fmt: str,
@@ -283,6 +289,7 @@ def arch_check(
     slack: bool,
     record: bool,
     hook_name: str | None,
+    write_memories: bool,
 ) -> None:
     """Check all architecture rules and report violations.
 
@@ -339,6 +346,16 @@ def arch_check(
             record_history(root, entry_from_result(result, current_commit(root), since_ref))
         except OSError as exc:
             click.echo(f"Warning: could not record history — {exc}", err=True)
+    if write_memories and hook_name is None:
+        from cerebrofy.arch.memory import write_violation_memories
+
+        written = write_violation_memories(result, root / ".cerebrofy", config.lobes)
+        if written:
+            click.echo(
+                f"Cerebrofy: recorded {written} violation memory(ies) in "
+                ".cerebrofy/db/memories.db.",
+                err=True,
+            )
     _exit_with_code(result)
 
 

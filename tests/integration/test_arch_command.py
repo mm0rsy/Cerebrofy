@@ -407,6 +407,38 @@ def test_sprint_priority_escalation_blocks_hook(repo: Path) -> None:
     assert result.exit_code == 1, result.output
 
 
+def test_check_write_memories_records_and_notes(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    with patch(
+        "cerebrofy.arch.memory.write_violation_memories", return_value=2
+    ) as mock_write:
+        result = CliRunner().invoke(main, ["arch", "check", "--write-memories"])
+    assert result.exit_code == 1, result.output
+    mock_write.assert_called_once()
+    called_result, called_dir = mock_write.call_args[0][:2]
+    assert called_result.result == "FAIL"
+    assert called_dir == repo / ".cerebrofy"
+    assert "recorded 2 violation memory(ies)" in result.stderr
+
+
+def test_write_memories_skipped_in_hook_mode(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    with patch("cerebrofy.arch.memory.write_violation_memories") as mock_write:
+        result = CliRunner().invoke(
+            main, ["arch", "check", "--hook", "pre-commit", "--write-memories"]
+        )
+    assert result.exit_code == 1, result.output
+    mock_write.assert_not_called()
+
+
+def test_write_memories_off_by_default(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    with patch("cerebrofy.arch.memory.write_violation_memories") as mock_write:
+        result = CliRunner().invoke(main, ["arch", "check"])
+    assert result.exit_code == 1, result.output
+    mock_write.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # arch init
 # ---------------------------------------------------------------------------
