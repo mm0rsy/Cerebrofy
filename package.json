@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "@moderndegree/opencode-agent-teams": "^0.2.1",
     "@rexeus/agentic": "^0.4.0"
   }
 }
