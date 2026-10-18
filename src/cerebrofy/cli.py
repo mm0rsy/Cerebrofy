@@ -3,6 +3,7 @@
 import rich_click as click
 
 from cerebrofy import __version__
+from cerebrofy.commands.arch import cerebrofy_arch
 from cerebrofy.commands.blast_radius import cerebrofy_blast_radius
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.context import cerebrofy_context
@@ -55,6 +56,7 @@ main.add_command(cerebrofy_health)
 main.add_command(cerebrofy_impact)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_intent)
+main.add_command(cerebrofy_arch)
 main.add_command(mem_group)
 main.add_command(cerebrofy_onboard)
 main.add_command(cerebrofy_silo)
