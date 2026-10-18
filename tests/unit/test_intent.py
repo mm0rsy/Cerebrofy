@@ -15,8 +15,10 @@ from cerebrofy.intent.loader import (
     IntentConfig,
     SprintContext,
     TeamContext,
+    active_sprint,
     load_intent,
     scaffold_intent_yaml,
+    sprint_priority_lobes,
     validate_intent,
 )
 
@@ -162,6 +164,75 @@ class TestLoadIntent:
         assert intent.incidents[0].id == "INC-X"
         assert intent.incidents[0].lesson == ""
         assert intent.incidents[0].affected_lobes == ()
+
+
+# ---------------------------------------------------------------------------
+# loader: active_sprint / sprint_priority_lobes (Idea #23 escalation inputs)
+# ---------------------------------------------------------------------------
+
+
+def _intent_with(sprint: SprintContext | None) -> IntentConfig:
+    return IntentConfig(sprint=sprint, incidents=(), architecture=None, team_context=None)
+
+
+def _sprint(deadline: str, priority: tuple[str, ...] = ("api",)) -> SprintContext:
+    return SprintContext(
+        name="S", goal="G", deadline=deadline,
+        priority_lobes=priority, deprioritized_lobes=(),
+    )
+
+
+def test_active_sprint_none_when_missing() -> None:
+    assert active_sprint(None) is None
+    assert active_sprint(_intent_with(None)) is None
+
+
+def test_active_sprint_empty_deadline_counts_as_active() -> None:
+    sprint = _sprint("")
+    assert active_sprint(_intent_with(sprint)) is sprint
+
+
+def test_active_sprint_scaffold_placeholder_counts_as_active() -> None:
+    sprint = _sprint("YYYY-MM-DD")
+    assert active_sprint(_intent_with(sprint)) is sprint
+
+
+def test_active_sprint_deadline_boundary() -> None:
+    import datetime
+
+    sprint = _sprint("2026-06-30")
+    intent = _intent_with(sprint)
+    assert active_sprint(intent, today=datetime.date(2026, 6, 30)) is sprint
+    assert active_sprint(intent, today=datetime.date(2026, 7, 1)) is None
+
+
+def test_sprint_priority_lobes_reads_active_sprint(tmp_path: Path) -> None:
+    intent_dir = _write_intent(
+        tmp_path,
+        {"sprint": {"name": "S", "goal": "G", "deadline": "", "priority_lobes": ["api", "db"]}},
+    )
+    assert sprint_priority_lobes(intent_dir) == frozenset({"api", "db"})
+
+
+def test_sprint_priority_lobes_empty_without_sprint(tmp_path: Path) -> None:
+    intent_dir = _write_intent(tmp_path, {"incidents": []})
+    assert sprint_priority_lobes(intent_dir) == frozenset()
+
+
+def test_sprint_priority_lobes_expired_sprint_is_empty(tmp_path: Path) -> None:
+    intent_dir = _write_intent(
+        tmp_path,
+        {"sprint": {"name": "old", "goal": "G", "deadline": "2020-01-01",
+                    "priority_lobes": ["api"]}},
+    )
+    assert sprint_priority_lobes(intent_dir) == frozenset()
+
+
+def test_sprint_priority_lobes_never_raises_on_bad_yaml(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".cerebrofy"
+    config_dir.mkdir()
+    (config_dir / "intent.yaml").write_text("sprint: [unclosed\n", encoding="utf-8")
+    assert sprint_priority_lobes(config_dir) == frozenset()
 
 
 # ---------------------------------------------------------------------------

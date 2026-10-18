@@ -86,6 +86,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_epistemic` | Return confidence score and staleness warnings for the index |
 | `cerebrofy_health` | Longitudinal codebase health metrics from the call graph |
 | `cerebrofy_intent` | Return sprint goals, incidents, and architectural direction |
+| `cerebrofy_arch_check` | Check architecture drift rules against the live call graph (index confidence + sprint escalations included) |
 | `cerebrofy_remember` | Write a structured memory attached to a neuron or lobe |
 | `cerebrofy_recall` | Semantic search across all memories |
 | `cerebrofy_memories` | List memories for a specific neuron or lobe |
@@ -340,6 +341,28 @@ Both `lobe` and `neuron` are optional. `format` accepts `"json"` or `"human"`.
 ```
 
 Returns `NO_INTENT_FILE` if `.cerebrofy/intent.yaml` does not exist — create it with `cerebrofy intent init`.
+
+---
+
+### `cerebrofy_arch_check`
+
+Check `.cerebrofy/arch-rules.yaml` architecture drift rules against the live call graph: forbidden lobe-to-lobe edges, circular lobe dependencies, allowed-callers isolation, and max blast radius. Call it after making changes to catch architectural drift before merge.
+
+**Input schema:**
+
+```json
+{
+  "rule": "all",
+  "format": "markdown",
+  "since": "HEAD~1"
+}
+```
+
+`rule` accepts a rule name or `"all"` (default). `format` accepts `"markdown"`, `"json"`, or `"github-annotations"`. `since` restricts the check to neurons changed since a git ref (e.g. `"HEAD~1"`, `"main"`).
+
+**Output:** a per-rule report ending in `RESULT: PASS | WARN | FAIL`. The result also carries the current index confidence and marks warning rules that were escalated by the active sprint's priority lobes (`.cerebrofy/intent.yaml`) — treat escalated rules as failures, since they block commits for the sprint's duration.
+
+Returns `NO_RULES_FILE` (offer `cerebrofy arch init`), `NO_INDEX` (offer `cerebrofy build` first), or `RULE_NOT_FOUND` when prerequisites are missing.
 
 ---
 

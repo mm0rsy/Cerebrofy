@@ -9,7 +9,6 @@ from typing import Any, Callable
 import yaml
 
 RULES_FILENAME = "arch-rules.yaml"
-_MAX_FILE_SIZE = 50 * 1024  # 50KB
 
 _SEVERITIES = ("error", "warning")
 
@@ -105,32 +104,6 @@ def rules_file_exists(root: Path) -> bool:
     return rules_path(root).exists()
 
 
-def load_arch_rules(root: Path) -> RulesConfig | None:
-    """Load .cerebrofy/arch-rules.yaml.
-
-    Returns None when the file does not exist; raises RulesError when it exists
-    but is malformed.
-    """
-    path = rules_path(root)
-    if not path.exists():
-        return None
-
-    size = path.stat().st_size
-    if size > _MAX_FILE_SIZE:
-        import sys
-        print(
-            f"Warning: arch-rules.yaml exceeds 50KB ({size} bytes) — loading anyway.",
-            file=sys.stderr,
-        )
-
-    with open(path, encoding="utf-8") as f:
-        data: Any = yaml.safe_load(f) or {}
-
-    if not isinstance(data, dict):
-        raise RulesError(f"{path}: top-level YAML mapping expected")
-    return _parse_rules_config(data, path)
-
-
 def dump_arch_rules(config: RulesConfig, path: Path) -> None:
     """Serialize RulesConfig back to arch-rules.yaml (comments are not preserved)."""
     payload: dict[str, Any] = {"rules": [_rule_to_dict(rule) for rule in config.rules]}
@@ -148,10 +121,15 @@ def scaffold_arch_rules(path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Private parsers
+# Parsers
 # ---------------------------------------------------------------------------
 
-def _parse_rules_config(data: dict[str, Any], path: Path) -> RulesConfig:
+def parse_rules_config(data: dict[str, Any], path: Path) -> RulesConfig:
+    """Validate an already-decoded arch-rules.yaml mapping into a RulesConfig.
+
+    Called by cerebrofy.config.loader.load_arch_rules(); raises RulesError when
+    the payload is malformed.
+    """
     raw_rules = data.get("rules")
     if raw_rules is None:
         raw_rules = []

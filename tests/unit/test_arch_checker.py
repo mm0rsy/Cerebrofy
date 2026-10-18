@@ -23,6 +23,7 @@ from cerebrofy.arch.rules import (
     NoEdgeCheck,
     RulesConfig,
 )
+from cerebrofy.epistemic.state import EpistemicState
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +423,69 @@ def test_max_blast_radius_skips_module_nodes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# shared blast-radius metric (Idea #01)
+# ---------------------------------------------------------------------------
+
+
+def _blast_graph() -> tuple[sqlite3.Connection, str]:
+    """Hub with 2 direct + 2 indirect callers, a self-loop, and a downstream edge."""
+    conn = _make_conn()
+    hub = "src/core/hub.py::hub"
+    for nid in (
+        hub,
+        "src/api/a1.py::a1",
+        "src/api/a2.py::a2",
+        "src/db/b1.py::b1",
+        "src/db/b2.py::b2",
+        "src/core/hub2.py::hub2",
+    ):
+        _add_node(conn, nid)
+    _add_edge(conn, "src/api/a1.py::a1", hub)
+    _add_edge(conn, "src/api/a2.py::a2", hub)
+    _add_edge(conn, "src/db/b1.py::b1", "src/api/a1.py::a1")
+    _add_edge(conn, "src/db/b2.py::b2", "src/api/a2.py::a2")
+    _add_edge(conn, hub, hub)  # self-loop is not its own caller
+    _add_edge(conn, hub, "src/core/hub2.py::hub2")  # downstream edge is not a caller
+    return conn, hub
+
+
+def test_shared_metric_matches_bfs_callers() -> None:
+    """Idea #01: the checker metric and blast-radius BFS count identical callers."""
+    from cerebrofy.analysis.blast_radius import bfs_callers, caller_ids_within_depth2
+
+    conn, hub = _blast_graph()
+    d1, d2, _ = bfs_callers(hub, conn)
+    bfs_ids = {n.id for n in d1} | {n.id for n in d2}
+    assert bfs_ids == {
+        "src/api/a1.py::a1",
+        "src/api/a2.py::a2",
+        "src/db/b1.py::b1",
+        "src/db/b2.py::b2",
+    }
+
+    # in_adj as _load_graph builds it: incoming edges between known nodes
+    in_adj: dict[str, set[str]] = {}
+    for src, dst in conn.execute("SELECT src_id, dst_id FROM edges"):
+        in_adj.setdefault(dst, set()).add(src)
+    assert caller_ids_within_depth2(hub, in_adj) == bfs_ids
+
+
+def test_max_blast_radius_detail_matches_shared_metric() -> None:
+    from cerebrofy.analysis.blast_radius import bfs_callers
+
+    conn, hub = _blast_graph()
+    d1, d2, _ = bfs_callers(hub, conn)
+    expected = len({n.id for n in d1} | {n.id for n in d2})
+
+    rule = ArchRule(name="r", severity="warning", check=MaxBlastRadiusCheck(limit=3))
+    result = run_arch_check(RulesConfig(rules=(rule,)), conn, _LOBES)
+    assert result.result == "WARN"
+    v = result.warning_violations[0]
+    assert v.location == hub
+    assert v.detail == f"blast_radius={expected} (limit: 3)"
+
+
+# ---------------------------------------------------------------------------
 # --since filtering
 # ---------------------------------------------------------------------------
 
@@ -517,3 +581,153 @@ def test_fix_hint_prefers_description() -> None:
 
 def test_unknown_lobe_constant() -> None:
     assert UNKNOWN_LOBE == "__unknown__"
+
+
+# ---------------------------------------------------------------------------
+# sprint-priority escalation (Idea #23)
+# ---------------------------------------------------------------------------
+
+
+def _edge_db() -> sqlite3.Connection:
+    conn = _make_conn()
+    _add_node(conn, "src/api/views.py::endpoint")
+    _add_node(conn, "src/db/writer.py::write_nodes")
+    _add_edge(conn, "src/api/views.py::endpoint", "src/db/writer.py::write_nodes")
+    return conn
+
+
+def test_priority_lobes_escalate_warning_to_error() -> None:
+    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    result = run_arch_check(
+        RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"api"})
+    )
+    assert result.result == "FAIL"
+    assert len(result.error_violations) == 1
+    assert result.warning_violations == ()
+    assert result.error_violations[0].severity == "error"
+    rr = result.rule_results[0]
+    assert rr.rule.severity == "error"  # effective severity for this run
+    assert rr.escalated_lobes == ("api",)
+
+
+def test_priority_lobes_no_escalation_outside_overlap() -> None:
+    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    result = run_arch_check(
+        RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"commands"})
+    )
+    assert result.result == "WARN"
+    assert result.rule_results[0].escalated_lobes == ()
+    assert result.rule_results[0].rule.severity == "warning"
+
+
+def test_error_rules_do_not_mark_escalation() -> None:
+    rule = _edge_rule("no-db", severity="error", **{"from_lobe": "api", "to_lobe": "db"})
+    result = run_arch_check(
+        RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"api"})
+    )
+    assert result.result == "FAIL"
+    assert result.rule_results[0].escalated_lobes == ()
+
+
+def test_rules_without_explicit_lobes_never_escalate() -> None:
+    cycle_rule = ArchRule(name="c", severity="warning", check=NoCyclesCheck(scope="lobes"))
+    result = run_arch_check(
+        RulesConfig(rules=(cycle_rule,)),
+        _cycle_graph(),
+        _LOBES,
+        priority_lobes=frozenset({"commands", "embedder", "db"}),
+    )
+    assert result.result == "WARN"
+    assert result.rule_results[0].escalated_lobes == ()
+
+    radius = ArchRule(name="r", severity="warning", check=MaxBlastRadiusCheck(limit=0))
+    result2 = run_arch_check(
+        RulesConfig(rules=(radius,)),
+        _edge_db(),
+        _LOBES,
+        priority_lobes=frozenset({"api", "db"}),
+    )
+    assert result2.result == "WARN"  # nodes have callers > 0 → violation stays a warning
+    assert result2.rule_results[0].escalated_lobes == ()
+
+
+def test_escalated_lobes_sorted_and_full_overlap() -> None:
+    from cerebrofy.arch.checker import escalated_priority_lobes
+
+    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    assert escalated_priority_lobes(rule, frozenset({"db", "api"})) == ("api", "db")
+    assert escalated_priority_lobes(rule, frozenset()) == ()
+
+
+# ---------------------------------------------------------------------------
+# epistemic enrichment (Idea #22)
+# ---------------------------------------------------------------------------
+
+
+def _epistemic_sentinel() -> EpistemicState:
+    return EpistemicState(
+        graph_age_hours=1.0,
+        neurons_changed_since_build=0,
+        unindexed_languages=(),
+        dynamic_dispatch_count=0,
+        memory_stale_count=0,
+        missing_test_paths=0,
+        overall_confidence=0.9,
+        caveats=(),
+        recommendation="Looks good.",
+    )
+
+
+def test_epistemic_attached_when_tracked_extensions_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.arch import checker
+
+    sentinel = _epistemic_sentinel()
+    monkeypatch.setattr(checker, "compute_epistemic_state", lambda *a, **k: sentinel)
+    result = run_arch_check(
+        RulesConfig(rules=()),
+        _make_conn(),
+        _LOBES,
+        repo_root=tmp_path,
+        tracked_extensions=[".py"],
+    )
+    assert result.epistemic is sentinel
+
+
+def test_epistemic_skipped_without_tracked_extensions(tmp_path: Path) -> None:
+    result = run_arch_check(
+        RulesConfig(rules=()), _make_conn(), _LOBES, repo_root=tmp_path
+    )
+    assert result.epistemic is None
+
+
+def test_epistemic_failure_is_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.arch import checker
+
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("git unavailable")
+
+    monkeypatch.setattr(checker, "compute_epistemic_state", boom)
+    result = run_arch_check(
+        RulesConfig(rules=()),
+        _make_conn(),
+        _LOBES,
+        repo_root=tmp_path,
+        tracked_extensions=[".py"],
+    )
+    assert result.epistemic is None  # never fails the check
+
+
+def test_lobe_references_public_helper() -> None:
+    from cerebrofy.arch.checker import lobe_references
+
+    assert lobe_references(NoEdgeCheck(from_lobe="api", to_lobe=None)) == {"api"}
+    assert lobe_references(NoEdgeCheck(from_patterns=("src/**",), to_lobe="db")) == {"db"}
+    assert lobe_references(NoCyclesCheck(scope="lobes")) == set()
+    assert lobe_references(MaxBlastRadiusCheck(limit=5)) == set()
+    assert lobe_references(
+        AllowedCallersCheck(neuron="*x/*", from_lobes=("api", "db"))
+    ) == {"api", "db"}

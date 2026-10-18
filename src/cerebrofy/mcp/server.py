@@ -511,6 +511,17 @@ def _handle_epistemic(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(state.to_dict(), indent=2))]
 
 
+def _arch_history_summary(root: Path) -> "Any | None":
+    """Arch check history summary for health output (Idea #16 × #03), or None."""
+    try:
+        from cerebrofy.arch.history import read_history, summarize_history
+
+        entries = read_history(root)
+        return summarize_history(entries) if entries else None
+    except Exception:
+        return None
+
+
 def _handle_health(arguments: dict[str, Any]) -> list[Any]:
     """Return current health snapshot with delta from previous build."""
     from mcp.types import TextContent
@@ -547,11 +558,16 @@ def _handle_health(arguments: dict[str, Any]) -> list[Any]:
         latest = snapshots[0] if snapshots else None
         ts = latest["build_ts"] if latest else None
         commit = latest.get("commit_hash") if latest else None
+        arch_summary = _arch_history_summary(root)
 
         if fmt == "json":
-            text = to_export_json(metrics, prev, ts, commit)
+            text = to_export_json(metrics, prev, ts, commit, arch_summary=arch_summary)
         else:
             text = format_health_snapshot(metrics, prev, ts, commit)
+            if arch_summary is not None:
+                from cerebrofy.health.reporter import format_arch_section
+
+                text = text.rstrip("\n") + "\n" + format_arch_section(arch_summary)
 
         if metric != "all":
             val = getattr(metrics, metric, None)
@@ -1170,7 +1186,8 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
-    from cerebrofy.arch.rules import RulesError, load_arch_rules
+    from cerebrofy.arch.rules import RulesError
+    from cerebrofy.config.loader import load_arch_rules
 
     try:
         rules = load_arch_rules(root)
@@ -1207,6 +1224,7 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
         from cerebrofy.arch.reporter import render_annotations, render_json, render_markdown
         from cerebrofy.config.loader import load_config
         from cerebrofy.db.connection import open_db_readonly
+        from cerebrofy.intent.loader import sprint_priority_lobes
 
         config = load_config(root / ".cerebrofy" / "config.yaml")
         conn = open_db_readonly(db_path)
@@ -1218,6 +1236,10 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
                 repo_root=root,
                 rule_name=None if rule_name == "all" else rule_name,
                 changed_files=changed_files,
+                # Idea #23: escalate warning rules on sprint-priority lobes.
+                # Epistemic confidence (Idea #22) is injected by _with_epistemic
+                # at dispatch time, so it is not recomputed here.
+                priority_lobes=sprint_priority_lobes(root / ".cerebrofy"),
             )
         finally:
             conn.close()
@@ -1655,7 +1677,9 @@ async def run_mcp_server() -> None:
                 "Check .cerebrofy/arch-rules.yaml architecture drift rules against the "
                 "live call graph: forbidden lobe-to-lobe edges, circular lobe dependencies, "
                 "allowed-callers isolation, and max blast radius. Use after making changes "
-                "to catch architectural drift before merge. Returns NO_INDEX / "
+                "to catch architectural drift before merge. Results include the index "
+                "confidence score and flag warning rules escalated by the active sprint's "
+                "priority lobes (treat escalated rules as failures). Returns NO_INDEX / "
                 "NO_RULES_FILE / RULE_NOT_FOUND guidance when prerequisites are missing."
             ), inputSchema={
                 "type": "object",

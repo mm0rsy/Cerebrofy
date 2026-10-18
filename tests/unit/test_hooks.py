@@ -12,8 +12,8 @@ from cerebrofy.hooks.installer import (
     HOOK_MARKER_START,
     HOOK_VERSION_MARKER,
     _generate_post_merge_script,
-    _v3_pre_commit_block,
-    _v3_pre_push_block,
+    _v4_pre_commit_block,
+    _v4_pre_push_block,
     install_hooks,
     upgrade_hook,
 )
@@ -79,12 +79,12 @@ def test_upgrade_hook_noop_when_file_missing(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# v3 — architecture drift hook segment
+# v4 — architecture drift hook segment (always blocks violations)
 # ---------------------------------------------------------------------------
 
 
 def _write_arch_rules(root: Path) -> None:
-    """Create the arch rules file that activates the v3 hook segment."""
+    """Create the arch rules file that activates the v4 hook segment."""
     cerebrofy = root / ".cerebrofy"
     cerebrofy.mkdir(parents=True, exist_ok=True)
     (cerebrofy / "arch-rules.yaml").write_text("rules: []\n", encoding="utf-8")
@@ -108,26 +108,31 @@ def _hook_version(content: str) -> int:
     return 0
 
 
-def test_install_hooks_v3_when_arch_rules_present(tmp_path: Path) -> None:
+def test_install_hooks_v4_when_arch_rules_present(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, gitignored=False, arch_rules=True)
     hooks = root / ".git" / "hooks"
     install_hooks(root)
     for name in ("pre-commit", "pre-push"):
         text = (hooks / name).read_text(encoding="utf-8")
-        assert _hook_version(text) == 3
+        assert _hook_version(text) == 4
         assert "cerebrofy arch check --hook" in text
         assert "arch-rules.yaml" in text
-        assert "Architecture violations detected." in text  # hard mode: tracked .cerebrofy
+        assert "Architecture violations detected." in text  # always blocks
 
 
-def test_install_hooks_v3_warn_mode_gitignored(tmp_path: Path) -> None:
+def test_install_hooks_v4_gitignored_arch_still_blocks(tmp_path: Path) -> None:
+    """Gitignore mode only softens validate; architecture violations always block."""
     root = _make_repo(tmp_path, gitignored=True, arch_rules=True)
     hooks = root / ".git" / "hooks"
     install_hooks(root)
     text = (hooks / "pre-push").read_text(encoding="utf-8")
-    assert _hook_version(text) == 3
-    assert "cerebrofy arch check --hook pre-push || true" in text
-    assert "Architecture violations detected." not in text
+    assert _hook_version(text) == 4
+    # validate section keeps warn-only inform in gitignored repos...
+    assert "if ! cerebrofy validate" in text
+    assert "drift detected -- auto-syncing index" in text
+    # ...but the arch segment blocks regardless of gitignore state
+    assert "if ! cerebrofy arch check --hook pre-push; then" in text
+    assert "Architecture violations detected. Push blocked." in text
 
 
 def test_install_hooks_v1_v2_without_arch_rules(tmp_path: Path) -> None:
@@ -142,18 +147,18 @@ def test_install_hooks_v1_v2_without_arch_rules(tmp_path: Path) -> None:
     assert "arch check" not in pre_push
 
 
-def test_upgrade_hook_v1_to_v3_with_arch_rules(tmp_path: Path) -> None:
+def test_upgrade_hook_v1_to_v4_with_arch_rules(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, gitignored=False, arch_rules=True)
     hook = root / ".git" / "hooks" / "pre-push"
     _make_v1_hook(hook)
     message = upgrade_hook(hook, root=root)
-    assert message == "Cerebrofy: upgraded pre-push hook to version 3."
+    assert message == "Cerebrofy: upgraded pre-push hook to version 4."
     content = hook.read_text(encoding="utf-8")
-    assert _hook_version(content) == 3
+    assert _hook_version(content) == 4
     assert "cerebrofy arch check --hook pre-push" in content
 
 
-def test_upgrade_hook_idempotent_on_v3(tmp_path: Path) -> None:
+def test_upgrade_hook_idempotent_on_v4(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, gitignored=False, arch_rules=True)
     hook = root / ".git" / "hooks" / "pre-push"
     _make_v1_hook(hook)
@@ -163,16 +168,36 @@ def test_upgrade_hook_idempotent_on_v3(tmp_path: Path) -> None:
     assert hook.read_text(encoding="utf-8") == content
 
 
+def test_upgrade_hook_v3_to_v4_picks_up_blocking_arch(tmp_path: Path) -> None:
+    """A v3 hook (arch warn-or-hard) is upgraded so violations always block."""
+    root = _make_repo(tmp_path, gitignored=True, arch_rules=True)
+    hook = root / ".git" / "hooks" / "pre-push"
+    hook.write_text(
+        f"#!/bin/sh\n{HOOK_MARKER_START}\n{HOOK_VERSION_MARKER} 3\n"
+        "if [ -f \".cerebrofy/arch-rules.yaml\" ]; then\n"
+        "    cerebrofy arch check --hook pre-push || true\n"
+        "fi\n"
+        f"{HOOK_MARKER_END}\n",
+        encoding="utf-8",
+    )
+    message = upgrade_hook(hook, root=root)
+    assert message == "Cerebrofy: upgraded pre-push hook to version 4."
+    content = hook.read_text(encoding="utf-8")
+    assert _hook_version(content) == 4
+    assert "cerebrofy arch check --hook pre-push || true" not in content
+    assert "if ! cerebrofy arch check --hook pre-push; then" in content
+
+
 def test_upgrade_hook_no_downgrade_when_rules_removed(tmp_path: Path) -> None:
-    """A v3 block keeps grain when the rules file is later deleted (guard is inert)."""
+    """A v4 block stays when the rules file is later deleted (guard is inert)."""
     root = _make_repo(tmp_path, gitignored=False, arch_rules=True)
     hook = root / ".git" / "hooks" / "pre-push"
     _make_v1_hook(hook)
     upgrade_hook(hook, root=root)
-    assert _hook_version(hook.read_text(encoding="utf-8")) == 3
+    assert _hook_version(hook.read_text(encoding="utf-8")) == 4
     (root / ".cerebrofy" / "arch-rules.yaml").unlink()
     assert upgrade_hook(hook, root=root) is None
-    assert _hook_version(hook.read_text(encoding="utf-8")) == 3
+    assert _hook_version(hook.read_text(encoding="utf-8")) == 4
 
 
 def test_upgrade_hook_leaves_post_merge_alone(tmp_path: Path) -> None:
@@ -192,13 +217,13 @@ def test_upgrade_hook_skips_foreign_hooks(tmp_path: Path) -> None:
     assert hook.read_text(encoding="utf-8") == "#!/bin/sh\necho not ours\n"
 
 
-def test_v3_blocks_contain_rules_file_guard() -> None:
-    for block in (_v3_pre_push_block(True), _v3_pre_commit_block(False)):
+def test_v4_blocks_contain_rules_file_guard() -> None:
+    for block in (_v4_pre_push_block(True), _v4_pre_commit_block()):
         assert '[ -f ".cerebrofy/arch-rules.yaml" ]' in block
         assert "# END cerebrofy" in block
 
 
-def test_v3_hard_block_arch_check_execution(tmp_path: Path) -> None:
+def test_v4_hard_block_arch_check_execution(tmp_path: Path) -> None:
     """The generated shell segment actually blocks when arch check exits non-zero."""
     import subprocess
 
@@ -209,7 +234,7 @@ def test_v3_hard_block_arch_check_execution(tmp_path: Path) -> None:
     stub.chmod(0o755)
 
     hook = tmp_path / "pre-push"
-    hook.write_text(f"#!/bin/sh\n{_v3_pre_push_block(True)}", encoding="utf-8")
+    hook.write_text(f"#!/bin/sh\n{_v4_pre_push_block(True)}", encoding="utf-8")
     hook.chmod(0o755)
 
     (tmp_path / ".cerebrofy").mkdir()  # guard must see the rules file
@@ -227,8 +252,8 @@ def test_v3_hard_block_arch_check_execution(tmp_path: Path) -> None:
     assert "Architecture violations detected. Push blocked." in result.stderr
 
 
-def test_v3_warn_block_arch_failure_does_not_block(tmp_path: Path) -> None:
-    """Warn-only: a failing arch check does NOT block the hook."""
+def test_v4_gitignored_mode_arch_failure_blocks(tmp_path: Path) -> None:
+    """Gitignored (warn-validate) mode still blocks on architecture violations."""
     import subprocess
 
     bin_dir = tmp_path / "bin"
@@ -238,7 +263,7 @@ def test_v3_warn_block_arch_failure_does_not_block(tmp_path: Path) -> None:
     stub.chmod(0o755)
 
     hook = tmp_path / "pre-push"
-    hook.write_text(f"#!/bin/sh\n{_v3_pre_push_block(False)}", encoding="utf-8")
+    hook.write_text(f"#!/bin/sh\n{_v4_pre_push_block(False)}", encoding="utf-8")
     hook.chmod(0o755)
 
     env_path = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
@@ -251,7 +276,36 @@ def test_v3_warn_block_arch_failure_does_not_block(tmp_path: Path) -> None:
         env={**os.environ, "PATH": env_path},
         cwd=tmp_path,
     )
-    assert result.returncode == 0
+    assert result.returncode == 1
+    assert "Architecture violations detected. Push blocked." in result.stderr
+
+
+def test_v4_pre_commit_arch_failure_blocks_commit(tmp_path: Path) -> None:
+    """Spec: arch violations block commits too — pre-commit exits non-zero."""
+    import subprocess
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "cerebrofy"
+    stub.write_text("#!/bin/sh\nif [ \"$1\" = arch ]; then exit 1; fi\nexit 0\n", encoding="utf-8")
+    stub.chmod(0o755)
+
+    hook = tmp_path / "pre-commit"
+    hook.write_text(f"#!/bin/sh\n{_v4_pre_commit_block()}", encoding="utf-8")
+    hook.chmod(0o755)
+
+    env_path = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+    (tmp_path / ".cerebrofy").mkdir()
+    (tmp_path / ".cerebrofy" / "arch-rules.yaml").touch()
+    result = subprocess.run(
+        [str(hook)],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PATH": env_path},
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1
+    assert "Architecture violations detected. Commit blocked." in result.stderr
 
 
 # ---------------------------------------------------------------------------
@@ -269,8 +323,8 @@ def test_update_upgrades_stale_hooks(
     _make_v1_hook(hook)
 
     _upgrade_git_hooks(root)
-    assert _hook_version(hook.read_text(encoding="utf-8")) == 3
-    assert "version 3" in capsys.readouterr().out
+    assert _hook_version(hook.read_text(encoding="utf-8")) == 4
+    assert "version 4" in capsys.readouterr().out
 
 
 def test_update_hook_upgrade_is_silent_when_current(

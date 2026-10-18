@@ -11,9 +11,10 @@ import fnmatch
 import sqlite3
 import subprocess
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from cerebrofy.analysis.blast_radius import caller_ids_within_depth2
 from cerebrofy.arch.rules import (
     AllowedCallersCheck,
     ArchRule,
@@ -23,6 +24,7 @@ from cerebrofy.arch.rules import (
     NoEdgeCheck,
     RulesConfig,
 )
+from cerebrofy.epistemic.state import EpistemicState, compute_epistemic_state
 from cerebrofy.health.metrics import _lobe_for_file
 
 UNKNOWN_LOBE = "__unknown__"
@@ -63,6 +65,7 @@ class RuleResult:
     rule: ArchRule
     violations: tuple[Violation, ...] = ()
     error: str | None = None  # configuration problem (rule was skipped)
+    escalated_lobes: tuple[str, ...] = ()  # sprint-priority lobes (Idea #23)
 
 
 @dataclass
@@ -70,6 +73,7 @@ class CheckResult:
     """Aggregated result of one arch check run."""
 
     rule_results: list[RuleResult] = field(default_factory=list)
+    epistemic: EpistemicState | None = None  # index confidence (Idea #22), None when skipped
 
     @property
     def error_violations(self) -> tuple[Violation, ...]:
@@ -146,12 +150,19 @@ def run_arch_check(
     repo_root: Path | None = None,
     rule_name: str | None = None,
     changed_files: frozenset[str] | None = None,
+    tracked_extensions: list[str] | None = None,
+    priority_lobes: frozenset[str] = frozenset(),
 ) -> CheckResult:
     """Evaluate every rule (or a single rule when rule_name is given) against the graph.
 
     changed_files restricts reported violations to files in the set (the --since
     filter); None means check everything. repo_root enables best-effort
     "Introduced in" git attribution on violating edges.
+
+    tracked_extensions (with repo_root) attaches the epistemic confidence state
+    (Idea #22) so stale-graph caveats travel with the result. priority_lobes
+    escalates warning-severity rules that reference a sprint-priority lobe to
+    error severity for this run (Idea #23).
     """
     graph = _load_graph(conn)
     node_lobe = {nid: _lobe_for_file(info.file, lobes) for nid, info in graph.nodes.items()}
@@ -163,8 +174,15 @@ def run_arch_check(
     result = CheckResult()
     for rule in selected:
         result.rule_results.append(
-            _evaluate_rule(rule, graph, node_lobe, lobes, repo_root, changed_files)
+            _evaluate_rule(
+                rule, graph, node_lobe, lobes, repo_root, changed_files, priority_lobes
+            )
         )
+    if tracked_extensions is not None and repo_root is not None:
+        try:
+            result.epistemic = compute_epistemic_state(conn, tracked_extensions, repo_root)
+        except Exception:  # enrichment only — never fail the check on it
+            result.epistemic = None
     return result
 
 
@@ -175,9 +193,10 @@ def _evaluate_rule(
     lobes: dict[str, str],
     repo_root: Path | None,
     changed_files: frozenset[str] | None,
+    priority_lobes: frozenset[str] = frozenset(),
 ) -> RuleResult:
     unknown = sorted(
-        reference for reference in _lobe_references(rule.check) if reference not in lobes
+        reference for reference in lobe_references(rule.check) if reference not in lobes
     )
     if unknown:
         return RuleResult(
@@ -188,19 +207,23 @@ def _evaluate_rule(
             ),
         )
 
+    escalated = escalated_priority_lobes(rule, priority_lobes)
+    effective_rule = replace(rule, severity="error") if escalated else rule
+
     attr_cache: dict[str, str | None] = {}
     error: str | None = None
     violations: list[Violation] = []
     try:
-        violations = _check_rule(rule, graph, node_lobe, repo_root, attr_cache)
+        violations = _check_rule(effective_rule, graph, node_lobe, repo_root, attr_cache)
     except Exception as exc:  # a broken rule must not crash a full check run
         error = f"rule evaluation failed: {exc}"
     if changed_files is not None and not error:
         violations = [v for v in violations if v.file in changed_files]
     return RuleResult(
-        rule=rule,
+        rule=effective_rule,
         violations=tuple(sorted(violations, key=_violation_sort_key)),
         error=error,
+        escalated_lobes=escalated,
     )
 
 
@@ -222,13 +245,27 @@ def _check_rule(
     return _check_max_blast_radius(rule, check, graph)
 
 
-def _lobe_references(check: Check) -> set[str]:
+def lobe_references(check: Check) -> set[str]:
     """Lobe names a check consults — used to detect misconfigured rules."""
     if isinstance(check, NoEdgeCheck):
         return {lobe for lobe in (check.from_lobe, check.to_lobe) if lobe is not None}
     if isinstance(check, AllowedCallersCheck):
         return set(check.from_lobes)
     return set()
+
+
+def escalated_priority_lobes(
+    rule: ArchRule,
+    priority_lobes: frozenset[str] | set[str],
+) -> tuple[str, ...]:
+    """Sprint-priority lobes this warning rule references (Idea #23 escalation).
+
+    Error-severity rules are already blocking, so escalation only applies to
+    warnings; returns the sorted lobe-name overlap, empty when none.
+    """
+    if rule.severity != "warning" or not priority_lobes:
+        return ()
+    return tuple(sorted(lobe_references(rule.check) & set(priority_lobes)))
 
 
 def _violation_sort_key(v: Violation) -> tuple[str, int, str, str]:
@@ -438,13 +475,9 @@ def _check_max_blast_radius(
     for nid, node in graph.nodes.items():
         if node.type == "module":
             continue
-        direct = set(graph.in_adj.get(nid, ()))
-        indirect: set[str] = set()
-        for caller in direct:
-            indirect.update(graph.in_adj.get(caller, ()))
-        indirect -= direct
-        indirect.discard(nid)
-        radius = len(direct) + len(indirect)
+        # Shared metric with the blast-radius analyzer (Idea #01): the same
+        # depth-1 + depth-2 caller-set semantics as bfs_callers().
+        radius = len(caller_ids_within_depth2(nid, graph.in_adj))
         if radius <= check.limit:
             continue
         violations.append(

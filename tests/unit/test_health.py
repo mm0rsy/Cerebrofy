@@ -7,6 +7,7 @@ import sqlite3
 import time
 from unittest.mock import MagicMock, patch
 
+from cerebrofy.arch.history import HistorySummary
 from cerebrofy.commands.health import _watch_loop
 from cerebrofy.health.metrics import (
     HealthMetrics,
@@ -15,6 +16,8 @@ from cerebrofy.health.metrics import (
     compute_metrics,
 )
 from cerebrofy.health.reporter import (
+    format_arch_section,
+    format_arch_trend,
     format_health_snapshot,
     format_history_table,
     format_trend_sparkline,
@@ -396,6 +399,80 @@ def test_to_export_json_structure():
     assert data["current"]["neuron_count"] == 100
     assert data["delta"]["coupling"] < 0  # improved
     assert data["trend"]["coupling"] == "down"
+
+
+# ---------------------------------------------------------------------------
+# arch drift section (Idea #16 × #03)
+# ---------------------------------------------------------------------------
+
+
+def _arch_summary(**overrides: object) -> HistorySummary:
+    defaults: dict[str, object] = dict(
+        runs=3,
+        latest_result="FAIL",
+        latest_ts=1718793600,
+        latest_commit="abc1234",
+        error_count=2,
+        warning_count=1,
+        series=(0, 1, 3),
+    )
+    defaults.update(overrides)
+    return HistorySummary(**defaults)  # type: ignore[arg-type]
+
+
+def test_format_arch_section_latest_counts():
+    text = format_arch_section(_arch_summary())
+    assert "Architecture Drift — last check ❌ FAIL (2 errors · 1 warning)" in text
+    assert "commit abc1234" in text
+    assert "Violations (last 3 checks):" in text
+    assert "█" in text  # series (0, 1, 3) spans the full block range
+
+
+def test_format_arch_section_warn_and_pass_icons():
+    warn = format_arch_section(
+        _arch_summary(latest_result="WARN", error_count=0, warning_count=2)
+    )
+    assert "⚠️ WARN (0 errors · 2 warnings)" in warn
+    passed = format_arch_section(
+        _arch_summary(latest_result="PASS", error_count=0, warning_count=0)
+    )
+    assert "✅ PASS (0 errors · 0 warnings)" in passed
+
+
+def test_format_arch_section_without_commit():
+    text = format_arch_section(_arch_summary(latest_commit=None))
+    assert "commit" not in text.split("Architecture Drift")[1]
+
+
+def test_format_arch_trend_empty():
+    empty = HistorySummary(0, None, None, None, 0, 0, ())
+    assert "No arch check history" in format_arch_trend(empty)
+
+
+def test_format_arch_trend_values():
+    text = format_arch_trend(_arch_summary(series=(1, 5, 3)))
+    assert "arch_violations" in text
+    assert "min=1" in text
+    assert "max=5" in text
+    assert "checks=3" in text
+
+
+def test_to_export_json_includes_arch_block():
+    data = json.loads(
+        to_export_json(_sample_metrics(), ts=1, arch_summary=_arch_summary())
+    )
+    arch = data["arch_violations"]
+    assert arch["last_result"] == "FAIL"
+    assert arch["last_check_ts"] == 1718793600
+    assert arch["last_check_commit"] == "abc1234"
+    assert arch["errors"] == 2
+    assert arch["warnings"] == 1
+    assert arch["trend"] == [0, 1, 3]
+
+
+def test_to_export_json_omits_arch_block_without_summary():
+    data = json.loads(to_export_json(_sample_metrics(), ts=1))
+    assert "arch_violations" not in data
 
 
 # ---------------------------------------------------------------------------
