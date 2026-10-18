@@ -531,3 +531,49 @@ def test_watch_one_tick_reports_and_alerts(
     assert "no-intra-lobe-calls" in result.output
     assert "RESULT: ❌ FAILED" in result.output
     assert len(alerts) == 1  # first tick fires the alert callback (no prior state)
+
+
+# ---------------------------------------------------------------------------
+# integration with cerebrofy health (Idea #03)
+# ---------------------------------------------------------------------------
+
+
+def test_health_shows_arch_section_after_checks(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    CliRunner().invoke(main, ["arch", "check"])
+    result = CliRunner().invoke(main, ["health"])
+    assert result.exit_code == 0, result.output
+    assert "Architecture Drift — last check ❌ FAIL" in result.output
+    assert "Violations (last 1 checks):" in result.output
+
+
+def test_health_omits_arch_section_without_history(repo: Path) -> None:
+    result = CliRunner().invoke(main, ["health"])
+    assert result.exit_code == 0, result.output
+    assert "Architecture Drift" not in result.output
+
+
+def test_health_trend_arch_violations(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    CliRunner().invoke(main, ["arch", "check"])
+    CliRunner().invoke(main, ["arch", "check", "--format", "json"])
+    result = CliRunner().invoke(main, ["health", "--trend", "arch_violations"])
+    assert result.exit_code == 0, result.output
+    assert "arch_violations" in result.output
+    assert "checks=2" in result.output
+
+
+def test_health_trend_arch_violations_without_history(repo: Path) -> None:
+    result = CliRunner().invoke(main, ["health", "--trend", "arch_violations"])
+    assert result.exit_code == 0, result.output
+    assert "No arch check history found" in result.output
+
+
+def test_health_export_json_includes_arch_block(repo: Path) -> None:
+    _write_rules(repo, RULES_VIOLATED)
+    CliRunner().invoke(main, ["arch", "check"])
+    result = CliRunner().invoke(main, ["health", "--export", "json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["arch_violations"]["last_result"] == "FAIL"
+    assert data["arch_violations"]["errors"] >= 1

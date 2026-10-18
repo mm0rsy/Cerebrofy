@@ -5,11 +5,23 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import open_db
+
+if TYPE_CHECKING:  # pragma: no cover
+    from cerebrofy.arch.history import HistorySummary
+
+
+def _load_arch_summary(root: Path) -> HistorySummary | None:
+    """Summarize .cerebrofy/arch-history.jsonl, or None when no checks ran yet."""
+    from cerebrofy.arch.history import read_history, summarize_history
+
+    entries = read_history(root)
+    return summarize_history(entries) if entries else None
 
 
 def _render_snapshot(db_path: Path, config: CerebrоfyConfig) -> None:
@@ -70,7 +82,7 @@ def _watch_loop(db_path: Path, config: CerebrоfyConfig) -> None:
     help=(
         "Show ASCII sparkline for a metric over time. "
         "Valid: coupling, avg_blast, dead_code_pct, cohesion, "
-        "test_surface, drift_velocity, hub_concentration."
+        "test_surface, drift_velocity, hub_concentration, arch_violations."
     ),
 )
 @click.option(
@@ -113,6 +125,8 @@ def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None, wa
     try:
         from cerebrofy.health.metrics import compute_metrics
         from cerebrofy.health.reporter import (
+            format_arch_section,
+            format_arch_trend,
             format_health_snapshot,
             format_history_table,
             format_trend_sparkline,
@@ -127,6 +141,13 @@ def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None, wa
             return
 
         if trend:
+            if trend == "arch_violations":
+                arch_summary = _load_arch_summary(root)
+                if arch_summary is None:
+                    click.echo("No arch check history found. Run 'cerebrofy arch check' first.")
+                else:
+                    click.echo(format_arch_trend(arch_summary))
+                return
             click.echo(format_trend_sparkline(snapshots, trend))
             return
 
@@ -134,12 +155,17 @@ def cerebrofy_health(history: int, trend: str | None, export_fmt: str | None, wa
         prev = snapshots[0] if snapshots else None
         prev_ts = prev["build_ts"] if prev else None
         prev_commit = prev.get("commit_hash") if prev else None
+        arch_summary = _load_arch_summary(root)
 
         if export_fmt == "json":
-            click.echo(to_export_json(metrics, prev, prev_ts, prev_commit))
+            click.echo(
+                to_export_json(metrics, prev, prev_ts, prev_commit, arch_summary=arch_summary)
+            )
             return
 
         click.echo(format_health_snapshot(metrics, prev, prev_ts, prev_commit))
+        if arch_summary is not None:
+            click.echo(format_arch_section(arch_summary))
 
     finally:
         conn.close()

@@ -15,6 +15,7 @@ from cerebrofy.arch.history import (
     history_path,
     read_history,
     record_history,
+    summarize_history,
 )
 from cerebrofy.arch.rules import ArchRule, NoEdgeCheck
 
@@ -171,3 +172,71 @@ def test_first_violation_map_picks_earliest() -> None:
 
 def test_current_commit_outside_git(tmp_path: Path) -> None:
     assert current_commit(tmp_path) is None
+
+
+# ---------------------------------------------------------------------------
+# summarize_history (Idea #03 — health trend metric)
+# ---------------------------------------------------------------------------
+
+
+def _entry(
+    ts: int,
+    result: str,
+    *,
+    errors: int = 0,
+    warnings: int = 0,
+    commit: str | None = None,
+) -> HistoryEntry:
+    failing: list[RuleFailure] = []
+    if errors:
+        failing.append(RuleFailure("e", "error", errors))
+    if warnings:
+        failing.append(RuleFailure("w", "warning", warnings))
+    return HistoryEntry(
+        ts=ts, result=result, rules_checked=2, commit=commit, failing=tuple(failing)
+    )
+
+
+def test_summarize_history_empty() -> None:
+    summary = summarize_history([])
+    assert summary.runs == 0
+    assert summary.latest_result is None
+    assert summary.latest_ts is None
+    assert summary.latest_commit is None
+    assert summary.error_count == 0
+    assert summary.warning_count == 0
+    assert summary.series == ()
+
+
+def test_summarize_history_latest_counts_and_series() -> None:
+    summary = summarize_history(
+        [
+            _entry(1, "PASS"),
+            _entry(2, "FAIL", errors=2, warnings=1),
+            _entry(3, "WARN", warnings=3),
+        ]
+    )
+    assert summary.runs == 3
+    assert summary.latest_result == "WARN"
+    assert summary.latest_ts == 3
+    assert summary.error_count == 0
+    assert summary.warning_count == 3
+    assert summary.series == (0, 3, 3)  # total violations per run, oldest → newest
+
+
+def test_summarize_history_limit_keeps_newest_runs() -> None:
+    entries = [_entry(i, "FAIL", errors=i) for i in range(1, 6)]
+    summary = summarize_history(entries, limit=3)
+    assert summary.runs == 3
+    assert summary.latest_ts == 5
+    assert summary.error_count == 5
+    assert summary.series == (3, 4, 5)
+
+
+def test_summarize_history_limit_zero_is_empty() -> None:
+    assert summarize_history([_entry(1, "FAIL", errors=1)], limit=0).runs == 0
+
+
+def test_summarize_history_latest_commit() -> None:
+    summary = summarize_history([_entry(7, "PASS", commit="abc1234")])
+    assert summary.latest_commit == "abc1234"

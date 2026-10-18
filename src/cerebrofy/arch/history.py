@@ -163,6 +163,40 @@ def first_violation_map(entries: list[HistoryEntry]) -> dict[str, HistoryEntry]:
     return first
 
 
+@dataclass(frozen=True)
+class HistorySummary:
+    """Aggregated trend view over recent arch check runs (for cerebrofy health)."""
+
+    runs: int                  # runs considered (the summary window)
+    latest_result: str | None  # PASS | WARN | FAIL of the newest run
+    latest_ts: int | None
+    latest_commit: str | None
+    error_count: int           # error-severity violations in the newest run
+    warning_count: int         # warning-severity violations in the newest run
+    series: tuple[int, ...]    # total violations per run, oldest → newest
+
+
+def summarize_history(entries: list[HistoryEntry], limit: int = 10) -> HistorySummary:
+    """Summarize the newest *limit* runs: latest counts + per-run violation totals.
+
+    Idea #03 integration: the total-violation series is the health metric that
+    cerebrofy health trends over time.
+    """
+    recent = entries[-limit:] if limit > 0 else []
+    if not recent:
+        return HistorySummary(0, None, None, None, 0, 0, ())
+    latest = recent[-1]
+    return HistorySummary(
+        runs=len(recent),
+        latest_result=latest.result,
+        latest_ts=latest.ts,
+        latest_commit=latest.commit,
+        error_count=sum(f.count for f in latest.failing if f.severity == "error"),
+        warning_count=sum(f.count for f in latest.failing if f.severity != "error"),
+        series=tuple(sum(f.count for f in entry.failing) for entry in recent),
+    )
+
+
 def current_commit(root: Path) -> str | None:
     """Best-effort short HEAD hash; None outside git repos or before first commit."""
     try:

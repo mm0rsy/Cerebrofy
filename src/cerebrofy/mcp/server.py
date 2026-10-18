@@ -511,6 +511,17 @@ def _handle_epistemic(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(state.to_dict(), indent=2))]
 
 
+def _arch_history_summary(root: Path) -> "Any | None":
+    """Arch check history summary for health output (Idea #16 × #03), or None."""
+    try:
+        from cerebrofy.arch.history import read_history, summarize_history
+
+        entries = read_history(root)
+        return summarize_history(entries) if entries else None
+    except Exception:
+        return None
+
+
 def _handle_health(arguments: dict[str, Any]) -> list[Any]:
     """Return current health snapshot with delta from previous build."""
     from mcp.types import TextContent
@@ -547,11 +558,16 @@ def _handle_health(arguments: dict[str, Any]) -> list[Any]:
         latest = snapshots[0] if snapshots else None
         ts = latest["build_ts"] if latest else None
         commit = latest.get("commit_hash") if latest else None
+        arch_summary = _arch_history_summary(root)
 
         if fmt == "json":
-            text = to_export_json(metrics, prev, ts, commit)
+            text = to_export_json(metrics, prev, ts, commit, arch_summary=arch_summary)
         else:
             text = format_health_snapshot(metrics, prev, ts, commit)
+            if arch_summary is not None:
+                from cerebrofy.health.reporter import format_arch_section
+
+                text = text.rstrip("\n") + "\n" + format_arch_section(arch_summary)
 
         if metric != "all":
             val = getattr(metrics, metric, None)
