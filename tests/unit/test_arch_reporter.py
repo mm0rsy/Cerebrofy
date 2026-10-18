@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from cerebrofy.arch.checker import CheckResult, RuleResult, Violation
 from cerebrofy.arch.reporter import (
     _json_dict,
@@ -94,6 +96,12 @@ def test_text_fail_report() -> None:
     assert "src/api/views.py::endpoint → src/db/writer.py::write" in text
     assert "Fix: desc-fix-here" not in text  # no description set → kind fallback
     assert "RESULT: ❌ FAILED (1 error) — commit blocked" in text
+
+
+def test_text_header_includes_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("cerebrofy.arch.reporter._report_date", lambda: "2026-10-18")
+    text = render_text(_fail_result())
+    assert text.startswith("🧠 Cerebrofy Architecture Check — 2026-10-18")
 
 
 def test_text_introduced_in_and_fix_description() -> None:

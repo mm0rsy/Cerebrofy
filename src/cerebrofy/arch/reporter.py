@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from typing import Any
 
 from cerebrofy.arch.checker import CheckResult, Violation, fix_hint
@@ -10,6 +11,11 @@ from cerebrofy.epistemic.state import EpistemicState
 
 _DIVIDER = "─" * 64
 _MAX_ANNOTATION = 400  # GitHub annotation message cap
+
+
+def _report_date() -> str:
+    """Local ISO date shown in the report header — patchable in tests."""
+    return date.today().isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -30,7 +36,7 @@ def render_text(result: CheckResult, *, hook_mode: bool = False) -> str:
     if not hook_mode:
         lines.extend(
             [
-                "🧠 Cerebrofy Architecture Check",
+                f"🧠 Cerebrofy Architecture Check — {_report_date()}",
                 "",
                 f"  Rules Checked: {len(result.rule_results)}",
                 f"  ✅ Passing: {len(result.passing_rules)}",
