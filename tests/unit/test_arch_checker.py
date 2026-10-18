@@ -422,6 +422,69 @@ def test_max_blast_radius_skips_module_nodes() -> None:
 
 
 # ---------------------------------------------------------------------------
+# shared blast-radius metric (Idea #01)
+# ---------------------------------------------------------------------------
+
+
+def _blast_graph() -> tuple[sqlite3.Connection, str]:
+    """Hub with 2 direct + 2 indirect callers, a self-loop, and a downstream edge."""
+    conn = _make_conn()
+    hub = "src/core/hub.py::hub"
+    for nid in (
+        hub,
+        "src/api/a1.py::a1",
+        "src/api/a2.py::a2",
+        "src/db/b1.py::b1",
+        "src/db/b2.py::b2",
+        "src/core/hub2.py::hub2",
+    ):
+        _add_node(conn, nid)
+    _add_edge(conn, "src/api/a1.py::a1", hub)
+    _add_edge(conn, "src/api/a2.py::a2", hub)
+    _add_edge(conn, "src/db/b1.py::b1", "src/api/a1.py::a1")
+    _add_edge(conn, "src/db/b2.py::b2", "src/api/a2.py::a2")
+    _add_edge(conn, hub, hub)  # self-loop is not its own caller
+    _add_edge(conn, hub, "src/core/hub2.py::hub2")  # downstream edge is not a caller
+    return conn, hub
+
+
+def test_shared_metric_matches_bfs_callers() -> None:
+    """Idea #01: the checker metric and blast-radius BFS count identical callers."""
+    from cerebrofy.analysis.blast_radius import bfs_callers, caller_ids_within_depth2
+
+    conn, hub = _blast_graph()
+    d1, d2, _ = bfs_callers(hub, conn)
+    bfs_ids = {n.id for n in d1} | {n.id for n in d2}
+    assert bfs_ids == {
+        "src/api/a1.py::a1",
+        "src/api/a2.py::a2",
+        "src/db/b1.py::b1",
+        "src/db/b2.py::b2",
+    }
+
+    # in_adj as _load_graph builds it: incoming edges between known nodes
+    in_adj: dict[str, set[str]] = {}
+    for src, dst in conn.execute("SELECT src_id, dst_id FROM edges"):
+        in_adj.setdefault(dst, set()).add(src)
+    assert caller_ids_within_depth2(hub, in_adj) == bfs_ids
+
+
+def test_max_blast_radius_detail_matches_shared_metric() -> None:
+    from cerebrofy.analysis.blast_radius import bfs_callers
+
+    conn, hub = _blast_graph()
+    d1, d2, _ = bfs_callers(hub, conn)
+    expected = len({n.id for n in d1} | {n.id for n in d2})
+
+    rule = ArchRule(name="r", severity="warning", check=MaxBlastRadiusCheck(limit=3))
+    result = run_arch_check(RulesConfig(rules=(rule,)), conn, _LOBES)
+    assert result.result == "WARN"
+    v = result.warning_violations[0]
+    assert v.location == hub
+    assert v.detail == f"blast_radius={expected} (limit: 3)"
+
+
+# ---------------------------------------------------------------------------
 # --since filtering
 # ---------------------------------------------------------------------------
 

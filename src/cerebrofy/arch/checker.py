@@ -14,6 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cerebrofy.analysis.blast_radius import caller_ids_within_depth2
 from cerebrofy.arch.rules import (
     AllowedCallersCheck,
     ArchRule,
@@ -438,13 +439,9 @@ def _check_max_blast_radius(
     for nid, node in graph.nodes.items():
         if node.type == "module":
             continue
-        direct = set(graph.in_adj.get(nid, ()))
-        indirect: set[str] = set()
-        for caller in direct:
-            indirect.update(graph.in_adj.get(caller, ()))
-        indirect -= direct
-        indirect.discard(nid)
-        radius = len(direct) + len(indirect)
+        # Shared metric with the blast-radius analyzer (Idea #01): the same
+        # depth-1 + depth-2 caller-set semantics as bfs_callers().
+        radius = len(caller_ids_within_depth2(nid, graph.in_adj))
         if radius <= check.limit:
             continue
         violations.append(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -161,6 +162,29 @@ def bfs_callers(
             break
 
     return results.get(1, []), results.get(2, []), runtime_boundaries
+
+
+def caller_ids_within_depth2(
+    neuron_id: str,
+    in_adj: Mapping[str, Iterable[str]],
+) -> set[str]:
+    """Distinct caller ids of *neuron_id* at BFS depth 1 + 2 — shared metric.
+
+    Idea #01: the arch ``max_blast_radius`` rule and ``bfs_callers()`` /
+    ``compute_neuron_blast_radius()`` must count exactly the same caller set.
+    For a well-formed index this mirrors ``bfs_callers()`` traversal: depth-1
+    callers, plus their depth-1 callers, excluding anything already seen (the
+    origin and the depth-1 set). *in_adj* maps each node id to its incoming
+    caller ids with RUNTIME_BOUNDARY edges already excluded (Law II).
+    """
+    direct = set(in_adj.get(neuron_id, ()))
+    direct.discard(neuron_id)  # a self-recursive call is not its own caller (BFS parity)
+    indirect: set[str] = set()
+    for caller in direct:
+        indirect.update(in_adj.get(caller, ()))
+    indirect -= direct
+    indirect.discard(neuron_id)
+    return direct | indirect
 
 
 def find_covering_tests(
