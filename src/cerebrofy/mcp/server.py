@@ -32,6 +32,7 @@ from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
 from cerebrofy.mcp.tools.session import handle_session_end as _handle_session_end
 from cerebrofy.mcp.tools.session import handle_session_show as _handle_session_show
 from cerebrofy.mcp.tools.session import handle_session_start as _handle_session_start
+from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
 
 
 # ---------------------------------------------------------------------------
@@ -1784,6 +1785,34 @@ async def run_mcp_server() -> None:
                     },
                 },
             }),
+            Tool(name="cerebrofy_plan", description=(
+                "Generate a step-by-step, graph-aware refactoring plan from a "
+                "plain-English description — which neurons to extract, where they "
+                "move, which callers to update, and in what safe order. "
+                "The plan is a human-in-the-loop pre-flight checklist; it never "
+                "modifies files. Pass dry_run=false to also prepare an execution "
+                "handoff for the agent that will implement the plan."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "description": {
+                        "type": "string",
+                        "description": "Natural language description of the desired refactoring.",
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format (default: markdown).",
+                        "enum": ["markdown", "json"],
+                        "default": "markdown",
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "description": "If true, generate the plan only — do not modify any files (default: true).",
+                        "default": True,
+                    },
+                },
+                "required": ["description"],
+            }),
         ]
 
     async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
@@ -1832,6 +1861,10 @@ async def run_mcp_server() -> None:
                 result = _handle_onboard(args)
             elif name == "cerebrofy_impact":
                 result = _handle_impact(args)
+            elif name == "cerebrofy_plan":
+                # Self-contained payload — skip epistemic/intent injection so the
+                # plan JSON keeps the exact documented schema.
+                return _handle_plan(args)
             elif name == "cerebrofy_silo":
                 result = _handle_silo(args)
             elif name == "cerebrofy_coverage_gap":
