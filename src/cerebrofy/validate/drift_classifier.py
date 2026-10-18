@@ -8,11 +8,21 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class NeuronDrift:
+    """Per-neuron drift detail (name + kind + neuron type) inside one changed file."""
+
+    name: str
+    kind: str  # "added" | "removed" | "signature_changed"
+    neuron_type: str = ""  # "function" | "class" | "module" | ...
+
+
+@dataclass(frozen=True)
 class DriftRecord:
     file: str
     drift_type: str  # "none" | "minor" | "structural"
     changed_neurons: tuple[str, ...]
     drift_detail: str
+    neuron_details: tuple[NeuronDrift, ...] = ()
 
 
 def _normalize_sig(sig: str) -> str:
@@ -23,11 +33,14 @@ def _normalize_sig(sig: str) -> str:
 def _get_indexed_neurons(
     conn: sqlite3.Connection, file: str
 ) -> list[dict[str, str]]:
-    """Return list of {name, sig} dicts for all indexed Neurons in the given file."""
+    """Return list of {name, sig, type} dicts for all indexed Neurons in the given file."""
     rows = conn.execute(
-        "SELECT name, signature FROM nodes WHERE file = ?", (file,)
+        "SELECT name, signature, type FROM nodes WHERE file = ?", (file,)
     ).fetchall()
-    return [{"name": name, "sig": _normalize_sig(sig or "")} for name, sig in rows]
+    return [
+        {"name": name, "sig": _normalize_sig(sig or ""), "type": ntype or ""}
+        for name, sig, ntype in rows
+    ]
 
 
 def _classify_file_drift(
@@ -61,8 +74,10 @@ def _classify_file_drift(
     new_neurons = {
         n.name: _normalize_sig(n.signature or "") for n in pr.neurons
     }
+    new_types = {n.name: (n.type or "") for n in pr.neurons}
     indexed = _get_indexed_neurons(conn, file)
     indexed_map = {d["name"]: d["sig"] for d in indexed}
+    indexed_types = {d["name"]: d["type"] for d in indexed}
 
     added = [n for n in new_neurons if n not in indexed_map]
     removed = [n for n in indexed_map if n not in new_neurons]
@@ -74,17 +89,30 @@ def _classify_file_drift(
     if added or removed or sig_changed:
         changed = tuple(added + removed + sig_changed)
         details = []
+        neuron_details: list[NeuronDrift] = []
         for n in added:
             details.append(f"{file}::{n}  [added]")
+            neuron_details.append(
+                NeuronDrift(name=n, kind="added", neuron_type=new_types.get(n, ""))
+            )
         for n in removed:
             details.append(f"{file}::{n}  [removed]")
+            neuron_details.append(
+                NeuronDrift(name=n, kind="removed", neuron_type=indexed_types.get(n, ""))
+            )
         for n in sig_changed:
             details.append(f"{file}::{n}  [signature changed]")
+            neuron_details.append(
+                NeuronDrift(
+                    name=n, kind="signature_changed", neuron_type=new_types.get(n, "")
+                )
+            )
         return DriftRecord(
             file=file,
             drift_type="structural",
             changed_neurons=changed,
             drift_detail="\n".join(details),
+            neuron_details=tuple(neuron_details),
         )
 
     # File content changed (hash mismatch triggered re-parse) but all Neurons
@@ -121,7 +149,7 @@ def classify_drift(
         if not file_path.exists():
             # Deleted indexed file: every neuron it had is now "removed" → structural drift.
             rows = conn.execute(
-                "SELECT name FROM nodes WHERE file = ?", (file,)
+                "SELECT name, type FROM nodes WHERE file = ?", (file,)
             ).fetchall()
             neuron_names = tuple(row[0] for row in rows)
             if neuron_names:
@@ -131,6 +159,10 @@ def classify_drift(
                     drift_type="structural",
                     changed_neurons=neuron_names,
                     drift_detail=details,
+                    neuron_details=tuple(
+                        NeuronDrift(name=name, kind="removed", neuron_type=ntype or "")
+                        for name, ntype in rows
+                    ),
                 ))
             continue
 

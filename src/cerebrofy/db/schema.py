@@ -72,6 +72,22 @@ CREATE INDEX idx_health_ts ON health_snapshots(build_ts DESC);
 """
 
 
+NARRATIVE_EVENTS_DDL = """
+CREATE TABLE IF NOT EXISTS narrative_events (
+  id                 TEXT PRIMARY KEY,
+  ts                 INTEGER NOT NULL,
+  commit_ref         TEXT,
+  type               TEXT,
+  title              TEXT,
+  body               TEXT,
+  lobes_affected     TEXT,   -- JSON array
+  blast_radius_delta REAL,
+  health_delta       TEXT    -- JSON object
+);
+CREATE INDEX IF NOT EXISTS idx_narrative_ts ON narrative_events(ts DESC);
+"""
+
+
 def ensure_health_schema(conn: sqlite3.Connection) -> None:
     """Create health_snapshots table if it doesn't exist (idempotent, handles old DBs)."""
     conn.executescript(
@@ -95,6 +111,11 @@ def ensure_health_schema(conn: sqlite3.Connection) -> None:
     )
 
 
+def ensure_narrative_schema(conn: sqlite3.Connection) -> None:
+    """Create narrative_events table if it doesn't exist (idempotent, handles old DBs)."""
+    conn.executescript(NARRATIVE_EVENTS_DDL)
+
+
 def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
     """Execute all DDL statements to create the cerebrofy.db schema."""
     conn.executescript(NODES_DDL)
@@ -104,6 +125,7 @@ def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
     conn.executescript(META_DDL)
     conn.executescript(FILE_HASHES_DDL)
     conn.executescript(HEALTH_SNAPSHOTS_DDL)
+    conn.executescript(NARRATIVE_EVENTS_DDL)
     if embed_dim > 0:
         vec_neurons_ddl = (
             f"CREATE VIRTUAL TABLE vec_neurons USING vec0("
