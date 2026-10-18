@@ -16,16 +16,6 @@ from cerebrofy.db.schema import create_schema
 from cerebrofy.graph.edges import LOCAL_CALL
 from cerebrofy.planning.planner import CLUSTER_TOO_LARGE, PlanError
 
-# mcp is an optional extra — skip MCP handler tests when not installed
-try:
-    from cerebrofy.mcp.tools.plan import handle_plan
-    _HAS_MCP = True
-except ImportError:
-    handle_plan = None  # type: ignore[assignment,misc]
-    _HAS_MCP = False
-
-_mcp_skip = pytest.mark.skipif(not _HAS_MCP, reason="mcp extra not installed")
-
 _EXACT = [1.0, 0.0, 0.0, 0.0]
 _NEAR = [0.9, 0.1, 0.0, 0.0]
 
@@ -236,42 +226,49 @@ def test_cli_plan_error_is_rendered_with_code(
 # MCP handler (skipped when mcp extra not installed)
 # ---------------------------------------------------------------------------
 
-@_mcp_skip
+def _get_handle_plan():
+    """Lazy import — skipped if mcp extra not installed."""
+    pytest.importorskip("mcp")
+    from cerebrofy.mcp.tools.plan import handle_plan as _hp
+    return _hp
+
+
 def test_mcp_plan_requires_description() -> None:
+    handle_plan = _get_handle_plan()
     result = handle_plan({})
     assert "description" in result[0].text
     assert "required" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_rejects_whitespace_description() -> None:
+    handle_plan = _get_handle_plan()
     result = handle_plan({"description": "   "})
     assert "'description' is required" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_rejects_unknown_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     result = handle_plan({"description": "extract auth", "format": "xml"})
     assert "'format' must be 'markdown' or 'json'" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_no_index_reports_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     result = handle_plan({"description": "extract auth"})
     assert "NO_INDEX" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_missing_db_reports_code(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     result = handle_plan({"description": "extract auth"})
@@ -279,10 +276,10 @@ def test_mcp_plan_missing_db_reports_code(
     assert "cerebrofy build" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_json_payload_matches_spec_schema(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     _write_index(tmp_path)
@@ -298,10 +295,10 @@ def test_mcp_plan_json_payload_matches_spec_schema(
     assert data["proposed_structure"]["new_module"] == "payments"
 
 
-@_mcp_skip
 def test_mcp_plan_markdown_default_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     _write_index(tmp_path)
@@ -313,10 +310,10 @@ def test_mcp_plan_markdown_default_format(
     assert "## Execution Handoff" not in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_dry_run_false_adds_handoff(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     _write_index(tmp_path)
@@ -335,10 +332,10 @@ def test_mcp_plan_dry_run_false_adds_handoff(
     assert "handoff window ready" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_handler_never_writes_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     _write_index(tmp_path)
@@ -351,11 +348,11 @@ def test_mcp_plan_handler_never_writes_files(
     assert before == after
 
 
-@_mcp_skip
 def test_mcp_plan_surfaces_value_error_shape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Unexpected ValueError from the planner is reported, not raised."""
+    handle_plan = _get_handle_plan()
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     _write_index(tmp_path)
@@ -370,9 +367,9 @@ def test_mcp_plan_surfaces_value_error_shape(
     assert "[error] boom" in result[0].text
 
 
-@_mcp_skip
 def test_mcp_plan_is_importable_with_simple_namespace_result_shape() -> None:
     """The handler always returns TextContent-compatible items."""
+    handle_plan = _get_handle_plan()
     result = handle_plan({"description": ""})
     assert isinstance(result, list)
     assert hasattr(result[0], "type") and result[0].type == "text"
