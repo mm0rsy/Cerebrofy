@@ -200,6 +200,164 @@ def test_mcp_handle_build_no_config(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 # ---------------------------------------------------------------------------
+# T078f: arch check tool — guidance errors and real graph evaluation
+# ---------------------------------------------------------------------------
+
+
+def _make_arch_repo(tmp_path: Path) -> Path:
+    """A repo with config, rules, and a minimal indexed graph (caller → hub)."""
+    (tmp_path / ".cerebrofy" / "db").mkdir(parents=True)
+    (tmp_path / ".cerebrofy" / "config.yaml").write_text(
+        "lobes:\n  src: src/\n"
+        "tracked_extensions: [.py]\n"
+        "embedding_model: local\n"
+        "embed_dim: 2\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".cerebrofy" / "arch-rules.yaml").write_text(
+        "rules:\n"
+        "  - name: no-intra-lobe-calls\n"
+        "    severity: error\n"
+        "    check:\n"
+        "      no_edge:\n"
+        "        from_lobe: src\n"
+        "        to_lobe: src\n",
+        encoding="utf-8",
+    )
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / ".cerebrofy" / "db" / "cerebrofy.db")
+    conn.execute(
+        "CREATE TABLE nodes (id TEXT PRIMARY KEY, name TEXT NOT NULL, file TEXT NOT NULL,"
+        " type TEXT, line_start INTEGER, line_end INTEGER, signature TEXT, docstring TEXT,"
+        " hash TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE edges (src_id TEXT, dst_id TEXT, rel_type TEXT NOT NULL, file TEXT,"
+        " PRIMARY KEY (src_id, dst_id, rel_type))"
+    )
+    conn.execute(
+        "INSERT INTO nodes VALUES "
+        "('src/module.py::caller', 'caller', 'src/module.py', 'function', 4, 4, NULL, NULL, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO nodes VALUES "
+        "('src/module.py::existing', 'existing', 'src/module.py', 'function', 1, 2, NULL, NULL, NULL)"
+    )
+    conn.execute(
+        "INSERT INTO edges VALUES ('src/module.py::caller', 'src/module.py::existing',"
+        " 'LOCAL_CALL', 'src/module.py')"
+    )
+    conn.commit()
+    conn.close()
+    return tmp_path
+
+
+def test_mcp_arch_check_no_rules_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+    from cerebrofy.mcp.server import _handle_arch_check
+    result = _handle_arch_check({})
+    assert result[0].text.startswith("[NO_RULES_FILE]")
+    assert "arch init" in result[0].text
+
+
+def test_mcp_arch_check_no_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+    (tmp_path / ".cerebrofy" / "arch-rules.yaml").write_text(
+        "rules:\n  - name: cyc\n    check: { no_cycles: { scope: lobes } }\n",
+        encoding="utf-8",
+    )
+    from cerebrofy.mcp.server import _handle_arch_check
+    result = _handle_arch_check({})
+    assert result[0].text.startswith("[NO_INDEX]")
+    assert "cerebrofy build" in result[0].text
+
+
+def test_mcp_arch_check_unknown_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_arch_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_arch_check
+    result = _handle_arch_check({"rule": "ghost"})
+    assert result[0].text.startswith("[RULE_NOT_FOUND]")
+    assert "no-intra-lobe-calls" in result[0].text
+
+
+def test_mcp_arch_check_malformed_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_config(tmp_path)
+    (tmp_path / ".cerebrofy" / "arch-rules.yaml").write_text(
+        "rules:\n  - name: x\n    check:\n      teleport: {}\n", encoding="utf-8"
+    )
+    from cerebrofy.mcp.server import _handle_arch_check
+    result = _handle_arch_check({})
+    assert result[0].text.startswith("[RULES_ERROR]")
+
+
+def test_mcp_arch_check_markdown_reports_violations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_arch_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_arch_check
+    result = _handle_arch_check({})
+    assert len(result) == 1
+    text = result[0].text
+    assert "## 🧠 Cerebrofy Architecture Check" in text
+    assert "no-intra-lobe-calls" in text
+    assert "src/module.py::caller" in text
+
+
+def test_mcp_arch_check_json_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_arch_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_arch_check
+    result = _handle_arch_check({"format": "json"})
+    data = json.loads(result[0].text)
+    assert data["result"] == "FAIL"
+    assert data["failing"][0]["rule"] == "no-intra-lobe-calls"
+    assert "epistemic" not in data  # enrichment happens in call_tool, not the handler
+
+
+def test_mcp_arch_tool_registered_in_catalog(tmp_path: Path) -> None:
+    """cerebrofy_arch_check is exposed with its schema over a real stdio session."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_resource_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                listing = await session.list_tools()
+                names = {t.name for t in listing.tools}
+                assert "cerebrofy_arch_check" in names
+                tool = next(t for t in listing.tools if t.name == "cerebrofy_arch_check")
+                assert set(tool.inputSchema.get("properties", {})) == {"rule", "format", "since"}
+                assert tool.inputSchema["properties"]["format"]["enum"] == [
+                    "markdown", "json", "github-annotations"
+                ]
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
 # T080: resources protocol — list/read/subscribe over the real stdio transport
 # ---------------------------------------------------------------------------
 

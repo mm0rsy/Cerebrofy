@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from cerebrofy.arch.rules import rules_file_exists
+
 # FR-020: sentinel format — supersedes earlier cerebrofy-hook-start/end format
 HOOK_MARKER_START = "# BEGIN cerebrofy"
 HOOK_MARKER_END = "# END cerebrofy"
@@ -15,12 +17,10 @@ HOOK_SENTINEL_END = HOOK_MARKER_END
 HOOK_VERSION_MARKER = "# cerebrofy-hook-version:"
 
 # Version 1 = warn-only (Phase 1). Version 2 = hard-block (Phase 3 upgrade).
-# Shell block written into pre-push hook at install time.
+# Version 3 adds the architecture drift check (v2/v1 body + arch segment).
 # Use {hook_name} placeholder — filled by create_hook_file() / append_to_hook().
-HOOK_SCRIPT_BLOCK = """\
-{marker_start}
-# cerebrofy-hook-version: 1
-if ! cerebrofy validate --hook {{hook_name}} 2>/dev/null; then
+_VALIDATE_WARN_BODY = """\
+if ! cerebrofy validate --hook {hook_name} 2>/dev/null; then
     echo 'Cerebrofy: drift detected -- auto-syncing index...'
     if ! cerebrofy update; then
         echo 'Cerebrofy: index update failed. Push blocked.' >&2
@@ -28,8 +28,18 @@ if ! cerebrofy validate --hook {{hook_name}} 2>/dev/null; then
     fi
     echo 'Cerebrofy: index synced.'
 fi
+"""
+
+HOOK_SCRIPT_BLOCK = """\
+{marker_start}
+# cerebrofy-hook-version: 1
+{warn_body}
 {marker_end}
-""".format(marker_start=HOOK_MARKER_START, marker_end=HOOK_MARKER_END)
+""".format(
+    marker_start=HOOK_MARKER_START,
+    marker_end=HOOK_MARKER_END,
+    warn_body=_VALIDATE_WARN_BODY.rstrip("\n"),
+)
 
 # Pre-commit block: silently re-indexes changed files after every commit.
 # Always exits 0 — index update is best-effort and must never block commits.
@@ -51,6 +61,67 @@ _HOOK_SCRIPT_V2: str = (
     "    exit 1\n"
     "fi\n"
     f"{HOOK_SENTINEL_END}\n"
+)
+
+
+def _arch_segment(hook_name: str, hard: bool) -> str:
+    """Return the shell segment invoking 'cerebrofy arch check'.
+
+    The segment is inert unless .cerebrofy/arch-rules.yaml exists, which makes
+    architecture alerts strictly opt-in (the rules file is created by
+    'cerebrofy arch init').
+    """
+    if hard:
+        return (
+            'if [ -f ".cerebrofy/arch-rules.yaml" ]; then\n'
+            f"    if ! cerebrofy arch check --hook {hook_name}; then\n"
+            f"        echo 'Cerebrofy: Architecture violations detected. "
+            f"{'Push' if hook_name == 'pre-push' else 'Commit'} blocked.' >&2\n"
+            "        exit 1\n"
+            "    fi\n"
+            "fi\n"
+        )
+    return (
+        'if [ -f ".cerebrofy/arch-rules.yaml" ]; then\n'
+        f"    cerebrofy arch check --hook {hook_name} || true\n"
+        "fi\n"
+    )
+
+
+def _v3_pre_push_block(hard: bool) -> str:
+    """v3 pre-push block: validate section (warn or hard) + arch drift section."""
+    if hard:
+        validate_part = _HOOK_SCRIPT_V2_BODY
+    else:
+        validate_part = _VALIDATE_WARN_BODY.format(hook_name="pre-push")
+    return (
+        f"{HOOK_SENTINEL_BEGIN}\n"
+        f"{HOOK_VERSION_MARKER} 3\n"
+        f"{validate_part}"
+        f"{_arch_segment('pre-push', hard)}"
+        f"{HOOK_SENTINEL_END}\n"
+    )
+
+
+def _v3_pre_commit_block(hard: bool) -> str:
+    """v3 pre-commit block: silent index sync + arch drift section."""
+    return (
+        f"{HOOK_SENTINEL_BEGIN}\n"
+        f"{HOOK_VERSION_MARKER} 3\n"
+        "if [ -f \".cerebrofy/db/cerebrofy.db\" ]; then\n"
+        "    cerebrofy update >/dev/null 2>&1 || true\n"
+        "fi\n"
+        f"{_arch_segment('pre-commit', hard)}"
+        f"{HOOK_SENTINEL_END}\n"
+    )
+
+
+# Hard-block validate body (v2 form), reused by the v3 pre-push builder.
+_HOOK_SCRIPT_V2_BODY: str = (
+    "if ! cerebrofy validate --hook pre-push; then\n"
+    "    echo 'Cerebrofy: Structural drift detected. Run cerebrofy update to sync.'\n"
+    "    exit 1\n"
+    "fi\n"
 )
 
 
@@ -98,17 +169,42 @@ def _replace_hook_block(hook_content: str, new_block: str) -> str:
     return hook_content[:start_idx] + new_block + hook_content[end_idx:]
 
 
-def upgrade_hook(hook_path: Path) -> None:
-    """Upgrade the cerebrofy pre-push hook to version 2 (hard-block).
+def upgrade_hook(hook_path: Path, root: Path | None = None) -> str | None:
+    """Upgrade a cerebrofy hook block to the newest version this repo supports.
 
-    Idempotent: no-op if already version 2. Replaces the entire sentinel block.
+    Versions: pre-push 1 (warn) / 2 (hard-block) / 3 (+ architecture alerts);
+    pre-commit 1 (index sync) / 3 (+ architecture alerts). The arch-aware v3 is
+    chosen whenever .cerebrofy/arch-rules.yaml exists under root.
+
+    Idempotent: a no-op (returns None) when the file is missing, is not managed
+    by cerebrofy, already carries the desired version, or is post-merge (v1
+    stays). Returns a user-facing message after a successful upgrade.
     """
     if not hook_path.exists():
-        return
+        return None
     content = hook_path.read_text(encoding="utf-8")
-    if _get_hook_version(content) >= 2:
-        return
-    hook_path.write_text(_replace_hook_block(content, _HOOK_SCRIPT_V2), encoding="utf-8")
+    current = _get_hook_version(content)
+    if current == 0:
+        return None  # no cerebrofy block — not ours to upgrade
+    name = hook_path.name
+    if name not in ("pre-commit", "pre-push"):
+        return None
+    if root is None:
+        root = hook_path.parent.parent.parent  # <repo>/.git/hooks/<name>
+    if rules_file_exists(root):
+        desired, block = (
+            (3, _v3_pre_push_block(_hook_hard_mode(root)))
+            if name == "pre-push"
+            else (3, _v3_pre_commit_block(_hook_hard_mode(root)))
+        )
+    elif name == "pre-push":
+        desired, block = 2, _HOOK_SCRIPT_V2
+    else:
+        desired, block = 1, _HOOK_SCRIPT_PRE_COMMIT
+    if current >= desired:
+        return None
+    hook_path.write_text(_replace_hook_block(content, block), encoding="utf-8")
+    return f"Cerebrofy: upgraded {name} hook to version {desired}."
 
 
 def has_cerebrofy_marker(hook_path: Path) -> bool:
@@ -185,6 +281,11 @@ CEREBROFY_PM_CHECK
 """
 
 
+def _hook_hard_mode(root: Path) -> bool:
+    """Hard blocking mode when .cerebrofy/ is tracked by git (not gitignored)."""
+    return not _is_cerebrofy_db_gitignored(root)
+
+
 def _is_cerebrofy_db_gitignored(root: Path) -> bool:
     """Return True if .cerebrofy/db/ is covered by a .gitignore entry.
 
@@ -208,24 +309,34 @@ def install_hooks(root: Path, config: object = None) -> list[str]:
     - If .cerebrofy/ is gitignored → warn-only (v1): DB drift won't corrupt git state.
     - If .cerebrofy/ is tracked by git → hard-block (v2): stale DB in commits breaks state.
 
+    When .cerebrofy/arch-rules.yaml exists (created by 'cerebrofy arch init'),
+    v3 blocks are installed instead — same validate behavior plus the
+    architecture drift check segment (warn-only or hard-block by the same rule).
+
     config is accepted for forward compatibility but paths are derived from root.
     """
     hooks_dir = root / ".git" / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     warnings: list[str] = []
 
-    # Choose pre-push blocking mode based on gitignore state.
-    if _is_cerebrofy_db_gitignored(root):
-        pre_push_block = HOOK_SCRIPT_BLOCK.format(hook_name="pre-push")
+    # Choose blocking mode: gitignore consent model, upgraded to v3 when the
+    # arch rules file is present (architecture alerts are opt-in via arch init).
+    hard = _hook_hard_mode(root)
+    if rules_file_exists(root):
+        pre_push_block = _v3_pre_push_block(hard)
+        pre_commit_block = _v3_pre_commit_block(hard)
     else:
-        pre_push_block = _HOOK_SCRIPT_V2
+        pre_push_block = (
+            _HOOK_SCRIPT_V2 if hard else HOOK_SCRIPT_BLOCK.format(hook_name="pre-push")
+        )
+        pre_commit_block = _HOOK_SCRIPT_PRE_COMMIT
 
     # Pre-commit hook: silently re-index on every commit (never blocks)
     pre_commit = hooks_dir / "pre-commit"
     if not pre_commit.exists():
-        create_hook_file(pre_commit, "pre-commit", block=_HOOK_SCRIPT_PRE_COMMIT)
+        create_hook_file(pre_commit, "pre-commit", block=pre_commit_block)
     elif not has_cerebrofy_marker(pre_commit):
-        warnings.append(append_to_hook(pre_commit, "pre-commit", block=_HOOK_SCRIPT_PRE_COMMIT))
+        warnings.append(append_to_hook(pre_commit, "pre-commit", block=pre_commit_block))
 
     # Pre-push hook: validate + auto-update if DB is gitignored, hard-block if tracked
     pre_push = hooks_dir / "pre-push"

@@ -1157,6 +1157,84 @@ def _handle_vuln(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(out, indent=2))]
 
 
+def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
+    """Run .cerebrofy/arch-rules.yaml checks over the live call graph."""
+    from mcp.types import TextContent
+
+    rule_name = str(arguments.get("rule", "all") or "all")
+    fmt = str(arguments.get("format", "markdown") or "markdown").lower()
+    since_ref = arguments.get("since")
+
+    try:
+        root = _find_repo_root(Path.cwd())
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}")
+
+    from cerebrofy.arch.rules import RulesError, load_arch_rules
+
+    try:
+        rules = load_arch_rules(root)
+    except RulesError as exc:
+        return _make_error_content(f"[RULES_ERROR] {exc}")
+    if rules is None:
+        return _make_error_content(
+            "[NO_RULES_FILE] .cerebrofy/arch-rules.yaml not found. "
+            "Run 'cerebrofy arch init' to create one."
+        )
+    if rule_name != "all" and rule_name not in rules.rule_names:
+        return _make_error_content(
+            f"[RULE_NOT_FOUND] Rule '{rule_name}' does not exist. "
+            f"Available: {', '.join(rules.rule_names) or '(none)'}"
+        )
+
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    if not db_path.exists():
+        return _make_error_content(
+            "[NO_INDEX] Index not found. Run 'cerebrofy build' first."
+        )
+
+    changed_files: frozenset[str] | None = None
+    if since_ref:
+        from cerebrofy.arch.checker import changed_files_since
+
+        try:
+            changed_files = frozenset(changed_files_since(root, str(since_ref)))
+        except ValueError as exc:
+            return _make_error_content(f"[error] {exc}")
+
+    try:
+        from cerebrofy.arch.checker import run_arch_check
+        from cerebrofy.arch.reporter import render_annotations, render_json, render_markdown
+        from cerebrofy.config.loader import load_config
+        from cerebrofy.db.connection import open_db_readonly
+
+        config = load_config(root / ".cerebrofy" / "config.yaml")
+        conn = open_db_readonly(db_path)
+        try:
+            result = run_arch_check(
+                rules,
+                conn,
+                config.lobes,
+                repo_root=root,
+                rule_name=None if rule_name == "all" else rule_name,
+                changed_files=changed_files,
+            )
+        finally:
+            conn.close()
+
+        if fmt == "json":
+            text = render_json(result)
+        elif fmt == "github-annotations":
+            text = render_annotations(result)
+        else:
+            text = render_markdown(result)
+        return [TextContent(type="text", text=text or "(no violations)")]
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[NO_INDEX] {exc}")
+    except RulesError as exc:
+        return _make_error_content(f"[RULES_ERROR] {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Server entrypoint
 # ---------------------------------------------------------------------------
@@ -1573,6 +1651,35 @@ async def run_mcp_server() -> None:
                 },
                 "required": ["package"],
             }),
+            Tool(name="cerebrofy_arch_check", description=(
+                "Check .cerebrofy/arch-rules.yaml architecture drift rules against the "
+                "live call graph: forbidden lobe-to-lobe edges, circular lobe dependencies, "
+                "allowed-callers isolation, and max blast radius. Use after making changes "
+                "to catch architectural drift before merge. Returns NO_INDEX / "
+                "NO_RULES_FILE / RULE_NOT_FOUND guidance when prerequisites are missing."
+            ), inputSchema={
+                "type": "object",
+                "properties": {
+                    "rule": {
+                        "type": "string",
+                        "description": "Specific rule name to check, or 'all' (default).",
+                        "default": "all",
+                    },
+                    "format": {
+                        "type": "string",
+                        "description": "Output format (default: markdown).",
+                        "enum": ["markdown", "json", "github-annotations"],
+                        "default": "markdown",
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": (
+                            "Only report drift touching files changed since this git ref "
+                            "(e.g. 'HEAD~1'). Omit to check everything."
+                        ),
+                    },
+                },
+            }),
         ]
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
@@ -1628,6 +1735,8 @@ async def run_mcp_server() -> None:
                 result = _handle_coverage_gap(args)
             elif name == "cerebrofy_vuln":
                 result = _handle_vuln(args)
+            elif name == "cerebrofy_arch_check":
+                result = _handle_arch_check(args)
             else:
                 return _make_error_content(f"Unknown tool: {name}")
 
