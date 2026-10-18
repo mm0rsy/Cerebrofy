@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **26 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **27 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -94,6 +94,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_trace_history` | Trace the ancestry chain of a memory through its linked predecessors |
 | `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones |
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, refactoring sequence |
+| `cerebrofy_plan` | Generate a graph-aware, step-by-step refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. Markdown + optional JSON. Never modifies files. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, generate remediation sequence |
 | `cerebrofy_silo` | Knowledge silo detector: git-blame overlay on the call graph — bus factor risk per neuron, filterable by lobe, author, or risk level |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: ranks uncovered neurons by blast radius × change velocity |
@@ -469,14 +470,21 @@ Check for drift between source code and the index. Zero writes to any file or da
 
 ---
 
+<<<<<<< HEAD
 ### `cerebrofy_session_start`
 
 Start recording an agent session. Every MCP tool call made while the session is open is recorded locally into a replayable session. **Opt-in** — see `record_sessions` in [docs/configuration.md](configuration.md).
+=======
+### `cerebrofy_plan`
+
+Generate a step-by-step, graph-aware refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. The plan is a human-in-the-loop pre-flight checklist; it **never modifies files**. `dry_run` defaults to true — set it to false to also prepare an execution-handoff context window for the agent that will implement the plan.
+>>>>>>> 101a7bf (docs(plan): document the plan command and MCP cerebrofy_plan tool)
 
 **Input schema:**
 
 ```json
 {
+<<<<<<< HEAD
   "task": "Add rate limiting to login endpoint",
   "agent": "claude-sonnet-4-6"
 }
@@ -541,6 +549,48 @@ Return a full replay of a session (default: the most recent). The `cerebrofy_ses
 
 **Error codes:** `[SESSION_NOT_FOUND]` when no session (or the requested id) exists.
 
+=======
+  "description": "extract the payment logic into a payments service",
+  "format": "markdown",
+  "dry_run": true
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `description` | string | ✅ | Natural language description of the desired refactoring. |
+| `format` | string | — | `markdown` (default) or `json` (machine-readable for CI/CD). |
+| `dry_run` | boolean | — | If true, generate the plan only — do not modify any files (default: true). |
+
+**How it works:** Embeds the description → KNN search over `vec_neurons` → cohesive-cluster expansion (neighbors with >50% internal edges join) → reverse-topological sequencing (callees before callers) → per-step impact prediction and blast-radius containment. Integrations with blast radius (#01), agent memory (#05), refactor impact (#07), and product intent (#23) all degrade gracefully when their data is absent.
+
+**Output (`format: json`):** exact spec schema —
+
+```json
+{
+  "cluster": [{ "name": "charge", "file": "src/pay/charge.py", "relevance_score": 0.98 }],
+  "proposed_structure": { "new_module": "payments", "files": ["payments/charge.py"] },
+  "callers_to_update": [{ "name": "route", "file": "src/api/routes.py", "line": 8 }],
+  "steps": [{
+    "step_number": 1,
+    "description": "Create skeleton for 'payments/' — 1 new file(s): charge.py",
+    "neurons_affected": [],
+    "callers_break": false
+  }],
+  "estimated_hours": 1.1,
+  "files_affected": 3
+}
+```
+
+**Error codes:** `NO_INDEX` (run `cerebrofy build` first), `CLUSTER_TOO_SMALL` (fewer than 2 neurons matched — refine the query), `CLUSTER_TOO_LARGE` (more than 200 neurons matched — scope the description more narrowly).
+
+**Example:**
+
+```
+cerebrofy_plan(description="extract the payment logic into a payments service", dry_run=true)
+```
+
+>>>>>>> 101a7bf (docs(plan): document the plan command and MCP cerebrofy_plan tool)
 ---
 
 ## Available Resources

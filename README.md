@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 26 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 27 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 26 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 27 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -439,6 +439,32 @@ cerebrofy impact auth/tokens.py::validate_token --output json
 | **Complexity Rating** | 🟢 LOW / 🟡 MEDIUM / 🔴 HIGH |
 | **Memory Warnings** | `warning` memories attached to the target from `cerebrofy memory` |
 | **Refactoring Sequence** | Reverse-topological order — update callers leaf-first to minimise breakage |
+
+---
+
+### `cerebrofy plan`
+
+Generate a step-by-step, graph-aware refactoring plan from a plain-English description — *before touching any code*. The planner matches your description against the semantic index, expands the match into a cohesive neuron cluster (>50% internal edges), and sequences a dependency-safe migration: new module skeleton → moves with re-export stubs → caller updates → stub removal + tests.
+
+```bash
+cerebrofy plan "extract the payment logic into a payments service"
+cerebrofy plan "move all database connection code into a db/ module"
+cerebrofy plan "extract the auth helpers" --output json       # CI/CD task list
+cerebrofy plan "extract the auth helpers" --execute            # + AI execution handoff
+```
+
+The plan is a human-in-the-loop pre-flight checklist. `dry_run` defaults to true — **no files are ever modified** by the planner. `--execute` only prepares an optimized execution-handoff context window for the AI agent that will implement the plan (verified per-step with `cerebrofy impact`).
+
+| Output | Description |
+|--------|-------------|
+| **cluster** | Neurons matched by the description (KNN seeds + graph expansion) |
+| **proposed_structure** | New module name + file mapping (source → target) |
+| **callers_to_update** | Every direct caller outside the cluster (100% list) |
+| **steps** | Ordered migration steps — skeleton first, callees before callers, stubs removed last |
+| **estimated_hours** | Effort estimate from cluster size, caller count, and file count |
+| **files_affected** | Total distinct files touched across cluster, targets, and callers |
+
+Error codes: `NO_INDEX` (run `cerebrofy build` first), `CLUSTER_TOO_SMALL` (< 2 neurons matched — refine the query), `CLUSTER_TOO_LARGE` (> 200 neurons matched — scope more narrowly).
 
 ---
 
@@ -603,6 +629,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_trace_history` | Trace the ancestry chain of a memory through its linked predecessors. |
 | `cerebrofy_onboard` | Generate a topology-derived onboarding guide: reading order, entry points, hotspots, safe zones, and memory warnings. |
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
+| `cerebrofy_plan` | Generate a graph-aware, step-by-step refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. Markdown + optional JSON. Never modifies files. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
 | `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: rank uncovered neurons by blast radius × change velocity. Uses `coverage.xml` when present, falls back to graph topology. Surfaces the functions most likely to cause production bugs if a bug is introduced. |
@@ -737,7 +764,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 26 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 27 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support

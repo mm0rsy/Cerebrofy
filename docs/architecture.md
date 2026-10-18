@@ -18,7 +18,8 @@ src/cerebrofy/
 │   ├── arch.py                   ← cerebrofy arch: check/explain/history/init/watch
 │   ├── migrate.py                ← cerebrofy migrate: sequential schema migrations
 │   ├── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
-│   └── session.py                ← cerebrofy session: list/show/diff/search/export replays
+│   ├── session.py                ← cerebrofy session: list/show/diff/search/export replays
+│   └── plan.py                   ← cerebrofy plan: graph-aware refactor plan (Idea #12)
 │
 ├── parser/
 │   ├── engine.py                 ← Tree-sitter runner; dispatches to .scm queries
@@ -62,13 +63,18 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: tool + resource dispatch (26 tools)
+│   └── server.py                 ← MCPServer: tool + resource dispatch (27 tools)
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
 │   ├── replay.py                 ← build_session_diff() — graph delta + risk verdict
 │   ├── reporter.py               ← render_markdown() + render_html() replay renderers
 │   └── middleware.py             ← SessionMiddleware: thin recorder wired into the MCP dispatcher
+├── planning/                     ← Refactor Planner (Idea #12)
+    ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
+    ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
+    ├── formatter.py              ← Markdown + JSON plan output
+    └── planner.py                ← pipeline orchestration + feature integrations
 │
 ├── config/
 │   └── loader.py                 ← CerebrофyConfig dataclass + YAML I/O
@@ -76,6 +82,12 @@ src/cerebrofy/
 ├── update/
 │   ├── change_detector.py        ← ChangeSet via git diff or hash comparison
 │   └── scope_resolver.py         ← UpdateScope via depth-2 BFS from changed nodes
+│
+├── planning/                     ← Refactor Planner (Idea #12)
+│   ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
+│   ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
+│   ├── formatter.py              ← Markdown + JSON plan output
+│   └── planner.py                ← pipeline orchestration + feature integrations
 │
 ├── skills/
 │   ├── installer.py              ← install_skills() + install_instructions()
@@ -263,6 +275,49 @@ result = hybrid_search(
 # result.runtime_boundary_warnings — RUNTIME_BOUNDARY edges encountered
 # result.affected_lobes   — sorted lobe names from all neurons
 ```
+
+---
+
+## Refactor Planner (Idea #12)
+
+`cerebrofy plan` turns a plain-English refactoring description into a graph-aware, dependency-safe migration plan. The planner is a pure planning layer — it reads the index and emits a plan; it **never writes source files**. Execution is an explicit handoff (`--execute`) to an AI agent, verified per-step with `cerebrofy impact`.
+
+**Pipeline:** `extractor` → `sequence` → `formatter`.
+
+```mermaid
+graph TD
+    Q["User description"] --> E["embed_query (bge-small-en-v1.5)"]
+    E --> KNN["extractor.knn_seeds — KNN over vec_neurons"]
+    KNN --> EXP["extractor.expand_cluster — >50% internal edges (fixpoint)"]
+    EXP --> CL["NeuronCluster + external callers"]
+    CL --> NAME["planner.derive_module_name"]
+    CL --> SEQ["sequence.build_migration_steps — reverse-topo sort (#07)"]
+    SEQ --> STEP["MigrationStep[] (skeleton → moves → callers → stubs)"]
+    CL --> IMPACT["planner.annotate_steps_with_impact (#07)"]
+    CL --> BLAST["planner._blast_radius_label (#01)"]
+    CL --> MEM["planner._memory_context (#05)"]
+    CL --> INTENT["planner._avoid_pattern_warnings (#23)"]
+    STEP --> FMT["formatter.plan_to_markdown / plan_to_json"]
+    FMT --> OUT["Plan output (dry_run defaults to true)"]
+```
+
+**Modules** (`src/cerebrofy/planning/`):
+
+| Module | Responsibility |
+|--------|---------------|
+| `extractor.py` | KNN seed reused from `search/hybrid.py` + fixpoint cluster expansion (neighbors with >50% internal edges join). `RUNTIME_BOUNDARY` edges are never traversed (Law II). |
+| `sequence.py` | Dependency-safe migration ordering, reusing the reverse-topological sort from `analysis/sequence.py` (#07). Every neuron appears in at most one step — ordering can never be circular. |
+| `formatter.py` | Emits the exact spec JSON schema (`cluster`, `proposed_structure`, `callers_to_update`, `steps`, `estimated_hours`, `files_affected`) plus a human-reviewable Markdown checklist. |
+| `planner.py` | Orchestrates the pipeline and wires integrations: #01 blast radius (risk label), #05 agent memory (plan context), #07 impact (per-step prediction), #23 product intent (`avoid_patterns`). Each degrades gracefully when its data is absent. |
+
+**Entry points:** `commands/plan.py` (`cerebrofy plan`) and `mcp/tools/plan.py` (`cerebrofy_plan`), registered additively in `cli.py` and `mcp/server.py`.
+
+**Integrations deferred to later ideas** (marked with `TODO(integration-N)`, not wired on this branch):
+- #11 — record plan execution as a session
+- #17 — post-execution review copilot
+- #24 — synthesized-pattern avoidance for historically-failing steps
+
+**Acceptance targets:** plan generation < 10s; sequencing never circular; caller-update list complete (asserted by deterministic fixture-graph unit tests).
 
 ---
 
