@@ -119,8 +119,10 @@ def test_minor_drift_when_neurons_unchanged(tmp_path: Path) -> None:
     )
 
     # Fake ParseResult returns only the one function neuron so the index matches exactly.
+    # `type` is a required Neuron field now read by the classifier for NeuronDrift details.
     fake_neuron = MagicMock(spec=Neuron)
     fake_neuron.name = "foo"
+    fake_neuron.type = "function"
     fake_neuron.signature = "def foo():"
     fake_result = MagicMock(spec=ParseResult)
     fake_result.neurons = [fake_neuron]
