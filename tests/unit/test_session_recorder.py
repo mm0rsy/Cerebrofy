@@ -30,6 +30,7 @@ from cerebrofy.session.recorder import (
     start_session,
     truncate_args,
     truncate_summary,
+    write_session_summary_memory,
 )
 
 
@@ -428,3 +429,155 @@ def test_json_args_survive_roundtrip(sessions_conn: sqlite3.Connection) -> None:
         "SELECT args FROM session_events WHERE session_id = ?", (session.id,)
     ).fetchone()
     assert json.loads(stored[0]) == args
+
+
+# ---------------------------------------------------------------------------
+# #05 memory integration at session end (Phase 2 loop #11 -> #05 -> #11)
+# ---------------------------------------------------------------------------
+
+
+def test_write_session_summary_memory_writes_decision_memory(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.memory.store import list_memories, open_memories_db
+
+    session = start_session(sessions_conn, task="Refactor parser", agent="claude", now=1000)
+    closed = end_session(sessions_conn, session.id, outcome="success", notes="done", now=1060)
+
+    with patch("cerebrofy.memory.embedder.embed_memory", return_value=[0.0] * 384):
+        wrote = write_session_summary_memory(_cerebrofy_dir(tmp_path), closed)
+    assert wrote is True
+
+    mconn = open_memories_db(_cerebrofy_dir(tmp_path))
+    try:
+        mems = list_memories(mconn, type_filter="decision")
+    finally:
+        mconn.close()
+    assert len(mems) == 1
+    mem = mems[0]
+    assert mem.type == "decision"
+    assert mem.title == "Refactor parser"
+    assert "outcome=success" in mem.body
+    assert "duration=60s" in mem.body
+    assert mem.author == "agent:session-recorder"
+    assert "session" in mem.tags
+    assert "outcome:success" in mem.tags
+
+
+def test_end_session_writes_summary_memory_on_close(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.memory.store import list_memories, open_memories_db
+
+    session = start_session(sessions_conn, task="Add rate limiting", agent="bot", now=1000)
+    with patch("cerebrofy.memory.embedder.embed_memory", return_value=[0.0] * 384):
+        updated = end_session(
+            sessions_conn,
+            session.id,
+            outcome="success",
+            notes="done",
+            now=1060,
+            cerebrofy_dir=_cerebrofy_dir(tmp_path),
+        )
+    assert updated.outcome == "success"
+    assert not updated.is_active
+
+    mconn = open_memories_db(_cerebrofy_dir(tmp_path))
+    try:
+        mems = list_memories(mconn, type_filter="decision")
+    finally:
+        mconn.close()
+    assert len(mems) == 1
+    assert mems[0].title == "Add rate limiting"
+
+
+def test_end_session_skips_memory_without_cerebrofy_dir(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    session = start_session(sessions_conn, task="T", now=1000)
+    with patch("cerebrofy.memory.store.open_memories_db") as open_mock, patch(
+        "cerebrofy.memory.embedder.embed_memory", return_value=[0.0] * 384
+    ) as emb_mock, patch("cerebrofy.memory.store.write_memory") as write_mock:
+        end_session(sessions_conn, session.id, outcome="success", now=1001)
+    open_mock.assert_not_called()
+    emb_mock.assert_not_called()
+    write_mock.assert_not_called()
+
+
+def test_end_session_memory_write_is_non_fatal(sessions_conn: sqlite3.Connection, tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    session = start_session(sessions_conn, task="T", now=1000)
+    with patch(
+        "cerebrofy.memory.store.open_memories_db",
+        side_effect=RuntimeError("memories.db corrupt"),
+    ):
+        # Session must still close successfully even if the memory write fails.
+        updated = end_session(
+            sessions_conn,
+            session.id,
+            outcome="success",
+            notes="n",
+            now=1001,
+            cerebrofy_dir=_cerebrofy_dir(tmp_path),
+        )
+    assert updated.outcome == "success"
+    assert not updated.is_active
+
+
+def test_write_session_summary_memory_swallows_store_failure(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    session = start_session(sessions_conn, task="T", now=1000)
+    closed = end_session(sessions_conn, session.id, outcome="failed", now=1001)
+    with patch("cerebrofy.memory.store.open_memories_db", side_effect=RuntimeError("db down")):
+        assert write_session_summary_memory(_cerebrofy_dir(tmp_path), closed) is False
+
+
+def test_write_session_summary_memory_swallows_embedder_failure(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    from unittest.mock import patch
+
+    session = start_session(sessions_conn, task="T", now=1000)
+    closed = end_session(sessions_conn, session.id, outcome="failed", now=1001)
+    with patch("cerebrofy.memory.embedder.embed_memory", side_effect=RuntimeError("no model")):
+        assert write_session_summary_memory(_cerebrofy_dir(tmp_path), closed) is False
+
+
+# ---------------------------------------------------------------------------
+# Migration 005 (sessions.sql) verification: fresh-create + idempotent upgrade
+# ---------------------------------------------------------------------------
+
+
+def test_migration_005_sessions_sql_creates_outcome_columns(tmp_path: Path) -> None:
+    """migration/005_sessions.sql applies with outcome/outcome_notes from the start."""
+    import sqlite_vec  # type: ignore[import-untyped]
+
+    sql_path = Path(__file__).parents[2] / "migrations" / "005_sessions.sql"
+    conn = sqlite3.connect(":memory:")
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+    conn.executescript(sql_path.read_text(encoding="utf-8"))
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+    assert {"outcome", "outcome_notes", "blast_radius_before", "blast_radius_after",
+            "event_count"} <= cols
+
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    assert {"sessions", "session_events", "vec_sessions"} <= tables
+
+    # Upgrade path: re-applying the file must be idempotent (CREATE ... IF NOT EXISTS).
+    conn.executescript(sql_path.read_text(encoding="utf-8"))
+    conn.close()

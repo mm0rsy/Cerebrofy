@@ -166,6 +166,7 @@ def handle_session_end(arguments: dict[str, Any]) -> list[Any]:
                 outcome=str(outcome) if outcome else None,
                 notes=str(summary) if summary else None,
                 index_conn=index_conn,
+                cerebrofy_dir=cerebrofy_dir,
             )
         except ValueError as exc:
             return _err(f"[error] {exc}")

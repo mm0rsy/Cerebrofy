@@ -391,6 +391,67 @@ def _track_neuron_refs(
         )
 
 
+def write_session_summary_memory(
+    cerebrofy_dir: Path,
+    session: SessionRecord,
+    *,
+    author: str = "agent:session-recorder",
+) -> bool:
+    """Fold a closed session into the #05 memory layer as a single decision memory.
+
+    The memory title is the session task; its body carries the outcome, duration,
+    event count, neurons touched and the depth-2 blast-radius before->after delta
+    so the cross-session synthesizer (#24) can pattern-match on agent outcomes —
+    the Phase 2 loop #11 -> #05 -> #11.
+
+    Non-fatal by contract: any failure (memories.db absent, #05 embedder offline,
+    disk error) is swallowed and ``False`` is returned. This mirrors
+    ``cerebrofy.arch.memory.write_violation_memories`` — the recording path must
+    never fail because the memory layer did.
+    """
+    try:
+        from cerebrofy.memory.embedder import embed_memory
+        from cerebrofy.memory.store import Memory, open_memories_db, write_memory
+
+        title = (session.task or "").strip()[:120] or "[no task]"
+        blast = ""
+        if session.blast_radius_before is not None or session.blast_radius_after is not None:
+            blast = (
+                f"; blast_radius_before={session.blast_radius_before} -> "
+                f"after={session.blast_radius_after}"
+            )
+        body = (
+            f"agent={session.agent or 'unknown'}; outcome={session.outcome}; "
+            f"duration={session.duration_seconds}s; events={session.event_count}; "
+            f"neurons_touched={len(session.neurons_touched)}{blast}"
+        )
+        if session.outcome_notes:
+            body += f"\n\nnotes: {session.outcome_notes.strip()[:500]}"
+        mem = Memory(
+            id=str(uuid.uuid4()),
+            neuron_id=None,
+            lobe=None,
+            type="decision",
+            title=title,
+            body=body,
+            author=author,
+            created_ts=int(session.ended_at or time.time()),
+            tags=("session", f"outcome:{session.outcome}"),
+            decay_score=1.0,
+            status="active",
+        )
+        conn = open_memories_db(cerebrofy_dir)
+        try:
+            embedding = embed_memory(mem.title, mem.body)
+            write_memory(conn, mem, embedding)
+            conn.commit()
+        finally:
+            conn.close()
+        return True
+    except Exception:
+        return False
+
+
 def end_session(
     conn: sqlite3.Connection,
     session_id: str,
@@ -399,12 +460,18 @@ def end_session(
     notes: str | None = None,
     now: int | None = None,
     index_conn: sqlite3.Connection | None = None,
+    cerebrofy_dir: Path | None = None,
 ) -> SessionRecord:
     """Close a session: set ended_at / outcome / notes and the after-metric.
 
     ``outcome`` defaults to ``"unknown"``; an unknown value raises ValueError.
     When *index_conn* is provided and neurons were tracked, ``blast_radius_after``
     is recomputed over the tracked set against the current index.
+
+    When *cerebrofy_dir* is provided (MCP/CLI context), the closed session is
+    also folded into the #05 memory layer as a single decision memory via
+    :func:`write_session_summary_memory` — the Phase 2 loop #11 -> #05 -> #11.
+    This step is non-fatal: a memory-store failure never masks a closed session.
 
     TODO(integration-24): the cross-session synthesizer will read closed
     sessions (outcome + outcome_notes) from this table to detect patterns.
@@ -439,6 +506,10 @@ def end_session(
     conn.commit()
     updated = get_session(conn, session_id)
     assert updated is not None  # session existed above
+    if cerebrofy_dir is not None:
+        # Phase 2 loop (#11 -> #05 -> #11): summarise the closed session as a
+        # decision memory. Non-fatal — never let the memory layer fail a close.
+        write_session_summary_memory(cerebrofy_dir, updated)
     return updated
 
 
