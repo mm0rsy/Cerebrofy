@@ -17,6 +17,7 @@ import asyncio
 import json
 import sqlite3
 import subprocess
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,12 @@ from cerebrofy.mcp.tools.session import handle_session_end as _handle_session_en
 from cerebrofy.mcp.tools.session import handle_session_show as _handle_session_show
 from cerebrofy.mcp.tools.session import handle_session_start as _handle_session_start
 from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
+from cerebrofy.utils.paths import (
+    InvalidRepoRootError,
+    find_repo_root,
+    require_repo_root,
+    set_bound_root,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +77,45 @@ class CerebrofyMCPServer(Server):  # type: ignore[type-arg, misc]
 # `cerebrofy update` is one interval; 0.5s keeps it under the <1s target from
 # idea #10 — the fingerprint itself is only three stat/glob calls.
 _INDEX_WATCH_INTERVAL_SECONDS = 0.5
+
+
+# ---------------------------------------------------------------------------
+# Server-side caps on user-supplied integers (Idea #25 / DoS hardening).
+#
+# The tool JSON schemas advertise ``maximum`` bounds, but a non-compliant or
+# malicious client can ignore them. We enforce hard caps here too so a huge
+# ``top_k``/``limit``/``top`` cannot exhaust memory or CPU, and malformed values
+# produce a clean MCP error instead of an uncaught ``ValueError``/``TypeError``.
+# ---------------------------------------------------------------------------
+_MAX_TOP_K = 50      # matches search_code schema maximum
+_MAX_LIMIT = 100     # cerebrofy_recall result limit
+_MAX_RESULT_TOP = 100  # cerebrofy_silo / coverage_gap "top N" rankings
+
+
+def _parse_int_arg(
+    arguments: dict[str, Any],
+    key: str,
+    default: int,
+    *,
+    maximum: int,
+    minimum: int = 1,
+) -> tuple[int, str | None]:
+    """Validate, clamp, and return an integer tool argument.
+
+    Returns ``(value, None)`` on success or ``(0, message)`` when *value* is not
+    a valid integer. Out-of-range values are clamped to ``[minimum, maximum]``
+    rather than rejected, matching the permissive intent of the schemas.
+    """
+    raw = arguments.get(key, default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return 0, f"[error] '{key}' must be an integer, got {raw!r}."
+    if value < minimum:
+        value = minimum
+    elif value > maximum:
+        value = maximum
+    return value, None
 
 
 async def _notify_resource_changes(
@@ -126,7 +172,7 @@ def _start_index_watcher(app: Any, subscriptions: set[str], state: dict[str, Any
     except LookupError:
         return
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError:
         return
     state["started"] = True
@@ -143,17 +189,12 @@ def _start_index_watcher(app: Any, subscriptions: set[str], state: dict[str, Any
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _find_repo_root(start: Path) -> Path:
-    """Walk up from *start* searching for .cerebrofy/config.yaml."""
-    current = start if start.is_dir() else start.parent
-    for candidate in [current, *current.parents]:
-        if (candidate / ".cerebrofy" / "config.yaml").exists():
-            return candidate
-    raise FileNotFoundError(
-        "No Cerebrofy config found in current directory or any parent. "
-        "Run 'cerebrofy init' first."
-    )
+# Repo-root resolution now lives in ``cerebrofy.utils.paths`` (``find_repo_root``
+# / ``require_repo_root``) so every tool command and the MCP server share one
+# implementation. The MCP server pins the root at start-up only when an explicit
+# root is supplied (``--root`` / ``CEREBROFY_ROOT``); otherwise handlers keep the
+# documented per-call CWD routing. An explicit binding makes a manipulated CWD
+# unable to redirect the server at a different project's databases.
 
 
 def _run_cerebrofy(args: list[str], cwd: str, timeout: int = 300) -> tuple[int, str]:
@@ -179,7 +220,7 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     if not db_path.exists():
         raise FileNotFoundError(
-            f"Index not found at {db_path}. Run 'cerebrofy build' first."
+            "Index not found. Run 'cerebrofy build' first."
         )
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
@@ -220,13 +261,15 @@ def _handle_search_code(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
 
     query: str = arguments.get("query", "")
-    top_k: int = int(arguments.get("top_k", 10))
+    top_k, _err = _parse_int_arg(arguments, "top_k", 10, maximum=_MAX_TOP_K)
+    if _err is not None:
+        return _make_error_content(_err)
     lobe_filter: str | None = arguments.get("lobe")
 
     if not query:
         return _make_error_content("[error] 'query' is required.")
 
-    root = _find_repo_root(Path.cwd())
+    root = require_repo_root(Path.cwd())
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     if not db_path.exists():
         return _make_error_content("Index not found. Run 'cerebrofy build' first.")
@@ -282,7 +325,7 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
     if not name and not file:
         return _make_error_content("[error] Provide 'name' or 'file'.")
 
-    root = _find_repo_root(Path.cwd())
+    root = require_repo_root(Path.cwd())
     conn = _open_db_ro(root)
     try:
         if name:
@@ -343,7 +386,7 @@ def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
     """Return available lobes by scanning the lobes markdown directory."""
     from mcp.types import TextContent
 
-    root = _find_repo_root(Path.cwd())
+    root = require_repo_root(Path.cwd())
     lobes_dir = root / "docs" / "cerebrofy"
     map_file = root / "docs" / "cerebrofy" / "cerebrofy_map.md"
 
@@ -369,7 +412,7 @@ def _handle_list_resources(arguments: dict[str, Any]) -> list[Any]:
     filter_value: str = arguments.get("filter", "all") or "all"
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[NO_INDEX] {exc}")
 
@@ -398,7 +441,7 @@ def _handle_context(arguments: dict[str, Any]) -> list[Any]:
     fmt: str = arguments.get("format", "json")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -440,7 +483,7 @@ def _handle_blast_radius(arguments: dict[str, Any]) -> list[Any]:
     fmt: str = arguments.get("format", "json")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -515,7 +558,7 @@ def _handle_epistemic(arguments: dict[str, Any]) -> list[Any]:
     fmt: str = arguments.get("format", "json")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -563,7 +606,7 @@ def _handle_health(arguments: dict[str, Any]) -> list[Any]:
     fmt: str = arguments.get("format", "markdown")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -651,7 +694,7 @@ def _handle_intent(arguments: dict[str, Any]) -> list[Any]:
     fmt: str = arguments.get("format", "json")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -718,7 +761,7 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
         )
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except Exception:
         return _make_error_content("NO_INDEX: could not find .cerebrofy directory")
 
@@ -797,7 +840,7 @@ def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
         return _make_error_content("cerebrofy_recall: 'query' is required")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except Exception:
         return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
 
@@ -813,9 +856,12 @@ def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
 
         conn = open_memories_db(cerebrofy_dir)
         embedding = embed_memory(query, "")
+        limit, _limit_err = _parse_int_arg(arguments, "limit", 10, maximum=_MAX_LIMIT)
+        if _limit_err is not None:
+            return _make_error_content(_limit_err)
         results = recall_memories(
             conn, embedding,
-            limit=int(arguments.get("limit", 10)),
+            limit=limit,
             type_filter=arguments.get("type"),
             lobe_filter=arguments.get("lobe"),
             include_stale=bool(arguments.get("include_stale", False)),
@@ -850,7 +896,7 @@ def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
         return _make_error_content("cerebrofy_memories: provide 'neuron' or 'lobe'")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except Exception:
         return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
 
@@ -902,7 +948,7 @@ def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
 def _handle_build(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
     code, output = _run_cerebrofy(["build"], str(root))
@@ -913,7 +959,7 @@ def _handle_build(arguments: dict[str, Any]) -> list[Any]:
 def _handle_update(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
     path: str | None = arguments.get("path")
@@ -926,7 +972,7 @@ def _handle_update(arguments: dict[str, Any]) -> list[Any]:
 def _handle_validate(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
     code, output = _run_cerebrofy(["validate"], str(root))
@@ -946,7 +992,7 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
     show_tests: bool = bool(arguments.get("show_tests", True))
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -1023,14 +1069,16 @@ def _handle_silo(arguments: dict[str, Any]) -> list[Any]:
 
     depth: int = int(arguments.get("depth", 2))
     min_callers: int = int(arguments.get("min_callers", 1))
-    top: int = int(arguments.get("top", 20))
+    top, _top_err = _parse_int_arg(arguments, "top", 20, maximum=_MAX_RESULT_TOP)
+    if _top_err is not None:
+        return _make_error_content(_top_err)
     lobe_filter: str | None = arguments.get("lobe")
     author_filter: str | None = arguments.get("author")
     risk_filter: str | None = arguments.get("risk_level")
     write_memories: bool = bool(arguments.get("write_memories", False))
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -1077,13 +1125,15 @@ def _handle_coverage_gap(arguments: dict[str, Any]) -> list[Any]:
     days: int = int(arguments.get("days", 30))
     depth: int = int(arguments.get("depth", 2))
     min_blast: float = float(arguments.get("min_blast", 0.0))
-    top: int = int(arguments.get("top", 20))
+    top, _top_err = _parse_int_arg(arguments, "top", 20, maximum=_MAX_RESULT_TOP)
+    if _top_err is not None:
+        return _make_error_content(_top_err)
     lobe_filter: str | None = arguments.get("lobe")
     risk_filter: str | None = arguments.get("risk_level")
     write_memories: bool = bool(arguments.get("write_memories", False))
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -1138,7 +1188,7 @@ def _handle_vuln(arguments: dict[str, Any]) -> list[Any]:
     write_memories: bool = bool(arguments.get("write_memories", False))
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -1214,7 +1264,7 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
     since_ref = arguments.get("since")
 
     try:
-        root = _find_repo_root(Path.cwd())
+        root = require_repo_root(Path.cwd())
     except FileNotFoundError as exc:
         return _make_error_content(f"[error] {exc}")
 
@@ -1293,10 +1343,77 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
 # Server entrypoint
 # ---------------------------------------------------------------------------
 
-async def run_mcp_server() -> None:
-    """Start the cerebrofy MCP stdio server."""
+# Bootstrapped once at start-up so every handler operates on the same project
+# regardless of later CWD changes. Honors (in order): an explicit ``root``
+# argument, the ``CEREBROFY_ROOT`` env var, then a CWD walk-up.
+# ``set_bound_root`` is imported from ``cerebrofy.utils.paths`` and read by the
+# shared ``find_repo_root``/``require_repo_root`` used by handlers.
+
+_BOOTSTRAP_NOTE = (
+    "Run 'cerebrofy init' first, or set CEREBROFY_ROOT / pass --root "
+    "pointing at a valid Cerebrofy project."
+)
+
+
+def _bootstrap_root(root: Path | str | None) -> Path | None:
+    """Resolve an explicit repo root for the lifetime of the server.
+
+    An explicit *root* (``--root``) or a ``CEREBROFY_ROOT`` env var pins the
+    project for the whole process. Without either, ``None`` is returned and the
+    server keeps the documented per-call CWD routing (one MCP entry serving
+    multiple repos). An invalid explicit binding raises
+    :class:`InvalidRepoRootError` so the server refuses to start rather than
+    silently scanning the wrong project.
+    """
+    if root is not None:
+        resolved = Path(root).resolve()
+        if not (resolved / ".cerebrofy" / "config.yaml").is_file():
+            raise InvalidRepoRootError(
+                f"--root {root!r} does not contain .cerebrofy/config.yaml. "
+                + _BOOTSTRAP_NOTE
+            )
+        return resolved
+    if not os.environ.get("CEREBROFY_ROOT"):
+        return None
+    # Env var is set: resolve it once and fail closed if it is invalid.
+    found = find_repo_root(Path.cwd())
+    if found is None:
+        raise FileNotFoundError(
+            "CEREBROFY_ROOT did not resolve to a Cerebrofy project. "
+            + _BOOTSTRAP_NOTE
+        )
+    return found
+
+
+async def run_mcp_server(root: Path | str | None = None) -> None:
+    """Start the cerebrofy MCP stdio server.
+
+    *root* (or the ``CEREBROFY_ROOT`` env var) pins the project the server
+    operates on. Pinning happens **once** here: every handler then resolves the
+    root from this binding instead of re-walking from CWD, so a manipulated
+    working directory cannot redirect the server at another project's
+    ``cerebrofy.db`` / ``sessions.db`` / ``memories.db``.
+
+    When neither is supplied the server keeps the documented per-call CWD
+    routing, so one MCP entry can serve multiple repos.
+    """
     from mcp.server.stdio import stdio_server
     from mcp.types import Tool
+
+    bound = _bootstrap_root(root)
+    if bound is not None:
+        set_bound_root(bound)
+        source = "explicit --root" if root is not None else "CEREBROFY_ROOT"
+        print(
+            f"cerebrofy mcp: bound to project root {bound} ({source})",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "cerebrofy mcp: CWD routing enabled (no explicit root); "
+            "set CEREBROFY_ROOT or pass --root to pin the project",
+            file=sys.stderr,
+        )
 
     app = CerebrofyMCPServer("cerebrofy")
 
@@ -1932,7 +2049,7 @@ async def run_mcp_server() -> None:
 
             # Cross-cutting enrichment for all data-reading tools
             try:
-                root = _find_repo_root(Path.cwd())
+                root = require_repo_root(Path.cwd())
                 result = _with_epistemic(result, root)
                 result = _with_intent(result, root)
                 return result
@@ -1980,7 +2097,7 @@ async def run_mcp_server() -> None:
         _capture_session()
 
         try:
-            root = _find_repo_root(Path.cwd())
+            root = require_repo_root(Path.cwd())
         except FileNotFoundError:
             return []
 
@@ -2001,7 +2118,7 @@ async def run_mcp_server() -> None:
         from cerebrofy.mcp.resources import list_resource_entries
 
         try:
-            root = _find_repo_root(Path.cwd())
+            root = require_repo_root(Path.cwd())
         except FileNotFoundError:
             root = Path.cwd()  # templates are index-independent; lobes will be empty
 
@@ -2041,7 +2158,7 @@ async def run_mcp_server() -> None:
         uri_str = str(uri)
 
         try:
-            root = _find_repo_root(Path.cwd())
+            root = require_repo_root(Path.cwd())
         except FileNotFoundError as exc:
             raise ValueError(f"No Cerebrofy index found: {exc}") from exc
 

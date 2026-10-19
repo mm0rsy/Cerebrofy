@@ -38,12 +38,22 @@ console = Console()
 
 
 def _find_repo_root() -> Path:
-    cwd = Path.cwd()
-    for parent in (cwd, *cwd.parents):
-        if (parent / ".cerebrofy" / "config.yaml").exists():
-            return parent
-    click.echo("Error: Not initialized. Run 'cerebrofy init' first.", err=True)
-    sys.exit(1)
+    """Resolve the repo root via the shared helper (config.yaml marker).
+
+    Honors an explicit ``CEREBROFY_ROOT`` binding before walking up from CWD.
+    Exits with a clear message when no project is found.
+    """
+    from cerebrofy.utils.paths import InvalidRepoRootError, find_repo_root
+
+    try:
+        root = find_repo_root(Path.cwd())
+    except InvalidRepoRootError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    if root is None:
+        click.echo("Error: Not initialized. Run 'cerebrofy init' first.", err=True)
+        sys.exit(1)
+    return root
 
 
 def _open(root: Path) -> sqlite3.Connection:

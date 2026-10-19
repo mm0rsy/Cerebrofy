@@ -28,12 +28,24 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
 
 
 def _find_repo_root() -> Path:
-    cwd = Path.cwd()
-    for parent in [cwd, *cwd.parents]:
-        if (parent / ".cerebrofy" / "db" / "cerebrofy.db").exists():
-            return parent
-    click.echo("Cerebrofy: No index found in current directory or any parent.")
-    sys.exit(1)
+    """Resolve the repo root via the shared helper (DB marker).
+
+    The silo analysis only needs an *indexed* tree, so it walks up for the
+    database file (``.cerebrofy/db/cerebrofy.db``) while still honoring an
+    explicit ``CEREBROFY_ROOT`` binding first. Exits with a clear message when
+    no project is found.
+    """
+    from cerebrofy.utils.paths import DB_MARKER, InvalidRepoRootError, find_repo_root
+
+    try:
+        root = find_repo_root(Path.cwd(), marker=DB_MARKER)
+    except InvalidRepoRootError as exc:
+        click.echo(f"Cerebrofy: {exc}", err=True)
+        sys.exit(1)
+    if root is None:
+        click.echo("Cerebrofy: No index found in current directory or any parent.")
+        sys.exit(1)
+    return root
 
 
 def _render_text(report: object, top: int) -> None:

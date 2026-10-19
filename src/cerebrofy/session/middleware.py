@@ -26,6 +26,7 @@ from cerebrofy.session.recorder import (
     open_sessions_db,
     record_event,
 )
+from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
 
 # The session-management tools are never recorded themselves: session_start
 # creates the session, session_end closes it, and recording either inside the
@@ -40,16 +41,16 @@ _MAX_RESULT_SAMPLE_CHARS = 1000
 def find_repo_root(start: Path, *, root_boundary: Path | None = None) -> Path | None:
     """Walk up from *start* looking for ``.cerebrofy/config.yaml``; None if absent.
 
+    Delegates to the single shared implementation in :mod:`cerebrofy.utils.paths`
+    so there is one resolution code-path across the whole project. When a root
+    has been explicitly bound by the MCP server (``set_bound_root``) it is
+    returned immediately, ignoring *start* — this is what prevents a
+    manipulated CWD from redirecting session recording at another project.
+
     If *root_boundary* is provided, the walk stops at that directory (useful for
     preventing cross-project access in multi-project environments).
     """
-    current = start if start.is_dir() else start.parent
-    for candidate in (current, *current.parents):
-        if root_boundary is not None and not candidate.is_relative_to(root_boundary):
-            break
-        if (candidate / ".cerebrofy" / "config.yaml").exists():
-            return candidate
-    return None
+    return _find_repo_root_impl(start, boundary=root_boundary)
 
 
 def summarize_result(result: object) -> str | None:

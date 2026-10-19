@@ -14,7 +14,7 @@ def open_db_readonly(db_path: Path) -> sqlite3.Connection:
     Loads the sqlite-vec extension so vector search operations work correctly.
     """
     if not db_path.exists():
-        raise FileNotFoundError(f"Index not found at {db_path}. Run 'cerebrofy build' first.")
+        raise FileNotFoundError("Index not found. Run 'cerebrofy build' first.")
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)

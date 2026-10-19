@@ -18,12 +18,18 @@ from cerebrofy.search.hybrid import embed_query
 
 
 def _find_repo_root() -> Path | None:
-    """Walk up from CWD searching for a .cerebrofy directory."""
-    cwd = Path.cwd()
-    for candidate in [cwd, *cwd.parents]:
-        if (candidate / ".cerebrofy").is_dir():
-            return candidate
-    return None
+    """Resolve the repo root via the shared helper (config.yaml marker).
+
+    Honors an explicit ``CEREBROFY_ROOT`` binding before walking up from CWD;
+    returns ``None`` (caller exits) when no project is found.
+    """
+    from cerebrofy.utils.paths import InvalidRepoRootError, find_repo_root
+
+    try:
+        return find_repo_root(Path.cwd())
+    except InvalidRepoRootError as exc:
+        click.echo(f"Cerebrofy: {exc}", err=True)
+        sys.exit(1)
 
 
 @click.command("plan")
@@ -67,7 +73,7 @@ def cerebrofy_plan(description: str, execute: bool, output: str) -> None:
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     if not db_path.exists():
         click.echo(
-            f"Cerebrofy: [{NO_INDEX}] Index not found at {db_path}. "
+            f"Cerebrofy: [{NO_INDEX}] Index not found. "
             "Run 'cerebrofy build' first."
         )
         sys.exit(1)
