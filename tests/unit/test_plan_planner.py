@@ -68,7 +68,7 @@ def _edge(conn: sqlite3.Connection, src: str, dst: str) -> None:
     )
 
 
-def _build_fixture(tmp_path: Path, *, caller_count: int = 5) -> Path:
+def a_payment_cluster_with_5_callers(tmp_path: Path, *, caller_count: int = 5) -> Path:
     """Payment-cluster fixture: 2 seeds, 1 expansion neuron, N external callers."""
     db_path, conn = _make_db(tmp_path)
     _node(conn, "pay_a", "charge", "src/pay/charge.py", line=10)
@@ -212,7 +212,7 @@ def test_cluster_too_large_above_200_seeds(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_happy_path_plan_structure(tmp_path: Path) -> None:
-    db_path = _build_fixture(tmp_path)
+    db_path = a_payment_cluster_with_5_callers(tmp_path)
     plan = _generate(tmp_path, db_path)
 
     assert plan.new_module == "payments"
@@ -232,22 +232,31 @@ def test_happy_path_plan_structure(tmp_path: Path) -> None:
     assert plan.blast_radius_label in {"LOW", "MEDIUM", "HIGH"}
 
 
-def test_happy_path_impact_annotation_and_formulas(tmp_path: Path) -> None:
-    db_path = _build_fixture(tmp_path)
-    plan = _generate(tmp_path, db_path)
-
+def test_annotates_steps_with_impact_rating(tmp_path: Path) -> None:
+    plan = _generate(tmp_path, a_payment_cluster_with_5_callers(tmp_path))
     # #07 integration: the charge.py move step is annotated with its impact rating.
     assert any("— impact:" in s.description for s in plan.steps)
 
-    # Deterministic effort/file formulas (spec).
+
+def test_estimates_effort_using_published_formula(tmp_path: Path) -> None:
+    plan = _generate(tmp_path, a_payment_cluster_with_5_callers(tmp_path))
+    # Formula constants (spec): effort = base + per-neuron + per-caller + per-file
+    effort_base = 0.5
+    effort_per_neuron = 0.1
+    effort_per_caller = 0.05
+    effort_per_file = 0.25
     expected_hours = round(
-        0.5 + 0.1 * len(plan.cluster)
-        + 0.05 * len(plan.callers_to_update)
-        + 0.25 * len(plan.file_map),
+        effort_base
+        + effort_per_neuron * len(plan.cluster)
+        + effort_per_caller * len(plan.callers_to_update)
+        + effort_per_file * len(plan.file_map),
         1,
     )
     assert plan.estimated_hours == expected_hours
 
+
+def test_counts_affected_files_across_cluster_file_map_and_callers(tmp_path: Path) -> None:
+    plan = _generate(tmp_path, a_payment_cluster_with_5_callers(tmp_path))
     expected_files = len(
         {n.file for n in plan.cluster if n.file}
         | set(plan.file_map.values())
@@ -257,7 +266,7 @@ def test_happy_path_impact_annotation_and_formulas(tmp_path: Path) -> None:
 
 
 def test_file_map_and_proposed_files_are_consistent(tmp_path: Path) -> None:
-    db_path = _build_fixture(tmp_path)
+    db_path = a_payment_cluster_with_5_callers(tmp_path)
     plan = _generate(tmp_path, db_path)
     assert sorted(plan.file_map.values()) == plan.proposed_files
     for source, target in plan.file_map.items():
@@ -270,7 +279,7 @@ def test_file_map_and_proposed_files_are_consistent(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def test_dry_run_true_never_prepares_handoff(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    db_path = _build_fixture(tmp_path)
+    db_path = a_payment_cluster_with_5_callers(tmp_path)
 
     def _boom(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover - must not run
         raise AssertionError("optimize_context must not be called for dry runs")
@@ -281,7 +290,7 @@ def test_dry_run_true_never_prepares_handoff(tmp_path: Path, monkeypatch: pytest
 
 
 def test_dry_run_false_prepares_handoff_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    db_path = _build_fixture(tmp_path)
+    db_path = a_payment_cluster_with_5_callers(tmp_path)
     fake_plan = SimpleNamespace(neurons=[1, 2, 3], tokens_used=1200, token_budget=2000)
     monkeypatch.setattr(
         "cerebrofy.context.optimizer.optimize_context", lambda **kwargs: fake_plan
@@ -298,7 +307,7 @@ def test_dry_run_false_prepares_handoff_summary(tmp_path: Path, monkeypatch: pyt
 def test_handoff_degrades_to_none_when_optimizer_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_path = _build_fixture(tmp_path)
+    db_path = a_payment_cluster_with_5_callers(tmp_path)
 
     def _fail(**kwargs: Any) -> Any:
         raise RuntimeError("no context db")
