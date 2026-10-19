@@ -14,6 +14,7 @@ from cerebrofy.changelog.generator import (
     write_narrative_events,
     _audience_text,
     _entry_title,
+    _first_sentence,
     _health_delta,
     _load_memories,
     _open_index_db,
@@ -136,7 +137,7 @@ def _patched_collect(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(
-        "cerebrofy.validate.drift_classifier.classify_drift",
+        "cerebrofy.changelog.classifier.classify_drift",
         lambda files, conn, config, repo_root: [
             DriftRecord(
                 file="src/auth/tokens.py", drift_type="structural",
@@ -210,6 +211,47 @@ def test_build_entries_excludes_internal_for_pm_and_user() -> None:
         entries = build_entries([internal], audience, {})
         # internal entries still appear but their audience_text is empty → filtered by formatter
         assert all(e.audience_text == "" for e in entries)
+
+
+# ---------------------------------------------------------------------------
+# _first_sentence: abbreviation-aware sentence extraction (m3)
+# ---------------------------------------------------------------------------
+
+
+def test_first_sentence_normal() -> None:
+    """A normal sentence ends at the first terminal punctuation."""
+    assert _first_sentence("Added new feature. Details here.") == "Added new feature."
+    assert _first_sentence("Fixed a bug! More info.") == "Fixed a bug!"
+    assert _first_sentence("What? Really.") == "What?"
+
+
+def test_first_sentence_abbreviations() -> None:
+    """e.g., i.e., etc., vs. do not end the sentence."""
+    assert _first_sentence("Use e.g. this approach.") == "Use e.g. this approach."
+    assert _first_sentence("Note: i.e. the thing.") == "Note: i.e. the thing."
+    assert _first_sentence("Various notes etc.") == "Various notes etc."
+    assert _first_sentence("Team vs. individual.") == "Team vs. individual."
+
+
+def test_first_sentence_newline() -> None:
+    """Only the first line is considered (docstring summary)."""
+    assert _first_sentence("First line.\nMore details here.") == "First line."
+    assert _first_sentence("No period here\nSecond line.") == "No period here"
+
+
+def test_first_sentence_no_terminal_punctuation() -> None:
+    """No terminal punctuation → returns the whole first line."""
+    assert _first_sentence("Just some text") == "Just some text"
+    assert _first_sentence("No period") == "No period"
+    assert _first_sentence("") == ""
+
+
+def test_first_sentence_respects_limit() -> None:
+    """The limit parameter still truncates the result."""
+    long_text = "This is a very long sentence that exceeds the limit."
+    result = _first_sentence(long_text, limit=10)
+    assert len(result) == 10
+    assert result == long_text[:10]
 
 
 def test_load_memories_degrades_when_absent(tmp_path: Path) -> None:

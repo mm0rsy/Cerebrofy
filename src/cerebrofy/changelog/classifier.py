@@ -16,8 +16,14 @@ from pathlib import Path
 from typing import Any
 
 from cerebrofy.analysis.blast_radius import bfs_callers
+from cerebrofy.constants import DEFAULT_GIT_TIMEOUT_SECONDS
+from cerebrofy.config.loader import ChangelogConfig
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import detect_changes_between_refs
+from cerebrofy.validate.drift_classifier import classify_drift
+# ``classify_drift`` is imported at module scope because ``cerebrofy.validate.
+# drift_classifier`` has no dependency on this module — moving it here (m9)
+# removed a function-scope import that obscured the true dependency graph.
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -51,7 +57,9 @@ KIND_SIGNATURE_CHANGED = "signature_changed"
 KIND_REMOVED = "removed"
 KIND_MOVED = "moved"
 
-#: More than this many cross-lobe direct callers ⇒ breaking (spec).
+#: Default threshold for breaking changes via cross-lobe callers.
+#: Retained as a module-level constant for backward compatibility; the
+#: classification logic now delegates to ``ChangelogConfig.breaking_cross_lobe_threshold``.
 BREAKING_CROSS_LOBE_CALLERS = 3
 
 #: Error codes surfaced to the CLI and MCP tool (spec §Error Codes).
@@ -60,8 +68,6 @@ CODE_REF_NOT_FOUND = "REF_NOT_FOUND"
 
 _SECURITY_TAGS = frozenset({"security", "vuln", "cve", "vulnerability"})
 _PERF_TAGS = frozenset({"perf", "performance"})
-
-_REV_PARSE_TIMEOUT = 15  # seconds
 
 #: Git ref characters allowed in user-supplied refs (tags, hashes, branch names
 #: with ``/`` and ``.``, revision specs like ``HEAD~1`` / ``HEAD^`` / ``HEAD@{1}``).
@@ -168,7 +174,7 @@ def _run_git(args: list[str], repo_root: Path) -> str | None:
             cwd=str(repo_root),
             capture_output=True,
             text=True,
-            timeout=_REV_PARSE_TIMEOUT,
+            timeout=DEFAULT_GIT_TIMEOUT_SECONDS,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -184,13 +190,46 @@ def _rev_parse(ref: str, repo_root: Path) -> str | None:
     return out or None
 
 
-def is_test_file(file: str) -> bool:
-    """True when *file* lives under tests/ or is named like a test module."""
+def is_test_file(file: str, conn: sqlite3.Connection | None = None) -> bool:
+    """True when *file* lives under tests/ or is named like a test module.
+
+    When *conn* is available, the index (``file_hashes`` table) is consulted
+    first with SQL test-path predicates.  If the file is indexed the SQL result
+    is authoritative: a matching predicate returns ``True``, a non-matching
+    indexed file returns ``False``.  When the file is not indexed (or the
+    connection is unavailable / raises), the Python path heuristic is used as
+    a fallback.
+    """
     parts = Path(file).parts
-    if parts and parts[0] == "tests":
-        return True
     name = Path(file).name
-    return name.startswith("test_") or name.endswith("_test.py")
+    py_matches = bool(parts and parts[0] == "tests") or name.startswith(
+        "test_"
+    ) or name.endswith("_test.py")
+
+    if conn is None:
+        return py_matches
+
+    # Index-aware path: a single query that returns a row when the file is
+    # indexed, with a 1/0 CASE indicating whether it matches test-path predicates.
+    try:
+        row = conn.execute(
+            "SELECT CASE "
+            "WHEN file LIKE 'tests/%' OR file LIKE '%/tests/%' "
+            "OR file LIKE 'test_%' OR file LIKE '%/test_%' "
+            "OR file LIKE '%_test.py' OR file LIKE '%_test.js' "
+            "OR file LIKE '%_test.ts' OR file LIKE '%_test.tsx' "
+            "OR file LIKE '%_test.jsx' THEN 1 ELSE 0 END "
+            "FROM file_hashes WHERE file = ?",
+            (file,),
+        ).fetchone()
+    except sqlite3.Error:
+        return py_matches
+
+    if row is None:
+        # File not indexed — fall back to the Python heuristic.
+        return py_matches
+
+    return bool(row[0])
 
 
 def lobe_for_file(file: str, lobes: Mapping[str, str] | None = None) -> str:
@@ -309,8 +348,6 @@ def collect_changes(
     Raises:
         ChangelogError(REF_NOT_FOUND): the range cannot be resolved.
     """
-    from cerebrofy.validate.drift_classifier import classify_drift
-
     range_ = resolved or resolve_range(repo_root, since, conn)
     cfg_lobes: Mapping[str, str] | None = None
     if config is not None:
@@ -405,13 +442,13 @@ def _caller_stats(
     direct = 0
     cross = 0
     for caller in depth1:
-        if is_test_file(caller.file):
+        if is_test_file(caller.file, conn):
             continue
         direct += 1
         if lobe_for_file(caller.file, lobes) != neuron_lobe:
             cross += 1
 
-    blast = direct + sum(1 for n in depth2 if not is_test_file(n.file))
+    blast = direct + sum(1 for n in depth2 if not is_test_file(n.file, conn))
     return direct, cross, blast
 
 
@@ -419,18 +456,21 @@ def is_breaking_change(
     kind: str,
     direct_callers: int,
     cross_lobe_callers: int,
+    config: ChangelogConfig | None = None,
 ) -> bool:
     """Breaking-change heuristics (recall-first per spec acceptance criteria).
 
     * removed neuron that still has callers in the index;
     * signature change on a public surface (≥1 caller in another lobe);
-    * any change with more than :data:`BREAKING_CROSS_LOBE_CALLERS` cross-lobe callers.
+    * any change with more than ``config.breaking_cross_lobe_threshold``
+      cross-lobe callers (defaults to 3 via :class:`ChangelogConfig`).
     """
     if kind == KIND_ADDED or kind == KIND_MOVED:
         return False
     if kind == KIND_REMOVED:
         return direct_callers >= 1
-    if cross_lobe_callers > BREAKING_CROSS_LOBE_CALLERS:
+    threshold = (config or ChangelogConfig()).breaking_cross_lobe_threshold
+    if cross_lobe_callers > threshold:
         return True
     if kind == KIND_SIGNATURE_CHANGED and cross_lobe_callers >= 1:
         return True
@@ -442,6 +482,7 @@ def classify_change(
     conn: sqlite3.Connection,
     memories: Sequence[Memory] = (),
     lobes: Mapping[str, str] | None = None,
+    config: ChangelogConfig | None = None,
 ) -> ClassifiedChange:
     """Classify a single changed neuron into a changelog entry type.
 
@@ -452,7 +493,7 @@ def classify_change(
     (``refactor`` for neurons moved across lobes, see :func:`classify_changes`.)
     """
     direct, cross, blast = _caller_stats(change.id, change.lobe, conn, lobes)
-    breaking = is_breaking_change(change.kind, direct, cross)
+    breaking = is_breaking_change(change.kind, direct, cross, config)
 
     if change.kind == KIND_ADDED:
         entry_type = FEAT
@@ -474,7 +515,7 @@ def classify_change(
         cross_lobe_callers=cross,
         blast_radius=blast,
         is_breaking=breaking,
-        public_surface=cross >= 1 and not is_test_file(change.file),
+        public_surface=cross >= 1 and not is_test_file(change.file, conn),
         memories=tuple(memories),
     )
 
@@ -484,6 +525,7 @@ def classify_changes(
     conn: sqlite3.Connection,
     memories_by_neuron: Mapping[str, Sequence[Memory]] | None = None,
     lobes: Mapping[str, str] | None = None,
+    config: ChangelogConfig | None = None,
 ) -> list[ClassifiedChange]:
     """Classify all changes; merge cross-lobe moves into single refactor entries."""
     memories_by_neuron = memories_by_neuron or {}
@@ -525,6 +567,6 @@ def classify_changes(
         if change.id in consumed:
             continue
         mems = tuple(memories_by_neuron.get(change.id, ()))
-        results.append(classify_change(change, conn, mems, lobes))
+        results.append(classify_change(change, conn, mems, lobes, config=config))
 
     return results

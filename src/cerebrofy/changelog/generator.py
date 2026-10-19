@@ -31,9 +31,14 @@ from cerebrofy.changelog.classifier import (
     ClassifiedChange,
     CollectedChanges,
     NeuronChange,
+    classify_changes,
     collect_changes,
     validate_git_ref,
 )
+from cerebrofy.config.loader import ChangelogConfig, load_config
+from cerebrofy.constants import DEFAULT_GIT_TIMEOUT_SECONDS
+from cerebrofy.db.schema import ensure_narrative_schema
+from cerebrofy.intent.loader import load_intent
 from cerebrofy.memory.store import Memory
 from cerebrofy.memory.store import list_memories as _list_memories
 from cerebrofy.memory.store import open_memories_db as _open_memories_db
@@ -56,8 +61,6 @@ _AUDIENCE_TYPES: dict[str, frozenset[str]] = {
     "pm": frozenset({BREAKING, SECURITY, FEAT, FIX, PERF, REFACTOR}),
     "user": frozenset({BREAKING, SECURITY, FEAT, FIX}),
 }
-
-_GIT_TIMEOUT = 15  # seconds
 
 
 def _open_index_db(db_path: Path) -> sqlite3.Connection:
@@ -189,7 +192,7 @@ def _git_output(args: list[str], repo_root: Path) -> str | None:
             cwd=str(repo_root),
             capture_output=True,
             text=True,
-            timeout=_GIT_TIMEOUT,
+            timeout=DEFAULT_GIT_TIMEOUT_SECONDS,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -214,13 +217,44 @@ def _docstrings(conn: sqlite3.Connection) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+#: Lowercase tokens whose trailing period must not be treated as a sentence end.
+_ABBREVIATIONS = frozenset({"e.g", "i.e", "etc", "vs"})
+
+#: Regex matching known abbreviations (with their trailing period) preceded by a
+#: non-letter boundary, so the period is preserved during sentence splitting.
+_ABBR_RE = re.compile(r'(?<![A-Za-z])(?:e\.g\.|i\.e\.|etc\.|vs\.)', re.IGNORECASE)
+
+
 def _first_sentence(text: str, limit: int = 140) -> str:
-    sentence = text.strip().split("\n", 1)[0].strip()
-    for sep in (". ", "! ", "? "):
-        if sep in sentence:
-            sentence = sentence.split(sep, 1)[0] + sep.strip()
-            break
-    return sentence[:limit]
+    """Extract the first sentence of *text* for use as a summary.
+
+    Handles common abbreviations (``e.g.``, ``i.e.``, ``etc.``, ``vs.``) so their
+    trailing periods do not prematurely terminate an entry.  Only the first line is
+    considered (docstring summaries are single-line).  If no terminal punctuation
+    is found the full first line is returned.
+    """
+    text = text.strip()
+    if not text:
+        return ""
+    first_line = text.split("\n", 1)[0].strip()
+    if not first_line:
+        return ""
+
+    # Record period positions that belong to known abbreviations so they are
+    # skipped during sentence-end detection.
+    skip_periods: set[int] = set()
+    for match in _ABBR_RE.finditer(first_line):
+        for i in range(match.start(), match.end()):
+            if first_line[i] == ".":
+                skip_periods.add(i)
+
+    for i, ch in enumerate(first_line):
+        if ch in ".!?" and i not in skip_periods:
+            if i + 1 >= len(first_line) or first_line[i + 1].isspace():
+                sentence = first_line[: i + 1].strip()
+                return sentence[:limit]
+
+    return first_line[:limit]
 
 
 def _names(neurons: Sequence[NeuronChange]) -> str:
@@ -373,8 +407,6 @@ def _intent_entry(
     if ".cerebrofy/intent.yaml" not in files:
         return None
     try:
-        from cerebrofy.intent.loader import load_intent
-
         intent = load_intent(repo_root / ".cerebrofy")
     except Exception:
         return None
@@ -424,6 +456,7 @@ def generate_changelog(
     audience: str = "developer",
     output_format: str = "markdown",
     conn: sqlite3.Connection | None = None,
+    config: ChangelogConfig | None = None,
 ) -> ChangelogReport:
     """Generate a semantic changelog for ``since``..HEAD.
 
@@ -453,26 +486,32 @@ def generate_changelog(
 
     assert conn is not None  # narrowed by the owns_conn branch above
     try:
-        config: object = None
+        full_config: object = None
         config_path = cerebrofy_dir / "config.yaml"
         if config_path.exists():
             try:
-                from cerebrofy.config.loader import load_config
-
-                config = load_config(config_path)
+                full_config = load_config(config_path)
             except Exception:
-                config = None
+                full_config = None
 
         memories_by_neuron = _load_memories(cerebrofy_dir)
         collected: CollectedChanges = collect_changes(
-            repo_root, conn, since, config=config, resolved=None
+            repo_root, conn, since, config=full_config, resolved=None
         )
 
-        cfg_lobes = getattr(config, "lobes", None) or None
-        from cerebrofy.changelog.classifier import classify_changes
+        cfg_lobes = getattr(full_config, "lobes", None) or None
+        # Determine the changelog-specific config: an explicitly-passed config
+        # wins; otherwise derive from the loaded full config; otherwise default.
+        changelog_cfg: ChangelogConfig
+        if config is not None:
+            changelog_cfg = config
+        elif full_config is not None:
+            changelog_cfg = getattr(full_config, "changelog", None) or ChangelogConfig()
+        else:
+            changelog_cfg = ChangelogConfig()
 
         classified = classify_changes(
-            collected.changes, conn, memories_by_neuron, cfg_lobes
+            collected.changes, conn, memories_by_neuron, cfg_lobes, config=changelog_cfg
         )
 
         docstrings = _docstrings(conn)
@@ -511,6 +550,10 @@ def generate_changelog(
 
 
 def _with_full_text(report: ChangelogReport) -> ChangelogReport:
+    # ``format_changelog`` is imported at function scope to avoid a circular
+    # import: formatter.py imports ChangelogEntry/ChangelogReport from this
+    # module at module scope, so this module must not import formatter at module
+    # scope.
     from cerebrofy.changelog.formatter import format_changelog
 
     return ChangelogReport(
@@ -558,8 +601,6 @@ def write_narrative_events(
     # TODO(integration-26): the Codebase Narrative Engine will read this table
     # to synthesise eras and stories — this lane only writes events.
     """
-    from cerebrofy.db.schema import ensure_narrative_schema
-
     ensure_narrative_schema(conn)
     ts = _commit_ts(repo_root, report.until)
     health_json = json.dumps(report.health_delta)

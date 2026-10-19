@@ -1,7 +1,10 @@
 """Unit tests for cerebrofy.changelog.formatter (Markdown / GitHub / Slack)."""
 from __future__ import annotations
 
+import pytest
+
 from cerebrofy.changelog.formatter import (
+    ENTRY_TYPE_META,
     format_changelog,
     format_github,
     format_markdown,
@@ -118,3 +121,82 @@ def test_format_empty_report_renders_header_only() -> None:
     out = format_markdown(_report(entries=()))
     assert "## Changelog" in out
     assert "## What's Changed" in format_github(_report(fmt="github", entries=()))
+
+
+# ---------------------------------------------------------------------------
+# n4: ENTRY_TYPE_META replacement preserves rendered output exactly
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("audience", ["developer", "pm", "user"])
+@pytest.mark.parametrize("entry_type", list(ENTRY_TYPE_META))
+def test_formatter_type_audience_visibility(entry_type: str, audience: str) -> None:
+    """Each entry type renders its heading iff the audience is not in skip_audiences.
+
+    This verifies the ENTRY_TYPE_META mapping (which replaced the parallel
+    _SECTION_ORDER / _AUDIENCE_SKIP structures) preserves the exact
+    rendered output for every type/audience combination.
+    """
+    meta = ENTRY_TYPE_META[entry_type]
+    entry = _entry(entry_type, f"title-{entry_type}", f"**n**: text for {entry_type}.")
+    report = _report(audience=audience, entries=(entry,))
+    out = format_markdown(report)
+
+    if audience in meta.skip_audiences:
+        assert meta.heading not in out, (
+            f"{entry_type} heading should be absent for {audience} audience"
+        )
+        assert f"**n**: text for {entry_type}." not in out, (
+            f"{entry_type} entry text should be absent for {audience} audience"
+        )
+    else:
+        assert meta.heading in out, (
+            f"{entry_type} heading should be present for {audience} audience"
+        )
+        assert f"**n**: text for {entry_type}." in out, (
+            f"{entry_type} entry text should be present for {audience} audience"
+        )
+
+
+@pytest.mark.parametrize("audience", ["developer", "pm", "user"])
+def test_formatter_output_order_unchanged(audience: str) -> None:
+    """The heading order across all visible types matches ENTRY_TYPE_META insertion order."""
+    entries = tuple(
+        _entry(t, f"title-{t}", f"**n**: text for {t}.") for t in ENTRY_TYPE_META
+    )
+    report = _report(audience=audience, entries=entries)
+    out = format_markdown(report)
+
+    visible = [
+        (t, m.heading) for t, m in ENTRY_TYPE_META.items()
+        if audience not in m.skip_audiences
+    ]
+    headings = [h for _, h in visible]
+    # The headings should appear in document order
+    positions = [out.index(h) for h in headings if h in out]
+    assert positions == sorted(positions), (
+        f"Headings for {audience} should appear in ENTRY_TYPE_META order"
+    )
+
+
+def test_formatter_audience_skip_mapping_matches_old_behavior() -> None:
+    """ENTRY_TYPE_META skip_audiences reproduces the former _AUDIENCE_SKIP table.
+
+    Former mapping:
+        developer: skip nothing
+        pm:        skip internal, intent_update
+        user:      skip internal, refactor, perf, intent_update
+    """
+    expected_skip = {
+        "developer": frozenset(),
+        "pm": frozenset({"internal", "intent_update"}),
+        "user": frozenset({"internal", "refactor", "perf", "intent_update"}),
+    }
+    for audience, expected in expected_skip.items():
+        for entry_type, meta in ENTRY_TYPE_META.items():
+            should_skip = entry_type in expected
+            is_skipped = audience in meta.skip_audiences
+            assert should_skip == is_skipped, (
+                f"{entry_type}: expected skip={should_skip} for {audience}, "
+                f"got skip={is_skipped}"
+            )

@@ -40,6 +40,7 @@ from cerebrofy.changelog.classifier import (
     resolve_range,
     validate_git_ref,
 )
+from cerebrofy.config.loader import ChangelogConfig
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import ChangeSet, FileChange
 from cerebrofy.validate.drift_classifier import DriftRecord, NeuronDrift
@@ -119,6 +120,77 @@ def test_is_test_file() -> None:
     assert not is_test_file("src/cerebrofy/changelog/classifier.py")
 
 
+def test_is_test_file_uses_index(tmp_path: Path) -> None:
+    """is_test_file consults the file_hashes table when a connection is available.
+
+    An indexed path matching test predicates is a test file; a non-test indexed
+    path is not.  The fallback to the Python heuristic still works when conn is
+    None or the file is not indexed.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute(
+        "CREATE TABLE file_hashes (file TEXT PRIMARY KEY, hash TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO file_hashes VALUES (?, ?)", ("tests/unit/test_foo.py", "h1")
+    )
+    conn.execute(
+        "INSERT INTO file_hashes VALUES (?, ?)", ("src/app/main.py", "h2")
+    )
+    conn.execute(
+        "INSERT INTO file_hashes VALUES (?, ?)", ("src/helper_test.js", "h3")
+    )
+    conn.commit()
+
+    # Indexed path matching test patterns → True
+    assert is_test_file("tests/unit/test_foo.py", conn) is True
+    # Indexed non-test path → False
+    assert is_test_file("src/app/main.py", conn) is False
+    # Indexed .js test file → True (SQL extends beyond Python heuristic)
+    assert is_test_file("src/helper_test.js", conn) is True
+    # File not in the index → falls back to path heuristic
+    assert is_test_file("tests/unit/test_unindexed.py", conn) is True
+    assert is_test_file("src/app/unindexed.py", conn) is False
+    # Fallback to path heuristic when conn is None
+    assert is_test_file("tests/unit/test_foo.py", conn=None) is True
+    assert is_test_file("src/app/main.py", conn=None) is False
+    conn.close()
+
+
+class _FakeConn:
+    """Minimal fake connection whose ``execute`` records the SQL and returns a row."""
+
+    def __init__(self, row):
+        self.calls: list[tuple[str, tuple]] = []
+        self._row = row
+
+    def execute(self, sql: str, params: tuple = ()) -> _FakeConn:
+        self.calls.append((sql, params))
+        return self
+
+    def fetchone(self):
+        return self._row
+
+
+def test_is_test_file_index_query_is_executed() -> None:
+    """When conn is available, is_test_file queries file_hashes (not just heuristic)."""
+    # Indexed AND matches test predicates → True
+    fake_true = _FakeConn(row=(1,))
+    assert is_test_file("tests/unit/foo.py", fake_true) is True
+    assert len(fake_true.calls) == 1
+    assert "file_hashes" in fake_true.calls[0][0]
+
+    # Indexed but NOT a test file → False (SQL is authoritative, not heuristic)
+    fake_false = _FakeConn(row=(0,))
+    assert is_test_file("src/app/main.py", fake_false) is False
+    assert len(fake_false.calls) == 1
+
+    # Not indexed → falls back to Python heuristic
+    fake_none = _FakeConn(row=None)
+    assert is_test_file("tests/unit/foo.py", fake_none) is True
+    assert len(fake_none.calls) == 1
+
+
 def test_lobe_for_file_fallback_and_config() -> None:
     assert lobe_for_file("src/auth/tokens.py") == "src"
     assert lobe_for_file("auth/tokens.py") == "auth"
@@ -145,6 +217,51 @@ def test_is_breaking_change_heuristics() -> None:
     # cross-lobe callers exceed threshold → breaking (strictly greater than)
     assert is_breaking_change(KIND_MODIFIED, direct_callers=4, cross_lobe_callers=BREAKING_CROSS_LOBE_CALLERS + 1) is True
     assert is_breaking_change(KIND_MODIFIED, direct_callers=4, cross_lobe_callers=BREAKING_CROSS_LOBE_CALLERS) is False
+
+
+def test_is_breaking_change_config_threshold() -> None:
+    """ChangelogConfig.breaking_cross_lobe_threshold overrides the default."""
+    # KIND_MODIFIED with 2 cross-lobe callers:
+    #   threshold=1: 2 > 1 → breaking
+    #   threshold=3: 2 > 3 → not breaking (and MODIFIED is not signature_changed)
+    cfg_low = ChangelogConfig(breaking_cross_lobe_threshold=1)
+    assert is_breaking_change(
+        KIND_MODIFIED, direct_callers=0, cross_lobe_callers=2, config=cfg_low
+    ) is True
+
+    cfg_default = ChangelogConfig(breaking_cross_lobe_threshold=3)
+    assert is_breaking_change(
+        KIND_MODIFIED, direct_callers=0, cross_lobe_callers=2, config=cfg_default
+    ) is False
+
+    # No config → uses ChangelogConfig() default (threshold 3, same as before)
+    assert is_breaking_change(
+        KIND_MODIFIED, direct_callers=0, cross_lobe_callers=2
+    ) is False
+
+
+def test_classify_change_respects_config_threshold() -> None:
+    """classify_change threads config → is_breaking_change uses the threshold."""
+    conn = _gconn()
+    # validate_token has 5 cross-lobe callers (path-based lobe "src" ≠ "src/auth");
+    # KIND_MODIFIED
+    change = NeuronChange(
+        id="src/auth/tokens.py::validate_token", name="validate_token",
+        file="src/auth/tokens.py", lobe="src/auth", kind=KIND_MODIFIED,
+    )
+    # threshold=3: 5 > 3 → breaking
+    cc = classify_change(
+        change, conn, memories=(), lobes=None,
+        config=ChangelogConfig(breaking_cross_lobe_threshold=3),
+    )
+    assert cc.is_breaking is True
+
+    # threshold=5: 5 > 5 → False; MODIFIED is not SIGNATURE_CHANGED → not breaking
+    cc = classify_change(
+        change, conn, memories=(), lobes=None,
+        config=ChangelogConfig(breaking_cross_lobe_threshold=5),
+    )
+    assert cc.is_breaking is False
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +406,7 @@ def test_collect_changes_uses_drift_neuron_details() -> None:
         "cerebrofy.changelog.classifier.detect_changes_between_refs",
         return_value=ChangeSet(changes=(FileChange("src/auth/tokens.py", "M"),), detected_via="git"),
     ), patch(
-        "cerebrofy.validate.drift_classifier.classify_drift",
+        "cerebrofy.changelog.classifier.classify_drift",
         return_value=[DriftRecord(
             file="src/auth/tokens.py", drift_type="structural",
             changed_neurons=("validate_token",), drift_detail="sig",
@@ -311,7 +428,7 @@ def test_collect_changes_falls_back_to_git_status_when_no_drift() -> None:
         "cerebrofy.changelog.classifier.detect_changes_between_refs",
         return_value=ChangeSet(changes=(FileChange("src/auth/tokens.py", "A"),), detected_via="git"),
     ), patch(
-        "cerebrofy.validate.drift_classifier.classify_drift", return_value=[]
+        "cerebrofy.changelog.classifier.classify_drift", return_value=[]
     ):
         collected = collect_changes(Path("/tmp"), conn, "v1", resolved=resolved)
     assert len(collected.changes) == 1
@@ -594,7 +711,7 @@ def test_collect_changes_rename_detected_as_moved(tmp_path: Path) -> None:
 
     # Mock classify_drift to report the neuron as added at the new path
     with patch(
-        "cerebrofy.validate.drift_classifier.classify_drift",
+        "cerebrofy.changelog.classifier.classify_drift",
         return_value=[DriftRecord(
             file="utils/tokens.py", drift_type="structural",
             changed_neurons=("validate_token",), drift_detail="add",
