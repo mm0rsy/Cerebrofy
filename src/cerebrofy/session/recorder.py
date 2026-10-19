@@ -17,14 +17,19 @@ per-tool-call recording overhead stays bounded.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import sqlite3
 import time
 import uuid
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from cerebrofy.memory.store import Memory
 
 # Error codes surfaced by the MCP tools / CLI.
 SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
@@ -47,12 +52,99 @@ _SESSION_COLS = (
     "neurons_touched, blast_radius_before, blast_radius_after, event_count"
 )
 
-# Sensitive argument keys that should be redacted in stored events
-_SENSITIVE_KEYS: frozenset[str] = frozenset({
-    "api_key", "token", "secret", "password", "authorization",
-    "access_token", "refresh_token", "client_secret", "private_key",
-    "ssh_key", "cert", "credential", "bearer", "auth",
-})
+_logger = logging.getLogger(__name__)
+
+# Sensitive-key *patterns* redacted from stored arguments. Matching is
+# case-insensitive and substring-based (after normalizing separators) so keys
+# like ``API-Key``, ``my_token`` or ``userAuthorization`` are caught even when
+# nested inside argument dicts. Bare ``auth`` is intentionally omitted: its
+# substring would false-positive on legitimate keys such as ``author``.
+_SENSITIVE_PATTERNS: tuple[str, ...] = tuple(sorted({
+    "api_key", "apikey", "access_token", "refresh_token", "token", "secret",
+    "password", "passwd", "pwd", "authorization", "client_secret",
+    "private_key", "ssh_key", "cert", "credential", "bearer",
+}))
+
+# Normalize separators (``-``, ``_``, ``.``, whitespace) to ``_`` before matching
+# so ``api-key`` / ``api.key`` line up with the ``api_key`` pattern.
+_SEP_RE = re.compile(r"[-_.\s]+")
+
+# Cap recursion so redaction can't be abused to walk a pathological structure.
+_MAX_NESTING_DEPTH = 10
+
+
+def _normalize_key(key: str) -> str:
+    """Lower-case *key* and collapse separators to ``_`` for pattern matching."""
+    return _SEP_RE.sub("_", key).lower()
+
+
+def _is_sensitive_key(key: Any) -> bool:
+    """Case-insensitive substring match against sensitive-key patterns.
+
+    Returns ``False`` for non-str keys so integers / ``None`` keys are never
+    accidentally treated as sensitive. Robust to separator variants
+    (``api-key`` == ``api_key`` == ``apikey``).
+    """
+    if not isinstance(key, str):
+        return False
+    normalized = _normalize_key(key)
+    return any(pattern in normalized for pattern in _SENSITIVE_PATTERNS)
+
+
+def _truncate_leaf(value: Any, max_value_chars: int) -> Any:
+    """Bound a scalar's length when it is a string; pass other types through."""
+    if isinstance(value, str) and len(value) > max_value_chars:
+        return value[:max_value_chars] + "…"
+    return value
+
+
+def _redact_structure(
+    value: Any,
+    *,
+    max_value_chars: int,
+    max_items: int,
+    depth: int,
+) -> Any:
+    """Recursively redact sensitive keys and bound lengths, preserving types.
+
+    Dict keys whose normalized form matches a sensitive pattern are replaced
+    with ``"[REDACTED]"`` regardless of the (possibly nested) value type. Lists
+    and tuples are walked element-wise; mappings are reduced. Recursion is
+    capped by *depth* so deeply nested input can't drive unbounded work.
+    Non-str keys/values are passed through untouched.
+    """
+    if depth <= 0:
+        # Never pass nested containers through unredacted: a secret buried
+        # deeper than the recursion cap would otherwise be persisted raw.
+        if isinstance(value, (Mapping, list, tuple)):
+            return "[MAX_DEPTH]"
+        return _truncate_leaf(value, max_value_chars)
+    if isinstance(value, Mapping):
+        out: dict[str, Any] = {}
+        for key, val in list(value.items())[:max_items]:
+            out[key] = (
+                "[REDACTED]"
+                if _is_sensitive_key(key)
+                else _redact_structure(
+                    val,
+                    max_value_chars=max_value_chars,
+                    max_items=max_items,
+                    depth=depth - 1,
+                )
+            )
+        return out
+    if isinstance(value, (list, tuple)):
+        factory = type(value)
+        return factory(
+            _redact_structure(
+                v,
+                max_value_chars=max_value_chars,
+                max_items=max_items,
+                depth=depth - 1,
+            )
+            for v in list(value)[:max_items]
+        )
+    return _truncate_leaf(value, max_value_chars)
 
 
 class SessionNotFoundError(LookupError):
@@ -142,20 +234,25 @@ def truncate_args(
     max_value_chars: int = _MAX_ARG_VALUE_CHARS,
     max_items: int = _MAX_ARG_ITEMS,
 ) -> dict[str, Any]:
-    """Copy *args*, truncating long values and redacting sensitive keys.
+    """Copy *args*, redacting sensitive keys and truncating long values.
 
-    Sensitive keys (api_key, token, secret, password, etc.) are replaced with
-    "[REDACTED]" to prevent credential leakage in session recordings.
+    Redaction is applied **recursively** before truncation/serialization:
+    sensitive keys (``api_key``, ``access_token``, ``authorization``,
+    ``client_secret``, ``password`` …) are replaced with ``"[REDACTED]"``
+    even when nested inside dicts/lists/tuples, using case-insensitive
+    pattern matching so variant spellings (``API-Key``, ``my_token``) are
+    caught. Non-str keys/values are passed through untouched; recursion is
+    capped at :data:`_MAX_NESTING_DEPTH` to bound work on deep structures.
     """
-    out: dict[str, Any] = {}
-    for key, value in list(args.items())[:max_items]:
-        if key.lower() in _SENSITIVE_KEYS:
-            out[key] = "[REDACTED]"
-        elif isinstance(value, str) and len(value) > max_value_chars:
-            out[key] = value[:max_value_chars] + "…"
-        else:
-            out[key] = value
-    return out
+    return cast(
+        dict[str, Any],
+        _redact_structure(
+            args,
+            max_value_chars=max_value_chars,
+            max_items=max_items,
+            depth=_MAX_NESTING_DEPTH,
+        ),
+    )
 
 
 def truncate_summary(text: str | None, *, max_chars: int = 500) -> str | None:
@@ -183,6 +280,11 @@ def _row_to_session(row: Sequence[Any]) -> SessionRecord:
             if isinstance(loaded, list):
                 touched = tuple(str(item) for item in loaded)
         except (json.JSONDecodeError, TypeError):
+            # Corrupted/malformed session JSON must never break a read path.
+            _logger.warning(
+                "corrupt neurons_touched JSON for session '%s'; "
+                "falling back to empty", row[0],
+            )
             touched = ()
     return SessionRecord(
         id=str(row[0]),
@@ -207,6 +309,11 @@ def _row_to_event(row: Sequence[Any]) -> SessionEvent:
             if isinstance(loaded, dict):
                 args = loaded
         except (json.JSONDecodeError, TypeError):
+            # Corrupted/malformed session JSON must never break a read path.
+            _logger.warning(
+                "corrupt args JSON for session event (session_id='%s', tool='%s'); "
+                "falling back to empty", row[0], row[2],
+            )
             args = {}
     return SessionEvent(
         session_id=str(row[0]),
@@ -390,6 +497,11 @@ def _track_neuron_refs(
         try:
             touched_raw = json.loads(row[0]) if row[0] else []
         except (json.JSONDecodeError, TypeError):
+            # Corrupted/malformed session JSON must never break a write path.
+            _logger.warning(
+                "corrupt neurons_touched JSON while tracking refs for session '%s'; "
+                "falling back to empty", session_id,
+            )
             touched_raw = []
         touched: list[str] = [
             str(x) for x in touched_raw
@@ -418,6 +530,85 @@ def _track_neuron_refs(
             )
 
 
+def build_session_memory(
+    session: SessionRecord,
+    *,
+    author: str = "agent:session-recorder",
+) -> Memory:
+    """Build the #05 decision :class:`Memory` for a closed session (pure, no IO).
+
+    The memory title is the session task; its body carries the outcome, duration,
+    event count, neurons touched and the depth-2 blast-radius before->after delta
+    so the cross-session synthesizer (#24) can pattern-match on agent outcomes —
+    the Phase 2 loop #11 -> #05 -> #11.
+
+    Split out from :func:`write_session_summary_memory` so the memory
+    construction is unit-testable without mocking the memory store.
+    """
+    from cerebrofy.memory.store import Memory
+
+    title = (session.task or "").strip()[:120] or "[no task]"
+    blast = ""
+    if session.blast_radius_before is not None or session.blast_radius_after is not None:
+        blast = (
+            f"; blast_radius_before={session.blast_radius_before} -> "
+            f"after={session.blast_radius_after}"
+        )
+    body = (
+        f"agent={session.agent or 'unknown'}; outcome={session.outcome}; "
+        f"duration={session.duration_seconds}s; events={session.event_count}; "
+        f"neurons_touched={len(session.neurons_touched)}{blast}"
+    )
+    if session.outcome_notes:
+        body += f"\n\nnotes: {session.outcome_notes.strip()[:500]}"
+    return Memory(
+        id=str(uuid.uuid4()),
+        neuron_id=None,
+        lobe=None,
+        type="decision",
+        title=title,
+        body=body,
+        author=author,
+        created_ts=int(session.ended_at or time.time()),
+        tags=("session", f"outcome:{session.outcome}"),
+        decay_score=1.0,
+        status="active",
+    )
+
+
+def write_memory_if_possible(
+    cerebrofy_dir: Path,
+    memory: Memory,
+    embedder: Callable[[str, str], list[float]],
+) -> bool:
+    """Persist *memory* to the #05 store, embedding via *embedder*.
+
+    The #05 dependency is imported lazily at call time so tests can patch
+    ``cerebrofy.memory.store.open_memories_db`` / ``write_memory``. Non-fatal
+    by contract — any failure (memories.db absent, #05 embedder offline,
+    disk error) is logged and ``False`` is returned, mirroring
+    ``cerebrofy.arch.memory.write_violation_memories``: the recording path must
+    never fail because the memory layer did.
+    """
+    try:
+        from cerebrofy.memory.store import open_memories_db, write_memory
+
+        conn = open_memories_db(cerebrofy_dir)
+        try:
+            embedding = embedder(memory.title, memory.body)
+            write_memory(conn, memory, embedding)
+            conn.commit()
+        finally:
+            conn.close()
+        return True
+    except Exception:
+        _logger.warning(
+            "failed to write session summary memory (title=%r) to %s",
+            memory.title, cerebrofy_dir, exc_info=True,
+        )
+        return False
+
+
 def write_session_summary_memory(
     cerebrofy_dir: Path,
     session: SessionRecord,
@@ -426,57 +617,14 @@ def write_session_summary_memory(
 ) -> bool:
     """Fold a closed session into the #05 memory layer as a single decision memory.
 
-    The memory title is the session task; its body carries the outcome, duration,
-    event count, neurons touched and the depth-2 blast-radius before->after delta
-    so the cross-session synthesizer (#24) can pattern-match on agent outcomes —
-    the Phase 2 loop #11 -> #05 -> #11.
-
-    Non-fatal by contract: any failure (memories.db absent, #05 embedder offline,
-    disk error) is swallowed and ``False`` is returned. This mirrors
-    ``cerebrofy.arch.memory.write_violation_memories`` — the recording path must
-    never fail because the memory layer did.
+    Thin orchestrator: :func:`build_session_memory` constructs the pure
+    :class:`Memory`, then :func:`write_memory_if_possible` persists it. The
+    memory write is non-fatal — a ``False`` return never masks a closed session.
     """
-    try:
-        from cerebrofy.memory.embedder import embed_memory
-        from cerebrofy.memory.store import Memory, open_memories_db, write_memory
+    from cerebrofy.memory.embedder import embed_memory
 
-        title = (session.task or "").strip()[:120] or "[no task]"
-        blast = ""
-        if session.blast_radius_before is not None or session.blast_radius_after is not None:
-            blast = (
-                f"; blast_radius_before={session.blast_radius_before} -> "
-                f"after={session.blast_radius_after}"
-            )
-        body = (
-            f"agent={session.agent or 'unknown'}; outcome={session.outcome}; "
-            f"duration={session.duration_seconds}s; events={session.event_count}; "
-            f"neurons_touched={len(session.neurons_touched)}{blast}"
-        )
-        if session.outcome_notes:
-            body += f"\n\nnotes: {session.outcome_notes.strip()[:500]}"
-        mem = Memory(
-            id=str(uuid.uuid4()),
-            neuron_id=None,
-            lobe=None,
-            type="decision",
-            title=title,
-            body=body,
-            author=author,
-            created_ts=int(session.ended_at or time.time()),
-            tags=("session", f"outcome:{session.outcome}"),
-            decay_score=1.0,
-            status="active",
-        )
-        conn = open_memories_db(cerebrofy_dir)
-        try:
-            embedding = embed_memory(mem.title, mem.body)
-            write_memory(conn, mem, embedding)
-            conn.commit()
-        finally:
-            conn.close()
-        return True
-    except Exception:
-        return False
+    memory = build_session_memory(session, author=author)
+    return write_memory_if_possible(cerebrofy_dir, memory, embed_memory)
 
 
 def end_session(
