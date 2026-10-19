@@ -37,13 +37,24 @@ MIN_CLUSTER_SIZE = 2
 
 
 class ClusterSizeError(Exception):
-    """Raised when the matched cluster falls outside the supported size range."""
+    """Raised when the matched cluster falls outside the supported size range.
 
-    def __init__(self, size: int) -> None:
-        super().__init__(
-            f"cluster size {size} is outside {MIN_CLUSTER_SIZE}..{MAX_CLUSTER_SIZE}"
-        )
+    ``low``/``high`` capture the *actual* bounds that were in effect when the
+    error was raised (the defaults are the spec's 2..200 range, but callers such
+    as ``find_extraction_cluster`` forward caller-supplied ``min_size``/
+    ``max_size`` so error messages report the real thresholds).
+    """
+
+    def __init__(
+        self,
+        size: int,
+        low: int = MIN_CLUSTER_SIZE,
+        high: int = MAX_CLUSTER_SIZE,
+    ) -> None:
+        super().__init__(f"cluster size {size} is outside {low}..{high}")
         self.size = size
+        self.low = low
+        self.high = high
 
 
 @dataclass(frozen=True)
@@ -173,13 +184,15 @@ def expand_cluster(
     seeds: list[ClusterNeuron],
     *,
     internal_ratio: float = DEFAULT_INTERNAL_EDGE_RATIO,
+    min_size: int = MIN_CLUSTER_SIZE,
     max_size: int = MAX_CLUSTER_SIZE,
 ) -> list[ClusterNeuron]:
     """Expand *seeds* with densely connected neighbors (fixpoint, deterministic).
 
     A candidate joins when ``internal_edges / total_edges > internal_ratio``.
     Candidates are visited in sorted-id order so the result is deterministic.
-    Raises ClusterSizeError when the cluster would exceed *max_size*.
+    Raises ``ClusterSizeError`` when the cluster would exceed *max_size*; the
+    error reports the actual *min_size*..*max_size* bounds in effect.
     """
     cluster: dict[str, ClusterNeuron] = {seed.id: seed for seed in seeds}
 
@@ -194,7 +207,7 @@ def expand_cluster(
             if total <= 0 or internal / total <= internal_ratio:
                 continue
             if len(cluster) >= max_size:
-                raise ClusterSizeError(len(cluster) + 1)
+                raise ClusterSizeError(len(cluster) + 1, low=min_size, high=max_size)
             rows = _fetch_nodes_by_ids(conn, [candidate_id])
             node = rows.get(candidate_id)
             if node is None:
@@ -288,19 +301,26 @@ def find_extraction_cluster(
     top_k: int = DEFAULT_TOP_K,
     *,
     internal_ratio: float = DEFAULT_INTERNAL_EDGE_RATIO,
+    min_size: int = MIN_CLUSTER_SIZE,
+    max_size: int = MAX_CLUSTER_SIZE,
 ) -> NeuronCluster:
     """Identify the cohesive neuron cluster for a refactoring description.
 
-    Raises ClusterSizeError when fewer than 2 seeds match (CLUSTER_TOO_SMALL)
-    or the seed/cluster size exceeds 200 (CLUSTER_TOO_LARGE).
+    Raises ``ClusterSizeError`` when fewer than *min_size* seeds match
+    (CLUSTER_TOO_SMALL) or the seed/cluster size exceeds *max_size*
+    (CLUSTER_TOO_LARGE). Both bounds default to the spec's 2..200 range but are
+    honored through the size-checking and cluster-expansion phases so error
+    messages report the thresholds actually in effect.
     """
     seeds = knn_seeds(conn, embedding, top_k=top_k)
-    if len(seeds) > MAX_CLUSTER_SIZE:
-        raise ClusterSizeError(len(seeds))
-    if len(seeds) < MIN_CLUSTER_SIZE:
-        raise ClusterSizeError(len(seeds))
+    if len(seeds) > max_size:
+        raise ClusterSizeError(len(seeds), low=min_size, high=max_size)
+    if len(seeds) < min_size:
+        raise ClusterSizeError(len(seeds), low=min_size, high=max_size)
 
-    neurons = expand_cluster(conn, seeds, internal_ratio=internal_ratio)
+    neurons = expand_cluster(
+        conn, seeds, internal_ratio=internal_ratio, min_size=min_size, max_size=max_size
+    )
     cluster_ids = {n.id for n in neurons}
     return NeuronCluster(
         seeds=seeds,

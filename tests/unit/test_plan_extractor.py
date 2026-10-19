@@ -338,3 +338,89 @@ def test_expansion_order_is_deterministic_across_runs() -> None:
     first = [n.id for n in expand_cluster(conn, seeds)]
     second = [n.id for n in expand_cluster(conn, seeds)]
     assert first == second == ["pay_a", "pay_b", "helper0", "helper1", "helper2", "helper3"]
+
+
+# ---------------------------------------------------------------------------
+# Config-bound size checks (min_size / max_size) + actual-bounds messaging
+# ---------------------------------------------------------------------------
+
+def test_cluster_size_error_message_uses_actual_bounds() -> None:
+    """ClusterSizeError reports the bounds in effect, not the spec defaults."""
+    err = ClusterSizeError(7, low=3, high=5)
+    assert err.size == 7
+    assert err.low == 3
+    assert err.high == 5
+    assert str(err) == "cluster size 7 is outside 3..5"
+
+
+def test_cluster_size_error_defaults_to_spec_bounds() -> None:
+    """Constructing without bounds keeps the spec's 2..200 range in the message."""
+    err = ClusterSizeError(1)
+    assert err.low == 2
+    assert err.high == 200
+    assert "2..200" in str(err)
+
+
+def test_find_extraction_cluster_custom_min_size_changes_boundary() -> None:
+    """min_size=3: two seeds are no longer enough (2 < 3 → too small)."""
+    conn = _make_conn()
+    _seed_pair(conn)
+    try:
+        find_extraction_cluster(conn, _QUERY, min_size=3)
+    except ClusterSizeError as exc:
+        assert exc.size == 2
+        assert exc.low == 3
+        assert exc.high == 200  # max defaults to spec bound
+    else:  # pragma: no cover
+        raise AssertionError("ClusterSizeError not raised")
+
+
+def test_find_extraction_cluster_custom_max_size_changes_boundary() -> None:
+    """max_size=5: six seeds exceed the configured ceiling (6 > 5 → too large)."""
+    conn = _make_conn()
+    for i in range(6):
+        _insert_node(conn, f"n{i}", name=f"fn{i}", file=f"src/n{i}.py")
+        _insert_vec(conn, f"n{i}", _EXACT)
+    try:
+        find_extraction_cluster(conn, _QUERY, top_k=6, max_size=5)
+    except ClusterSizeError as exc:
+        assert exc.size == 6
+        assert exc.low == 2  # min defaults to spec bound
+        assert exc.high == 5
+        assert "2..5" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("ClusterSizeError not raised")
+
+
+def test_find_extraction_cluster_custom_bounds_passed_to_expand_cluster() -> None:
+    """expand_cluster's size-violation error reports the bounds in effect."""
+    conn = _make_conn()
+    _seed_pair(conn)
+    _insert_node(conn, "dense", name="dense_fn", file="src/pay/dense.py")
+    _insert_edge(conn, "dense", "pay_a")
+    _insert_edge(conn, "dense", "pay_b")
+    seeds = knn_seeds(conn, _QUERY, top_k=10)
+    try:
+        expand_cluster(conn, seeds, min_size=2, max_size=2)
+    except ClusterSizeError as exc:
+        assert exc.size == 3
+        assert exc.low == 2
+        assert exc.high == 2
+        assert "2..2" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("ClusterSizeError not raised")
+
+
+def test_find_extraction_cluster_custom_bounds_happy_path_within_range() -> None:
+    """A cluster within custom bounds succeeds and expansion still runs."""
+    conn = _make_conn()
+    _seed_pair(conn)
+    _insert_node(conn, "helper", name="validate", file="src/pay/helpers.py", line_start=7)
+    _insert_edge(conn, "helper", "pay_a")
+    _insert_edge(conn, "helper", "pay_b")
+    _insert_dilution(conn, "helper", count=1)
+
+    result = find_extraction_cluster(conn, _QUERY, min_size=2, max_size=10)
+
+    assert [n.id for n in result.seeds] == ["pay_a", "pay_b"]
+    assert [n.id for n in result.neurons] == ["pay_a", "pay_b", "helper"]
