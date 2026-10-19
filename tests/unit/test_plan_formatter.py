@@ -190,3 +190,30 @@ def test_markdown_truncates_long_neuron_lists() -> None:
     )
     text = plan_to_markdown(plan)
     assert "… (+2 more)" in text
+
+
+def test_markdown_name_truncation_boundary_at_six() -> None:
+    """V1: exactly MAX_DISPLAY_NAMES_PER_FILE (6) names render un-truncated."""
+    ids_six = [f"a.py::f{i}" for i in range(6)]
+    neurons_six = [
+        _neuron(nid, f"f{i}", "a.py", line=i + 1) for i, nid in enumerate(ids_six)
+    ]
+    plan_six = _plan(
+        cluster=neurons_six,
+        seeds=[],
+        steps=[MigrationStep(1, "Move 6 neuron(s)", ids_six, False)],
+    )
+    text_six = plan_to_markdown(plan_six)
+    assert "(+" not in text_six  # no truncation marker exactly at the boundary
+
+    ids_seven = [f"a.py::f{i}" for i in range(7)]
+    neurons_seven = [
+        _neuron(nid, f"f{i}", "a.py", line=i + 1) for i, nid in enumerate(ids_seven)
+    ]
+    plan_seven = _plan(
+        cluster=neurons_seven,
+        seeds=[],
+        steps=[MigrationStep(1, "Move 7 neuron(s)", ids_seven, False)],
+    )
+    text_seven = plan_to_markdown(plan_seven)
+    assert "… (+1 more)" in text_seven

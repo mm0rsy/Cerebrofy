@@ -424,3 +424,29 @@ def test_find_extraction_cluster_custom_bounds_happy_path_within_range() -> None
 
     assert [n.id for n in result.seeds] == ["pay_a", "pay_b"]
     assert [n.id for n in result.neurons] == ["pay_a", "pay_b", "helper"]
+
+
+# ---------------------------------------------------------------------------
+# Exact MIN/MAX bounds (a2)
+# ---------------------------------------------------------------------------
+
+def test_find_extraction_cluster_exactly_min_size_succeeds() -> None:
+    """Exactly MIN_CLUSTER_SIZE (2) seeds pass the bounds check."""
+    conn = _make_conn()
+    _seed_pair(conn)  # no edges → cluster is exactly the two seeds
+
+    result = find_extraction_cluster(conn, _QUERY)
+
+    assert [n.id for n in result.neurons] == ["pay_a", "pay_b"]
+
+
+def test_find_extraction_cluster_exactly_max_size_succeeds() -> None:
+    """Exactly MAX_CLUSTER_SIZE (200) seeds pass; 201 raises (over-max test above)."""
+    conn = _make_conn()
+    for i in range(200):
+        _insert_node(conn, f"n{i}", name=f"fn{i}", file=f"src/n{i}.py")
+        _insert_vec(conn, f"n{i}", _EXACT)
+
+    result = find_extraction_cluster(conn, _QUERY, top_k=200)
+
+    assert len(result.neurons) == 200

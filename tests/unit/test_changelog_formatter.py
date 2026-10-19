@@ -200,3 +200,22 @@ def test_formatter_audience_skip_mapping_matches_old_behavior() -> None:
                 f"{entry_type}: expected skip={should_skip} for {audience}, "
                 f"got skip={is_skipped}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Public dispatcher × audience/format matrix (T2)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("fmt", ["markdown", "github", "slack"])
+@pytest.mark.parametrize("audience", ["developer", "pm", "user"])
+def test_format_changelog_all_audience_format_combinations(audience: str, fmt: str) -> None:
+    """The public dispatcher handles all 3 audiences × 3 formats."""
+    report = _report(audience=audience, fmt=fmt, entries=(_entry(FEAT),))
+    out = format_changelog(report)
+    expected_fn = {
+        "markdown": format_markdown,
+        "github": format_github,
+        "slack": format_slack,
+    }[fmt]
+    assert out == expected_fn(report)
+    assert "did a thing." in out  # the entry text survives every combination

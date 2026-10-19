@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
@@ -894,3 +895,89 @@ def test_migration_005_sessions_sql_creates_outcome_columns(tmp_path: Path) -> N
     # Upgrade path: re-applying the file must be idempotent (CREATE ... IF NOT EXISTS).
     conn.executescript(sql_path.read_text(encoding="utf-8"))
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Concurrency (WAL + multiple connections)
+# ---------------------------------------------------------------------------
+
+def test_concurrent_session_start_assigns_unique_ids(tmp_path: Path) -> None:
+    """a1: parallel starters (own connections, WAL) all persist unique ids."""
+    cerebrofy_dir = _cerebrofy_dir(tmp_path)
+    open_sessions_db(cerebrofy_dir).close()  # create the schema up front
+
+    n = 8
+    ids: list[str] = []
+    errors: list[BaseException] = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(n)
+
+    def worker(i: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            conn = open_sessions_db(cerebrofy_dir)
+            try:
+                session = start_session(conn, task=f"T{i}", now=1000 + i)
+            finally:
+                conn.close()
+            with lock:
+                ids.append(session.id)
+        except BaseException as exc:  # pragma: no cover - failure path
+            with lock:
+                errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not errors, errors
+    assert len(ids) == n
+    assert len(set(ids)) == n
+
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        persisted = {s.id for s in list_sessions(conn)}
+    finally:
+        conn.close()
+    assert set(ids) <= persisted
+
+
+def test_concurrent_recording_across_connections_persists_all_events(tmp_path: Path) -> None:
+    """a4/V3: concurrent record_event writers (own connections, WAL) lose nothing."""
+    cerebrofy_dir = _cerebrofy_dir(tmp_path)
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        session_id = start_session(conn, task="T").id
+    finally:
+        conn.close()
+
+    n_threads, per_thread = 6, 20
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(n_threads)
+
+    def worker(i: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            conn = open_sessions_db(cerebrofy_dir)
+            try:
+                for j in range(per_thread):
+                    record_event(conn, session_id, tool=f"tool_{i}_{j}")
+            finally:
+                conn.close()
+        except BaseException as exc:  # pragma: no cover - failure path
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not errors, errors
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        assert count_events(conn, session_id) == n_threads * per_thread
+    finally:
+        conn.close()

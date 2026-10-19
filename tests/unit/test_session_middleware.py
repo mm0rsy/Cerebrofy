@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -481,3 +482,93 @@ def test_record_with_fake_config_and_small_caps(tmp_path: Path) -> None:
     assert session is not None
     assert session.neurons_touched == ("a.py::hub",)  # capped at 1
     assert session.blast_radius_before == 1
+
+
+def test_recording_caps_from_real_config_file(tmp_path: Path) -> None:
+    """T1: ``session`` caps in config.yaml flow through the middleware record path."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    cfg = root / ".cerebrofy" / "config.yaml"
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8")
+        + "session:\n  max_tracked_neurons: 1\n  max_refs_per_event: 1\n",
+        encoding="utf-8",
+    )
+    _make_index(root)
+    session_id = _start(root)
+
+    mw = SessionMiddleware(root)
+    mw.record("cerebrofy_impact", {"target": "hub"})
+    mw.record("cerebrofy_impact", {"target": "caller"})  # capped → not tracked
+    mw.close()
+
+    assert _count_events(root, session_id) == 2  # both events recorded
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        session = get_session(conn, session_id)
+    finally:
+        conn.close()
+    assert session is not None
+    assert session.neurons_touched == ("a.py::hub",)  # capped at 1
+    assert session.blast_radius_before == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo isolation + concurrency (a5 / V3)
+# ---------------------------------------------------------------------------
+
+def test_middleware_roots_are_isolated(tmp_path: Path) -> None:
+    """a5: two repos never share session/index state through one process."""
+    root_a = _make_repo(tmp_path / "a", record_sessions=True)
+    root_b = _make_repo(tmp_path / "b", record_sessions=True)
+    _make_index(root_a)
+    _make_index(root_b)
+    session_a = _start(root_a, task="A")
+    session_b = _start(root_b, task="B")
+
+    mw_a = SessionMiddleware(root_a)
+    mw_b = SessionMiddleware(root_b)
+    mw_a.record("cerebrofy_impact", {"target": "hub"})
+
+    assert _count_events(root_a, session_a) == 1
+    assert _count_events(root_b, session_b) == 0
+    assert mw_a._sessions_handle.get() is not mw_b._sessions_handle.get()
+    mw_a.close()
+    mw_b.close()
+
+
+def test_concurrent_record_calls_are_thread_safe(tmp_path: Path) -> None:
+    """V3: parallel ``middleware.record`` calls are serialized by the session lock."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    session_id = _start(root)
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        mw = SessionMiddleware(
+            root,
+            sessions_conn_factory=lambda: conn,
+            index_conn_factory=lambda: None,
+        )
+        n_threads, per_thread = 6, 10
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(n_threads)
+
+        def worker(i: int) -> None:
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(per_thread):
+                    mw.record("cerebrofy_impact", {"target": "hub"})
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert not errors, errors
+        assert count_events(conn, session_id) == n_threads * per_thread
+    finally:
+        conn.close()
