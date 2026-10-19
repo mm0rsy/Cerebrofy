@@ -92,14 +92,24 @@ def _build_fixture(tmp_path: Path, *, caller_count: int = 5) -> Path:
 
 
 def _generate(tmp_path: Path, db_path: Path, **kwargs: Any) -> Any:
-    defaults: dict[str, Any] = dict(
-        description="extract the payment logic into a payments service",
-        db_path=db_path,
-        embedding=_QUERY,
-        repo_root=tmp_path,
-    )
-    defaults.update(kwargs)
-    return build_refactor_plan(**defaults)
+    from cerebrofy.db.connection import open_db_readonly
+    
+    try:
+        conn = open_db_readonly(db_path)
+    except FileNotFoundError as exc:
+        raise PlanError(NO_INDEX, "Index not found. Run 'cerebrofy build' first.") from exc
+    
+    try:
+        defaults: dict[str, Any] = dict(
+            description="extract the payment logic into a payments service",
+            conn=conn,
+            embedding=_QUERY,
+            repo_root=tmp_path,
+        )
+        defaults.update(kwargs)
+        return build_refactor_plan(**defaults)
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

@@ -191,11 +191,22 @@ def _record_session_event(
 
     Thin by design: all logic lives in ``cerebrofy.session.middleware`` and is a
     no-op unless opt-in recording is enabled and a session is active. Never raises.
+
+    A per-request ``SessionMiddleware`` instance is created so there is no shared
+    global state between concurrent tool-call threads.
     """
     try:
-        from cerebrofy.session.middleware import record_tool_call
+        from cerebrofy.session.middleware import SessionMiddleware, find_repo_root
 
-        record_tool_call(Path.cwd(), tool=name, arguments=arguments, result=result)
+        root = find_repo_root(Path.cwd())
+        if root is None:
+            return
+
+        middleware = SessionMiddleware(root)
+        try:
+            middleware.record(name, arguments, result)
+        finally:
+            middleware.close()
     except Exception:
         return
 

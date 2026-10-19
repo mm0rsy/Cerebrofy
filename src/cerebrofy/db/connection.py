@@ -9,10 +9,17 @@ import sqlite_vec  # type: ignore[import-untyped]
 
 
 def open_db_readonly(db_path: Path) -> sqlite3.Connection:
-    """Open the index in read-only mode (safe alongside builders and MCP servers)."""
+    """Open the index in read-only mode (safe alongside builders and MCP servers).
+
+    Loads the sqlite-vec extension so vector search operations work correctly.
+    """
     if not db_path.exists():
         raise FileNotFoundError(f"Index not found at {db_path}. Run 'cerebrofy build' first.")
-    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
+    return conn
 
 
 def open_db(db_path: Path) -> sqlite3.Connection:

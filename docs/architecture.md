@@ -404,7 +404,7 @@ The **Live Agent Session Recorder** captures every MCP tool call of an agent ses
 Storage is split from the index for the same reason `memories.db` (#05) is split from `cerebrofy.db`: the index is rebuilt atomically by `cerebrofy build` and written under `BEGIN IMMEDIATE` by `cerebrofy update`, while the audit trail must survive rebuilds and never contend with the index writer.
 
 - `session/recorder.py` — `sessions` + `session_events` tables in `.cerefy/db/sessions.db`; `start_session`, `record_event`, `end_session`, `search_sessions`. Argument/result payloads are truncated so storage stays well under 1 MB/hour.
-- `session/middleware.py` — thin `SessionMiddleware` with a module-level `record_tool_call()` hook; recording only fires when opt-in is enabled and a session is active, and never raises.
+- `session/middleware.py` — thin `SessionMiddleware` with per-request instances (no global singleton); recording only fires when opt-in is enabled and a session is active, and never raises.
 - `session/replay.py` — `build_session_diff()` computes the graph delta (touched / missing / appeared / index-refreshed) and a blast-radius verdict.
 - `session/reporter.py` — self-contained Markdown + HTML renderers for `cerebrofy session show/export`.
 - `mcp/tools/session.py` — `cerebrofy_session_start` / `cerebrofy_session_end` / `cerebrofy_session_show` handlers.

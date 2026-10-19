@@ -10,12 +10,9 @@ from typing import Any
 from unittest.mock import patch
 
 from cerebrofy.db.schema import create_schema
-from cerebrofy.session import middleware as middleware_mod
 from cerebrofy.session.middleware import (
     SessionMiddleware,
     find_repo_root,
-    record_tool_call,
-    reset_default_middleware,
     summarize_result,
 )
 from cerebrofy.session.recorder import (
@@ -271,49 +268,40 @@ def test_index_reopens_after_rewrite(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Module-level hook
+# Per-request middleware (no global singleton)
 # ---------------------------------------------------------------------------
 
-def test_record_tool_call_module_hook_end_to_end(tmp_path: Path) -> None:
+def test_middleware_records_session_event_end_to_end(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, record_sessions=True)
     session_id = _start(root)
-    reset_default_middleware()
+    mw = SessionMiddleware(root)
     try:
-        record_tool_call(root, tool="search_code", arguments={"query": "hub"})
-        record_tool_call(
-            root, tool="search_code", arguments={"query": "hub2"},
-            result=[SimpleNamespace(text="ok")],
-        )
-        cached = middleware_mod._default_middleware
-        assert cached is not None  # hook created and cached a middleware
-        assert cached.root == root
-
-        reset_default_middleware()
-        assert middleware_mod._default_middleware is None
-        assert _count_events(root, session_id) == 2
+        mw.record("search_code", {"query": "hub"})
+        mw.record("search_code", {"query": "hub2"}, [SimpleNamespace(text="ok")])
     finally:
-        reset_default_middleware()
+        mw.close()
+    assert _count_events(root, session_id) == 2
 
 
-def test_record_tool_call_noop_outside_repo(tmp_path: Path) -> None:
+def test_middleware_record_noop_outside_repo(tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
-    reset_default_middleware()
+    mw = SessionMiddleware(plain)
     try:
-        record_tool_call(plain, tool="search_code", arguments={"query": "x"})
-        assert middleware_mod._default_middleware is None
+        mw.record("search_code", {"query": "x"})
+        assert mw.current_session() is None
     finally:
-        reset_default_middleware()
+        mw.close()
 
 
-def test_record_tool_call_finds_root_from_subdir(tmp_path: Path) -> None:
+def test_middleware_finds_root_from_subdir(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, record_sessions=True)
     subdir = root / "src" / "pkg"
     subdir.mkdir(parents=True)
     session_id = _start(root)
-    reset_default_middleware()
+    mw = SessionMiddleware(find_repo_root(subdir))
     try:
-        record_tool_call(subdir, tool="get_neuron", arguments={"name": "hub"})
-        assert _count_events(root, session_id) == 1
+        mw.record("get_neuron", {"name": "hub"})
     finally:
-        reset_default_middleware()
+        mw.close()
+    assert _count_events(root, session_id) == 1

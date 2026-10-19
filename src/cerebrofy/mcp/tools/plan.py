@@ -33,6 +33,7 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
     from cerebrofy.planning.planner import NO_INDEX, PlanError, build_refactor_plan
     from cerebrofy.search.hybrid import embed_query
+    from cerebrofy.db.connection import open_db_readonly
 
     description = str(arguments.get("description", "") or "").strip()
     if not description:
@@ -58,19 +59,23 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     except ValueError as exc:
         return _err(f"[error] {exc}")
 
+    conn = open_db_readonly(db_path)
     try:
-        plan = build_refactor_plan(
-            description=description,
-            db_path=db_path,
-            embedding=embedding,
-            repo_root=root,
-            config_path=config_path,
-            dry_run=dry_run,
-        )
-    except PlanError as exc:
-        return _err(f"[{exc.code}] {exc.message}")
-    except ValueError as exc:
-        return _err(f"[error] {exc}")
+        try:
+            plan = build_refactor_plan(
+                description=description,
+                conn=conn,
+                embedding=embedding,
+                repo_root=root,
+                config_path=config_path,
+                dry_run=dry_run,
+            )
+        except PlanError as exc:
+            return _err(f"[{exc.code}] {exc.message}")
+        except ValueError as exc:
+            return _err(f"[error] {exc}")
 
-    text = plan_to_json(plan) if fmt == "json" else plan_to_markdown(plan)
-    return [TextContent(type="text", text=text)]
+        text = plan_to_json(plan) if fmt == "json" else plan_to_markdown(plan)
+        return [TextContent(type="text", text=text)]
+    finally:
+        conn.close()

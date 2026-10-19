@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import sqlite3
 import subprocess
 import time
@@ -55,7 +57,13 @@ _AUDIENCE_TYPES: dict[str, frozenset[str]] = {
     "user": frozenset({BREAKING, SECURITY, FEAT, FIX}),
 }
 
-_GIT_TIMEOUT = 15  # seconds
+#: Max limits for pagination parameters
+_MAX_TOP_K = 200
+_MAX_LIMIT = 200
+_MAX_GIT_TIMEOUT = 15  # seconds
+
+# Valid git ref pattern (alphanumeric, hyphens, underscores, slashes, dots)
+_GIT_REF_PATTERN = re.compile(r'^[a-zA-Z0-9._/-]+$')
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +169,10 @@ def _health_delta(conn: sqlite3.Connection) -> dict[str, float]:
 
 
 def _git_output(args: list[str], repo_root: Path) -> str | None:
+    # Validate git arguments to prevent command injection (though we use list form)
+    for arg in args:
+        if not re.match(r'^[a-zA-Z0-9._/-]+$', arg):
+            return None
     try:
         result = subprocess.run(
             ["git", *args],
@@ -418,6 +430,10 @@ def generate_changelog(
         raise ValueError(
             f"Invalid format '{output_format}'. Choose from: markdown, github, slack."
         )
+
+    # Validate git ref format
+    if not _GIT_REF_PATTERN.match(since) and since not in ("last-build", "project-start"):
+        raise ChangelogError("REF_NOT_FOUND", f"Invalid git ref: {since}")
 
     cerebrofy_dir = repo_root / ".cerebrofy"
     db_path = cerebrofy_dir / "db" / "cerebrofy.db"

@@ -20,6 +20,7 @@ import json
 import sqlite3
 import time
 import uuid
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +29,7 @@ from typing import Any
 # Error codes surfaced by the MCP tools / CLI.
 SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
 NO_ACTIVE_SESSION = "NO_ACTIVE_SESSION"
+RECORDING_DISABLED = "RECORDING_DISABLED"
 
 VALID_OUTCOMES: frozenset[str] = frozenset({"success", "partial", "failed", "unknown"})
 
@@ -44,6 +46,13 @@ _SESSION_COLS = (
     "id, started_at, ended_at, agent, task, outcome, outcome_notes, "
     "neurons_touched, blast_radius_before, blast_radius_after, event_count"
 )
+
+# Sensitive argument keys that should be redacted in stored events
+_SENSITIVE_KEYS: frozenset[str] = frozenset({
+    "api_key", "token", "secret", "password", "authorization",
+    "access_token", "refresh_token", "client_secret", "private_key",
+    "ssh_key", "cert", "credential", "bearer", "auth",
+})
 
 
 class SessionNotFoundError(LookupError):
@@ -133,10 +142,16 @@ def truncate_args(
     max_value_chars: int = _MAX_ARG_VALUE_CHARS,
     max_items: int = _MAX_ARG_ITEMS,
 ) -> dict[str, Any]:
-    """Copy *args*, truncating long values so one event stays well under 1 KB."""
+    """Copy *args*, truncating long values and redacting sensitive keys.
+
+    Sensitive keys (api_key, token, secret, password, etc.) are replaced with
+    "[REDACTED]" to prevent credential leakage in session recordings.
+    """
     out: dict[str, Any] = {}
     for key, value in list(args.items())[:max_items]:
-        if isinstance(value, str) and len(value) > max_value_chars:
+        if key.lower() in _SENSITIVE_KEYS:
+            out[key] = "[REDACTED]"
+        elif isinstance(value, str) and len(value) > max_value_chars:
             out[key] = value[:max_value_chars] + "…"
         else:
             out[key] = value
@@ -349,46 +364,58 @@ def record_event(
     )
 
 
+# Thread-safe lock for session database updates (race condition fix)
+_SESSION_LOCK = threading.Lock()
+
+
 def _track_neuron_refs(
     conn: sqlite3.Connection,
     session_id: str,
     args: dict[str, Any],
     index_conn: sqlite3.Connection,
 ) -> None:
-    """Fold newly-referenced neurons into ``neurons_touched`` / ``blast_radius_before``."""
-    row = conn.execute(
-        "SELECT neurons_touched, blast_radius_before FROM sessions WHERE id = ?",
-        (session_id,),
-    ).fetchone()
-    if row is None:
-        return
-    try:
-        touched_raw = json.loads(row[0]) if row[0] else []
-    except (json.JSONDecodeError, TypeError):
-        touched_raw = []
-    touched: list[str] = [str(x) for x in touched_raw] if isinstance(touched_raw, list) else []
-    if len(touched) >= MAX_TRACKED_NEURONS:
-        return
+    """Fold newly-referenced neurons into ``neurons_touched`` / ``blast_radius_before``.
 
-    before: int | None = int(row[1]) if row[1] is not None else None
-    changed = False
-    for node_id in resolve_neuron_refs(index_conn, args):
-        if node_id in touched:
-            continue
-        metric = neuron_blast_metric(index_conn, node_id)
-        if metric is None:
-            continue
-        touched.append(node_id)
-        before = (before or 0) + metric
-        changed = True
+    This function acquires the global ``_SESSION_LOCK`` to serialise the
+    read-modify-write on the session row, preventing lost updates when
+    concurrent tool calls touch the same session.
+    """
+    with _SESSION_LOCK:
+        row = conn.execute(
+            "SELECT neurons_touched, blast_radius_before FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return
+        try:
+            touched_raw = json.loads(row[0]) if row[0] else []
+        except (json.JSONDecodeError, TypeError):
+            touched_raw = []
+        touched: list[str] = [
+            str(x) for x in touched_raw
+        ] if isinstance(touched_raw, list) else []
         if len(touched) >= MAX_TRACKED_NEURONS:
-            break
+            return
 
-    if changed:
-        conn.execute(
-            "UPDATE sessions SET neurons_touched = ?, blast_radius_before = ? WHERE id = ?",
-            (json.dumps(touched), before, session_id),
-        )
+        before: int | None = int(row[1]) if row[1] is not None else None
+        changed = False
+        for node_id in resolve_neuron_refs(index_conn, args):
+            if node_id in touched:
+                continue
+            metric = neuron_blast_metric(index_conn, node_id)
+            if metric is None:
+                continue
+            touched.append(node_id)
+            before = (before or 0) + metric
+            changed = True
+            if len(touched) >= MAX_TRACKED_NEURONS:
+                break
+
+        if changed:
+            conn.execute(
+                "UPDATE sessions SET neurons_touched = ?, blast_radius_before = ? WHERE id = ?",
+                (json.dumps(touched), before, session_id),
+            )
 
 
 def write_session_summary_memory(
@@ -480,6 +507,9 @@ def end_session(
     if session is None:
         raise SessionNotFoundError(session_id)
 
+    if session.ended_at is not None:
+        raise ValueError(f"session '{session_id}' already ended")
+
     outcome_value = (outcome or "unknown").strip().lower() or "unknown"
     if outcome_value not in VALID_OUTCOMES:
         raise ValueError(
@@ -498,11 +528,19 @@ def end_session(
         after = total if present else None
 
     ts = int(now if now is not None else time.time())
-    conn.execute(
-        "UPDATE sessions SET ended_at = ?, outcome = ?, outcome_notes = ?, "
-        "blast_radius_after = COALESCE(?, blast_radius_after) WHERE id = ?",
-        (ts, outcome_value, notes, after, session_id),
-    )
+    # Use COALESCE for after only when it's not None; otherwise set explicitly
+    if after is not None:
+        conn.execute(
+            "UPDATE sessions SET ended_at = ?, outcome = ?, outcome_notes = ?, "
+            "blast_radius_after = ? WHERE id = ?",
+            (ts, outcome_value, notes, after, session_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE sessions SET ended_at = ?, outcome = ?, outcome_notes = ?, "
+            "blast_radius_after = NULL WHERE id = ?",
+            (ts, outcome_value, notes, session_id),
+        )
     conn.commit()
     updated = get_session(conn, session_id)
     assert updated is not None  # session existed above

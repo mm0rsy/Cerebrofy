@@ -165,7 +165,7 @@ def map_cluster_files(
 
 
 # ---------------------------------------------------------------------------
-# Completed-feature integrations (each degrades to a no-op when data is absent)
+# Completed-feature integrations (each degrades gracefully when data is absent)
 # ---------------------------------------------------------------------------
 
 def _blast_radius_label(
@@ -350,7 +350,7 @@ def _execution_handoff(
 def build_refactor_plan(
     *,
     description: str,
-    db_path: Path,
+    conn: sqlite3.Connection,
     embedding: list[float],
     repo_root: Path,
     config_path: Path | None = None,
@@ -362,17 +362,13 @@ def build_refactor_plan(
     The query *embedding* is pre-computed by the entry point so this function
     stays independent of the embedding backend. ``dry_run=False`` only adds an
     execution-handoff summary — no files are ever written by the planner.
+
+    The *conn* parameter must be a pre-opened read-only connection to the
+    cerebrofy.db index. Connection lifecycle is managed by the caller.
     """
-    db_path = Path(db_path)
     repo_root = Path(repo_root)
     config_path = config_path or (repo_root / ".cerebrofy" / "config.yaml")
-    if not db_path.exists():
-        raise PlanError(
-            NO_INDEX,
-            f"Index not found at {db_path}. Run 'cerebrofy build' first.",
-        )
 
-    conn = _open_ro(db_path)
     try:
         try:
             cluster_result = find_extraction_cluster(conn, embedding, top_k=top_k)
@@ -407,43 +403,43 @@ def build_refactor_plan(
 
         # #01: confirm each step's scope is contained before including the plan.
         blast_label = _blast_radius_label(conn, cluster)
+
+        memory_context = _memory_context(repo_root, embedding)
+        memory_context.extend(f"warning: {title}" for title in impact_warnings)
+        memory_context = list(dict.fromkeys(memory_context))
+        avoid_warnings = _avoid_pattern_warnings(repo_root, cluster, new_module)
+
+        files_affected = len(
+            {n.file for n in cluster if n.file}
+            | set(file_map.values())
+            | {c.file for c in callers if c.file}
+        )
+        estimated_hours = round(
+            0.5 + 0.1 * len(cluster) + 0.05 * len(callers) + 0.25 * len(file_map),
+            1,
+        )
+        handoff = (
+            _execution_handoff(description, repo_root / ".cerebrofy" / "db" / "cerebrofy.db", config_path, repo_root)
+            if not dry_run
+            else None
+        )
+
+        return RefactorPlan(
+            description=description.strip(),
+            cluster=cluster,
+            seeds=cluster_result.seeds,
+            callers_to_update=callers,
+            new_module=new_module,
+            proposed_files=sorted(set(file_map.values())),
+            file_map=file_map,
+            steps=steps,
+            estimated_hours=estimated_hours,
+            files_affected=files_affected,
+            blast_radius_label=blast_label,
+            memory_context=memory_context,
+            avoid_pattern_warnings=avoid_warnings,
+            runtime_boundary_callers=runtime_boundary,
+            handoff_summary=handoff,
+        )
     finally:
         conn.close()
-
-    memory_context = _memory_context(repo_root, embedding)
-    memory_context.extend(f"warning: {title}" for title in impact_warnings)
-    memory_context = list(dict.fromkeys(memory_context))
-    avoid_warnings = _avoid_pattern_warnings(repo_root, cluster, new_module)
-
-    files_affected = len(
-        {n.file for n in cluster if n.file}
-        | set(file_map.values())
-        | {c.file for c in callers if c.file}
-    )
-    estimated_hours = round(
-        0.5 + 0.1 * len(cluster) + 0.05 * len(callers) + 0.25 * len(file_map),
-        1,
-    )
-    handoff = (
-        _execution_handoff(description, db_path, config_path, repo_root)
-        if not dry_run
-        else None
-    )
-
-    return RefactorPlan(
-        description=description.strip(),
-        cluster=cluster,
-        seeds=cluster_result.seeds,
-        callers_to_update=callers,
-        new_module=new_module,
-        proposed_files=sorted(set(file_map.values())),
-        file_map=file_map,
-        steps=steps,
-        estimated_hours=estimated_hours,
-        files_affected=files_affected,
-        blast_radius_label=blast_label,
-        memory_context=memory_context,
-        avoid_pattern_warnings=avoid_warnings,
-        runtime_boundary_callers=runtime_boundary,
-        handoff_summary=handoff,
-    )

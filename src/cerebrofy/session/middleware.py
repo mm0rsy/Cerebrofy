@@ -1,19 +1,24 @@
 """Thin MCP session-recording middleware (Idea #11).
 
 Wired into ``mcp/server.py``'s tool dispatcher: every tool call is offered to
-:func:`record_tool_call`, which records it when *and only when* opt-in recording
-is enabled (``record_sessions: true``) and a session is currently active. All
-recording logic lives in :mod:`cerebrofy.session.recorder` — this module only
-owns connection caching and the never-raises contract, so a recording failure
-can never break a tool call.
+``SessionMiddleware.record()``, which records it when *and only when* opt-in
+recording is enabled (``record_sessions: true``) and a session is currently
+active. All recording logic lives in :mod:`cerebrofy.session.recorder` — this
+module only owns connection caching, thread-safe session-db updates, and the
+never-raises contract, so a recording failure can never break a tool call.
+
+Per-request ``SessionMiddleware`` instances are created by the caller (the MCP
+server) rather than via a shared singleton, avoiding global-state and
+thread-safety issues.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from cerebrofy.session.recorder import (
     SessionRecord,
@@ -32,10 +37,16 @@ _SKIP_TOOLS: frozenset[str] = frozenset(
 _MAX_RESULT_SAMPLE_CHARS = 1000
 
 
-def find_repo_root(start: Path) -> Path | None:
-    """Walk up from *start* looking for ``.cerebrofy/config.yaml``; None if absent."""
+def find_repo_root(start: Path, *, root_boundary: Path | None = None) -> Path | None:
+    """Walk up from *start* looking for ``.cerebrofy/config.yaml``; None if absent.
+
+    If *root_boundary* is provided, the walk stops at that directory (useful for
+    preventing cross-project access in multi-project environments).
+    """
     current = start if start.is_dir() else start.parent
     for candidate in (current, *current.parents):
+        if root_boundary is not None and not candidate.is_relative_to(root_boundary):
+            break
         if (candidate / ".cerebrofy" / "config.yaml").exists():
             return candidate
     return None
@@ -56,15 +67,30 @@ class SessionMiddleware:
 
     Holds cached connections so the per-call cost is one indexed INSERT plus
     (for the first reference to each neuron) one depth-2 blast-radius lookup.
+
+    Connections can be injected via factories for testing; when omitted, the
+    middleware opens its own connections as before.
     """
 
-    def __init__(self, root: Path, *, enabled: bool | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        enabled: bool | None = None,
+        sessions_conn_factory: Callable[[], sqlite3.Connection | None] | None = None,
+        index_conn_factory: Callable[[], sqlite3.Connection | None] | None = None,
+    ) -> None:
         self._root = root
         self._enabled_override = enabled
         self._enabled_cache: tuple[float, bool] | None = None
         self._sessions_conn: sqlite3.Connection | None = None
         self._index_conn: sqlite3.Connection | None = None
         self._index_fingerprint: tuple[int, int] | None = None
+        # Optional factories for dependency injection (testing)
+        self._sessions_conn_factory = sessions_conn_factory
+        self._index_conn_factory = index_conn_factory
+        # Lock for thread-safe session-db updates (race condition fix)
+        self._sessions_lock = threading.Lock()
 
     @property
     def root(self) -> Path:
@@ -97,8 +123,11 @@ class SessionMiddleware:
         if self._sessions_conn is not None:
             return self._sessions_conn
         try:
-            conn = open_sessions_db(self._root / ".cerebrofy")
-            conn.execute("PRAGMA synchronous=NORMAL")
+            if self._sessions_conn_factory is not None:
+                conn = self._sessions_conn_factory()
+            else:
+                conn = open_sessions_db(self._root / ".cerebrofy")
+                conn.execute("PRAGMA synchronous=NORMAL")
         except Exception:
             return None
         self._sessions_conn = conn
@@ -107,6 +136,7 @@ class SessionMiddleware:
     def _index(self) -> sqlite3.Connection | None:
         """Open/cached read-only cerebrofy.db connection; reopens after a rebuild."""
         db_path = self._root / ".cerebrofy" / "db" / "cerebrofy.db"
+        conn = None
         try:
             stat = db_path.stat()
             fingerprint = (stat.st_mtime_ns, stat.st_size)
@@ -118,9 +148,12 @@ class SessionMiddleware:
             return self._index_conn
         self._close_index()
         try:
-            conn = sqlite3.connect(
-                f"file:{db_path}?mode=ro", uri=True, check_same_thread=False
-            )
+            if self._index_conn_factory is not None:
+                conn = self._index_conn_factory()
+            else:
+                conn = sqlite3.connect(
+                    f"file:{db_path}?mode=ro", uri=True, check_same_thread=False
+                )
         except sqlite3.Error:
             return None
         self._index_conn = conn
@@ -174,46 +207,17 @@ class SessionMiddleware:
             conn = self._connect()
             if conn is None:
                 return
-            record_event(
-                conn,
-                session.id,
-                tool=tool,
-                args=arguments or {},
-                result_summary=summarize_result(result),
-                index_conn=self._index(),
-            )
+            # Use lock for thread-safe session-db updates (race condition fix)
+            with self._sessions_lock:
+                record_event(
+                    conn,
+                    session.id,
+                    tool=tool,
+                    args=arguments or {},
+                    result_summary=summarize_result(result),
+                    index_conn=self._index(),
+                )
         except Exception:
             return
 
 
-_default_middleware: SessionMiddleware | None = None
-
-
-def record_tool_call(
-    cwd: Path,
-    *,
-    tool: str,
-    arguments: Mapping[str, Any] | None = None,
-    result: object | None = None,
-) -> None:
-    """Module-level hook used by ``mcp/server.py`` (thin, never raises)."""
-    global _default_middleware
-    try:
-        root = find_repo_root(cwd)
-        if root is None:
-            return
-        if _default_middleware is None or _default_middleware.root != root:
-            if _default_middleware is not None:
-                _default_middleware.close()
-            _default_middleware = SessionMiddleware(root)
-        _default_middleware.record(tool, arguments, result)
-    except Exception:
-        return
-
-
-def reset_default_middleware() -> None:
-    """Drop the cached middleware (tests)."""
-    global _default_middleware
-    if _default_middleware is not None:
-        _default_middleware.close()
-        _default_middleware = None
