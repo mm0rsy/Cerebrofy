@@ -94,6 +94,21 @@ def test_embed_query_raises_for_none_model() -> None:
         embed_query("what does the auth module do?", "none")
 
 
+def test_embed_query_rejects_unknown_model() -> None:
+    """embed_query('q', 'weird') must raise ValueError before touching the embedder."""
+    with pytest.raises(ValueError, match="Unsupported embedding_model"):
+        embed_query("some query", "weird")
+
+
+def test_embed_query_rejects_unknown_model_lists_allowed_values() -> None:
+    with pytest.raises(ValueError) as exc_info:
+        embed_query("some query", "weird")
+    msg = str(exc_info.value)
+    assert "Unsupported embedding_model 'weird'" in msg
+    assert "'local'" in msg
+    assert "'none'" in msg
+
+
 # ---------------------------------------------------------------------------
 # Test 2: empty index → empty HybridSearchResult
 # ---------------------------------------------------------------------------

@@ -101,10 +101,18 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         possibly_stale_threshold=float(raw_memory.get("possibly_stale_threshold", _default.possibly_stale_threshold)),
         stale_threshold=float(raw_memory.get("stale_threshold", _default.stale_threshold)),
     )
+    embedding_model = data.get("embedding_model", "local")
+    # Fail fast: reject unsupported embedding_model values at config load time
+    # so an unknown identifier never reaches the embedder-selection code path
+    # unchecked. Validates against the single source of truth in the embedder
+    # package (SUPPORTED_EMBEDDING_MODELS).
+    from cerebrofy.embedder import validate_embedding_model
+    validate_embedding_model(embedding_model)
+
     config = CerebrоfyConfig(
         lobes=data["lobes"],
         tracked_extensions=data["tracked_extensions"],
-        embedding_model=data.get("embedding_model", "local"),
+        embedding_model=embedding_model,
         memory=memory_cfg,
         record_sessions=bool(data.get("record_sessions", False)),
     )

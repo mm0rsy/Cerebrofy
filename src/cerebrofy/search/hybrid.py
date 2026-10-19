@@ -216,14 +216,20 @@ def _bfs_depth2(
 def embed_query(query: str, embedding_model: str) -> list[float]:
     """Embed a plain-language query using the configured model.
 
-    Raises ValueError if embedding_model is 'none' (no embedder configured).
+    Raises ValueError if *embedding_model* is not a supported embedding
+    identifier (see ``cerebrofy.embedder.SUPPORTED_EMBEDDING_MODELS``) or if
+    it is ``"none"`` (no embedder configured).
     """
+    from cerebrofy.embedder import get_embedder, validate_embedding_model
+    # Reject names outside the allowlist before doing anything else, so an
+    # unknown model fails fast with a clear message even when embed_query is
+    # called directly (bypassing load_config validation).
+    validate_embedding_model(embedding_model)
     if embedding_model == "none":
         raise ValueError(
             "embedding_model is 'none' — cannot embed query. "
             "Configure a valid embedding model in config.yaml."
         )
-    from cerebrofy.embedder import get_embedder
     embedder = get_embedder(embedding_model)
     if embedder is None:
         raise ValueError(

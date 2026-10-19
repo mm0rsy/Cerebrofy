@@ -69,7 +69,7 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
     cfg_dict = {
         "lobes": {"api": "src/api/"},
         "tracked_extensions": [".py", ".ts"],
-        "embedding_model": "openai",
+        "embedding_model": "none",
     }
     cfg_path = tmp_path / "config.yaml"
     with open(cfg_path, "w") as f:
@@ -78,7 +78,45 @@ def test_load_config_custom_values(tmp_path: Path) -> None:
     loaded = load_config(cfg_path)
     assert loaded.lobes == {"api": "src/api/"}
     assert loaded.tracked_extensions == [".py", ".ts"]
-    assert loaded.embedding_model == "openai"
+    assert loaded.embedding_model == "none"
+
+
+def test_load_config_each_allowed_value_loads(tmp_path: Path) -> None:
+    """Every value in SUPPORTED_EMBEDDING_MODELS loads without error."""
+    from cerebrofy.embedder import SUPPORTED_EMBEDDING_MODELS
+
+    for model in SUPPORTED_EMBEDDING_MODELS:
+        cfg_path = tmp_path / f"config_{model}.yaml"
+        cfg_path.write_text(
+            yaml.dump({
+                "lobes": {"src": "src/"},
+                "tracked_extensions": [".py"],
+                "embedding_model": model,
+            }),
+            encoding="utf-8",
+        )
+        loaded = load_config(cfg_path)
+        assert loaded.embedding_model == model
+
+
+def test_load_config_rejects_unknown_embedding_model(tmp_path: Path) -> None:
+    """An unsupported embedding_model raises ValueError at load with a clear message."""
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        yaml.dump({
+            "lobes": {"src": "src/"},
+            "tracked_extensions": [".py"],
+            "embedding_model": "openai",
+        }),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as exc_info:
+        load_config(cfg_path)
+    msg = str(exc_info.value)
+    assert "Unsupported embedding_model 'openai'" in msg
+    assert "'local'" in msg
+    assert "'none'" in msg
+    assert "Allowed values" in msg
 
 
 def test_load_config_default_optional_fields(tmp_path: Path) -> None:
