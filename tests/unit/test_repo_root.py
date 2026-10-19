@@ -303,6 +303,7 @@ pytest.importorskip("mcp")
 from cerebrofy.mcp.server import (  # noqa: E402  (import after skip guard)
     _bootstrap_root,
     _parse_int_arg,
+    _run_cerebrofy,
     _MAX_LIMIT,
     _MAX_RESULT_TOP,
     _MAX_TOP_K,
@@ -411,3 +412,45 @@ def test_bootstrap_root_rejects_explicit_root_without_config(tmp_path: Path) -> 
     bogus.mkdir()
     with pytest.raises(InvalidRepoRootError):
         _bootstrap_root(bogus)
+
+
+# ===========================================================================
+# n10 — _run_cerebrofy default timeout uses the shared constant (not a literal)
+# ===========================================================================
+
+
+def test_default_mcp_command_timeout_constant() -> None:
+    from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
+
+    assert DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS == 300
+
+
+def test_run_cerebrofy_default_timeout_matches_constant() -> None:
+    import inspect
+
+    from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
+
+    sig = inspect.signature(_run_cerebrofy)
+    assert sig.parameters["timeout"].default == DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
+
+
+def test_run_cerebrofy_forwards_timeout_to_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The configured timeout (not a literal) reaches the subprocess call."""
+    import subprocess as _sp
+
+    from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
+
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd, **kwargs):
+        captured["timeout"] = kwargs.get("timeout")
+        raise _sp.TimeoutExpired(cmd=cmd, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    with pytest.raises(_sp.TimeoutExpired):
+        _run_cerebrofy(["build"], str(tmp_path))
+
+    assert captured["timeout"] == DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS

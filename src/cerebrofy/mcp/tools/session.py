@@ -12,6 +12,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.mcp.errors import mcp_error as _err
 from cerebrofy.session.recorder import (
     NO_ACTIVE_SESSION,
     SESSION_NOT_FOUND,
@@ -26,11 +27,6 @@ from cerebrofy.session.recorder import (
     start_session,
 )
 from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
-
-
-def _err(message: str) -> list[Any]:
-    from mcp.types import TextContent
-    return [TextContent(type="text", text=message)]
 
 
 def _find_root(cwd: Path) -> Path:

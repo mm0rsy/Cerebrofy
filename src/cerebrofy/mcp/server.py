@@ -41,6 +41,7 @@ from cerebrofy.utils.paths import (
     require_repo_root,
     set_bound_root,
 )
+from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +198,7 @@ def _start_index_watcher(app: Any, subscriptions: set[str], state: dict[str, Any
 # unable to redirect the server at a different project's databases.
 
 
-def _run_cerebrofy(args: list[str], cwd: str, timeout: int = 300) -> tuple[int, str]:
+def _run_cerebrofy(args: list[str], cwd: str, timeout: int = DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS) -> tuple[int, str]:
     """Run ``python -m cerebrofy <args>`` in *cwd*. Returns (returncode, output)."""
     result = subprocess.run(
         [sys.executable, "-m", "cerebrofy"] + args,
@@ -212,8 +213,15 @@ def _run_cerebrofy(args: list[str], cwd: str, timeout: int = 300) -> tuple[int, 
 
 
 def _make_error_content(message: str) -> list[Any]:
-    from mcp.types import TextContent
-    return [TextContent(type="text", text=message)]
+    """Build a single-element ``TextContent`` error payload.
+
+    Delegates to the shared :func:`cerebrofy.mcp.errors.mcp_error` so there is
+    one canonical constructor for MCP error responses. The ``_make_error_content``
+    name is retained for backwards compatibility with existing call sites.
+    """
+    from cerebrofy.mcp.errors import mcp_error
+
+    return mcp_error(message)
 
 
 def _open_db_ro(root: Path) -> sqlite3.Connection:
@@ -2066,7 +2074,9 @@ async def run_mcp_server(root: Path | str | None = None) -> None:
                 return _make_error_content("Embedding model mismatch. Run 'cerebrofy build'.")
             return _make_error_content(f"[error] {msg}")
         except subprocess.TimeoutExpired:
-            return _make_error_content("[error] Command timed out after 300 seconds.")
+            return _make_error_content(
+                f"[error] Command timed out after {DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS} seconds."
+            )
         except Exception as exc:
             print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
             return _make_error_content(f"[error] {exc}")

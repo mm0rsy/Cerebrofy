@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.mcp.errors import mcp_error as _err
 from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
 
 
@@ -23,11 +24,6 @@ def _find_root(cwd: Path) -> Path:
     if root is None:
         raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
     return root
-
-
-def _err(message: str) -> list[Any]:
-    from mcp.types import TextContent
-    return [TextContent(type="text", text=message)]
 
 
 def handle_plan(arguments: dict[str, Any]) -> list[Any]:
