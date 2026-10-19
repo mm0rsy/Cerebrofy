@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from cerebrofy.changelog.generator import ChangelogEntry, ChangelogReport
+from cerebrofy.changelog.types import ChangelogEntry, ChangelogReport
 
 
 @dataclass(frozen=True)

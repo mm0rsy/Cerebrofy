@@ -12,19 +12,17 @@ from cerebrofy.changelog.generator import (
     build_entries,
     generate_changelog,
     write_narrative_events,
-    _audience_text,
-    _entry_title,
     _first_sentence,
-    _health_delta,
-    _load_memories,
-    _open_index_db,
-    validate_git_ref,
 )
+from cerebrofy.changelog.renderer import _audience_text, _entry_title
+from cerebrofy.changelog.collector import _health_delta, _load_memories, _open_index_db
+from cerebrofy.changelog.formatter import format_changelog
 from cerebrofy.changelog.classifier import (
     BREAKING,
     FEAT,
     FIX,
     INTERNAL,
+    KIND_MODIFIED,
     PERF,
     REFACTOR,
     SECURITY,
@@ -32,7 +30,10 @@ from cerebrofy.changelog.classifier import (
     ClassifiedChange,
     NeuronChange,
     ResolvedRange,
+    classify_change,
+    validate_git_ref,
 )
+from cerebrofy.config.loader import ChangelogConfig
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import ChangeSet, FileChange
 from cerebrofy.validate.drift_classifier import DriftRecord, NeuronDrift
@@ -313,10 +314,14 @@ def test_generate_changelog_end_to_end(monkeypatch, tmp_path: Path) -> None:
     assert report.full_text  # formatted markdown non-empty
 
 
-def test_generate_changelog_no_index_raises(tmp_path: Path) -> None:
-    with pytest.raises(ChangelogError) as exc_info:
-        generate_changelog(tmp_path, "v1.0.0", conn=None)
-    assert exc_info.value.code == "NO_INDEX"
+def test_generate_changelog_requires_conn(tmp_path: Path) -> None:
+    """conn is required (T1); omitting it raises TypeError before any work.
+
+    The connection-opening seam lives in the caller (CLI / MCP); generator.py
+    no longer opens or closes connections itself.
+    """
+    with pytest.raises(TypeError):
+        generate_changelog(tmp_path, "v1.0.0")
 
 
 def test_generate_changelog_ref_not_found_propagates(monkeypatch, tmp_path: Path) -> None:
@@ -502,3 +507,162 @@ def test_validate_git_ref_accepts_valid_refs() -> None:
     ]
     for ref in valid_refs:
         assert validate_git_ref(ref) == ref
+
+
+# ---------------------------------------------------------------------------
+# M3: module split — required conn (T1), output preservation, config threading
+# ---------------------------------------------------------------------------
+
+
+def test_changelog_module_imports() -> None:
+    """New sub-modules import cleanly and __init__ re-exports public names."""
+    # types.py
+    from cerebrofy.changelog.types import ChangelogEntry as _CE, ChangelogReport as _CR  # noqa: F401
+    assert _CE.__dataclass_fields__  # sanity: the dataclasses are exported
+    assert _CR.__dataclass_fields__
+
+    # collector.py
+    from cerebrofy.changelog.collector import (  # noqa: F401
+        _docstrings, _git_output, _health_delta, _load_memories, _open_index_db,
+    )
+    assert callable(_docstrings) and callable(_open_index_db)
+
+    # renderer.py
+    from cerebrofy.changelog.renderer import (  # noqa: F401
+        _first_sentence as _fs2, build_entries as _be, with_full_text as _wft,
+    )
+    assert callable(_fs2) and callable(_be) and callable(_wft)
+
+    # narrative.py
+    from cerebrofy.changelog.narrative import (  # noqa: F401
+        _commit_ts, _intent_entry, write_narrative_events,
+    )
+    assert callable(_commit_ts) and callable(_intent_entry) and callable(write_narrative_events)
+
+    # generator re-exports
+    from cerebrofy.changelog.generator import (  # noqa: F401
+        ChangelogEntry as _CE3, ChangelogReport as _CR3,
+        _first_sentence as _fs3, build_entries as _be3,
+        write_narrative_events as _wne3, generate_changelog as _gen,
+    )
+    assert _CE3 is _CE and _CR3 is _CR and _gen is generate_changelog
+
+    # __init__ package-level re-exports
+    import cerebrofy.changelog as pkg
+    assert pkg.ChangelogEntry is ChangelogEntry
+    assert pkg.ChangelogReport is ChangelogReport
+    assert pkg.generate_changelog is generate_changelog
+    assert pkg.write_narrative_events is write_narrative_events
+
+
+def test_changelog_split_preserves_full_text(monkeypatch, tmp_path: Path) -> None:
+    """The module split did not change generated output (golden assertion).
+
+    Generates a full report and asserts that key structural and content markers
+    survive in ``full_text`` — these are the same assertions the original
+    ``generate_changelog`` produced before the split.
+    """
+    conn = _fixture_conn()
+    _make_config(tmp_path)
+    _patched_collect(monkeypatch)
+    monkeypatch.setattr(
+        "cerebrofy.changelog.generator._load_memories",
+        lambda d: {"src/utils/helpers.py::fmt": [
+            Memory(id="m", neuron_id="src/utils/helpers.py::fmt", lobe="src/utils",
+                   type="warning", title="fmt rounded wrong", body="CVE-2024-xx rounding",
+                   author="a", created_ts=1, tags=("security",), decay_score=1.0,
+                   status="active")
+        ]},
+    )
+    report = generate_changelog(
+        tmp_path, "v1.0.0", audience="developer", output_format="markdown", conn=conn
+    )
+
+    # full_text is populated and matches format_changelog exactly (m9: no lazy import)
+    assert report.full_text
+    assert report.full_text == format_changelog(report)
+
+    # Golden content markers
+    assert report.full_text.startswith("## Changelog v1.0.0 → bbb")
+    # Breaking entry from validate_token signature change
+    assert "⚠️ Breaking Changes" in report.full_text
+    # Security entry from fmt with security-tagged memory (precedence over warning)
+    assert "🔒 Security" in report.full_text
+    # Feat entry from new_guard
+    assert "🚀 Features" in report.full_text
+    # health delta from snapshots
+    assert "Health delta: coupling +0.3000 · avg blast +2.00" in report.full_text
+
+
+def test_config_threshold_changes_classification() -> None:
+    """ChangelogConfig(breaking_cross_lobe_threshold=1) reclassifies borderline
+    MODIFIED neurons as breaking (where the default threshold=3 does not).
+
+    Uses a minimal graph where ``modified_fn`` has exactly 2 cross-lobe callers,
+    so threshold=1 (2 > 1) differs from threshold=3 (2 > 3).
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute(_NODES_DDL)
+    conn.execute(_EDGES_DDL)
+    conn.execute("CREATE TABLE file_hashes (file TEXT PRIMARY KEY, hash TEXT)")
+    conn.executemany(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        [
+            ("auth/tokens.py::modified_fn", "modified_fn", "auth/tokens.py",
+             "function", 10, 20, "def modified_fn():", None, "h1"),
+            ("api/views.py::caller_a", "caller_a", "api/views.py",
+             "function", 1, 8, "def caller_a():", None, "h2"),
+            ("api/views.py::caller_b", "caller_b", "api/views.py",
+             "function", 1, 8, "def caller_b():", None, "h3"),
+        ],
+    )
+    conn.executemany(
+        "INSERT INTO edges VALUES (?,?,?,?)",
+        [
+            ("api/views.py::caller_a", "auth/tokens.py::modified_fn", "LOCAL_CALL", "api/views.py"),
+            ("api/views.py::caller_b", "auth/tokens.py::modified_fn", "LOCAL_CALL", "api/views.py"),
+        ],
+    )
+    conn.commit()
+
+    change = NeuronChange(
+        "auth/tokens.py::modified_fn", "modified_fn",
+        "auth/tokens.py", "auth", KIND_MODIFIED,
+    )
+    # Default threshold (3): 2 > 3 → False → INTERNAL
+    cc_default = classify_change(
+        change, conn, memories=(), lobes=None,
+        config=ChangelogConfig(breaking_cross_lobe_threshold=3),
+    )
+    assert cc_default.is_breaking is False
+    assert cc_default.entry_type == INTERNAL
+
+    # threshold=1: 2 > 1 → True → BREAKING
+    cc_low = classify_change(
+        change, conn, memories=(), lobes=None,
+        config=ChangelogConfig(breaking_cross_lobe_threshold=1),
+    )
+    assert cc_low.is_breaking is True
+    assert cc_low.entry_type == BREAKING
+
+
+def test_generate_changelog_threads_config(monkeypatch, tmp_path: Path) -> None:
+    """generate_changelog passes an explicitly-supplied ChangelogConfig through
+    to classify_changes (m11)."""
+    conn = _fixture_conn()
+    _make_config(tmp_path)
+    _patched_collect(monkeypatch)
+    monkeypatch.setattr("cerebrofy.changelog.generator._load_memories", lambda d: {})
+
+    captured: dict = {}
+
+    def spy_classify(changes, conn_, memories, lobes, config=None):
+        captured["config"] = config
+        from cerebrofy.changelog.classifier import classify_changes as _orig
+        return _orig(changes, conn_, memories, lobes, config=config)
+
+    monkeypatch.setattr("cerebrofy.changelog.generator.classify_changes", spy_classify)
+
+    cfg = ChangelogConfig(breaking_cross_lobe_threshold=1)
+    generate_changelog(tmp_path, "v1.0.0", conn=conn, config=cfg)
+    assert captured["config"] is cfg
