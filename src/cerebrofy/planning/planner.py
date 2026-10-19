@@ -28,6 +28,8 @@ from cerebrofy.analysis.blast_radius import BlastNeuron, compute_neuron_blast_ra
 from cerebrofy.analysis.impact import ImpactNeuron, compute_impact
 from cerebrofy.config.loader import PlanningConfig, _GENERIC_MODULE_WORDS
 from cerebrofy.context.optimizer import optimize_context
+from cerebrofy.errors import CLUSTER_TOO_LARGE, CLUSTER_TOO_SMALL
+from cerebrofy.errors import NO_INDEX as NO_INDEX  # re-exported for CLI/MCP callers
 from cerebrofy.intent.loader import load_intent
 from cerebrofy.memory.search import recall_memories
 from cerebrofy.memory.store import open_memories_db
@@ -40,10 +42,9 @@ from cerebrofy.planning.extractor import (
 )
 from cerebrofy.planning.sequence import MigrationStep, build_migration_steps
 
-# Error codes (spec — shared by the CLI and MCP surfaces).
-NO_INDEX = "NO_INDEX"
-CLUSTER_TOO_SMALL = "CLUSTER_TOO_SMALL"
-CLUSTER_TOO_LARGE = "CLUSTER_TOO_LARGE"
+# Error codes (spec — shared by the CLI and MCP surfaces) are defined once in
+# :mod:`cerebrofy.errors` and re-exported here for callers that import them
+# from this module (back-compat).
 
 _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 

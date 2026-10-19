@@ -278,6 +278,8 @@ def test_end_session_missing_session_raises(sessions_conn: sqlite3.Connection) -
     with pytest.raises(SessionNotFoundError) as excinfo:
         end_session(sessions_conn, "sess_missing")
     assert SESSION_NOT_FOUND in str(excinfo.value)
+    # m12: the dedicated exception carries the machine-readable code too.
+    assert excinfo.value.code == SESSION_NOT_FOUND
 
 
 def test_valid_outcomes_constant() -> None:

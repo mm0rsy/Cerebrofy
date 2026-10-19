@@ -16,7 +16,7 @@ import pytest
 from cerebrofy.changelog.classifier import (
     BREAKING,
     BREAKING_CROSS_LOBE_CALLERS,
-    CODE_REF_NOT_FOUND,
+    REF_NOT_FOUND,
     FEAT,
     FIX,
     INTERNAL,
@@ -601,7 +601,7 @@ def test_fixture_graph_breaking_recall() -> None:
 def test_validate_git_ref_rejects_empty() -> None:
     with pytest.raises(ChangelogError) as exc_info:
         validate_git_ref("")
-    assert exc_info.value.code == CODE_REF_NOT_FOUND
+    assert exc_info.value.code == REF_NOT_FOUND
 
 
 def test_validate_git_ref_rejects_option_like() -> None:
@@ -610,7 +610,7 @@ def test_validate_git_ref_rejects_option_like() -> None:
     for ref in bad_refs:
         with pytest.raises(ChangelogError) as exc_info:
             validate_git_ref(ref)
-        assert exc_info.value.code == CODE_REF_NOT_FOUND
+        assert exc_info.value.code == REF_NOT_FOUND
 
 
 def test_validate_git_ref_rejects_shell_metacharacters() -> None:
@@ -618,7 +618,7 @@ def test_validate_git_ref_rejects_shell_metacharacters() -> None:
     for ref in bad_refs:
         with pytest.raises(ChangelogError) as exc_info:
             validate_git_ref(ref)
-        assert exc_info.value.code == CODE_REF_NOT_FOUND
+        assert exc_info.value.code == REF_NOT_FOUND
 
 
 def test_validate_git_ref_accepts_valid_refs() -> None:

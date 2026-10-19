@@ -47,7 +47,7 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except FileNotFoundError:
-        return _err("NO_INDEX: could not find .cerebrofy directory")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     config_path = root / ".cerebrofy" / "config.yaml"
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"

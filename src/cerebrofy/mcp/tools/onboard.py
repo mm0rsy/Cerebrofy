@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.errors import NO_INDEX
 from cerebrofy.mcp.errors import mcp_error as _err
 from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
 
@@ -32,12 +33,12 @@ def handle_onboard(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
     db_path = cerebrofy_dir / "db" / "cerebrofy.db"
     if not db_path.exists():
-        return _err("NO_INDEX: run cerebrofy build first")
+        return _err(f"[{NO_INDEX}] run cerebrofy build first")
 
     try:
         from cerebrofy.config.loader import load_config

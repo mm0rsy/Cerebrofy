@@ -64,7 +64,7 @@ def generate_changelog(
     connections itself (T1, testability finding #7).
 
     Raises:
-        ChangelogError(CODE_REF_NOT_FOUND): the git ref cannot be resolved.
+        ChangelogError(REF_NOT_FOUND): the git ref cannot be resolved.
         ValueError: invalid audience or output format.
     """
     if audience not in _AUDIENCE_TYPES:

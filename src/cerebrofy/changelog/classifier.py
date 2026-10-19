@@ -18,6 +18,7 @@ from typing import Any
 from cerebrofy.analysis.blast_radius import bfs_callers
 from cerebrofy.constants import DEFAULT_GIT_TIMEOUT_SECONDS
 from cerebrofy.config.loader import ChangelogConfig
+from cerebrofy.errors import REF_NOT_FOUND
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import detect_changes_between_refs
 from cerebrofy.validate.drift_classifier import classify_drift
@@ -62,9 +63,8 @@ KIND_MOVED = "moved"
 #: classification logic now delegates to ``ChangelogConfig.breaking_cross_lobe_threshold``.
 BREAKING_CROSS_LOBE_CALLERS = 3
 
-#: Error codes surfaced to the CLI and MCP tool (spec §Error Codes).
-CODE_NO_INDEX = "NO_INDEX"
-CODE_REF_NOT_FOUND = "REF_NOT_FOUND"
+# Error codes surfaced to the CLI and MCP tool (spec §Error Codes) live in
+# :mod:`cerebrofy.errors` and are imported above — no ``CODE_`` name prefix.
 
 _SECURITY_TAGS = frozenset({"security", "vuln", "cve", "vulnerability"})
 _PERF_TAGS = frozenset({"perf", "performance"})
@@ -83,21 +83,21 @@ def validate_git_ref(ref: str) -> str:
     containing characters outside the allowed set.
 
     Raises:
-        ChangelogError(CODE_REF_NOT_FOUND): if the ref is invalid.
+        ChangelogError(REF_NOT_FOUND): if the ref is invalid.
 
     Returns:
         The ref unchanged when valid.
     """
     if not ref:
-        raise ChangelogError(CODE_REF_NOT_FOUND, "Empty git ref is not allowed.")
+        raise ChangelogError(REF_NOT_FOUND, "Empty git ref is not allowed.")
     if ref.startswith("-"):
         raise ChangelogError(
-            CODE_REF_NOT_FOUND,
+            REF_NOT_FOUND,
             f"Git ref must not start with '-' (option injection): {ref!r}",
         )
     if not _GIT_REF_PATTERN.match(ref):
         raise ChangelogError(
-            CODE_REF_NOT_FOUND,
+            REF_NOT_FOUND,
             f"Invalid git ref: {ref!r}",
         )
     return ref
@@ -279,13 +279,13 @@ def resolve_range(
     until_ref = _rev_parse("HEAD", repo_root)
     if until_ref is None:
         raise ChangelogError(
-            CODE_REF_NOT_FOUND, "Could not resolve HEAD — is this a git repository with commits?"
+            REF_NOT_FOUND, "Could not resolve HEAD — is this a git repository with commits?"
         )
 
     if since == "project-start":
         roots = _run_git(["rev-list", "--max-parents=0", until_ref], repo_root)
         if not roots:
-            raise ChangelogError(CODE_REF_NOT_FOUND, "Could not find the project's root commit.")
+            raise ChangelogError(REF_NOT_FOUND, "Could not find the project's root commit.")
         return ResolvedRange(since_label=since, since_ref=roots.splitlines()[-1], until_ref=until_ref)
 
     if since == "last-build":
@@ -309,7 +309,7 @@ def resolve_range(
     resolved = _rev_parse(since, repo_root)
     if resolved is None:
         raise ChangelogError(
-            CODE_REF_NOT_FOUND,
+            REF_NOT_FOUND,
             f"Git ref '{since}' not found. Use a tag, a commit hash, "
             "'last-build', or 'project-start'.",
         )

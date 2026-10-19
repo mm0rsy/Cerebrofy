@@ -12,9 +12,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.errors import NO_INDEX
 from cerebrofy.mcp.errors import mcp_error as _err
 from cerebrofy.session.recorder import (
     NO_ACTIVE_SESSION,
+    RECORDING_DISABLED,
     SESSION_NOT_FOUND,
     SessionRecord,
     active_session,
@@ -89,12 +91,12 @@ def handle_session_start(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     config_path = root / ".cerebrofy" / "config.yaml"
     if not _recording_enabled(config_path):
         return _err(
-            "RECORDING_DISABLED: session recording is opt-in. Set "
+            f"[{RECORDING_DISABLED}] session recording is opt-in. Set "
             "'record_sessions: true' in .cerebrofy/config.yaml and restart the "
             "MCP server."
         )
@@ -140,7 +142,7 @@ def handle_session_end(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
     outcome = arguments.get("outcome")
@@ -207,7 +209,7 @@ def handle_session_show(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
     if not (cerebrofy_dir / "db" / "sessions.db").exists():

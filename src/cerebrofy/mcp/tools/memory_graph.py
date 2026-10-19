@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.errors import NO_INDEX
 from cerebrofy.mcp.errors import mcp_error as _err
 from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
 
@@ -46,11 +47,11 @@ def handle_link_memories(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
     if not (cerebrofy_dir / "db" / "memories.db").exists():
-        return _err("NO_INDEX: run cerebrofy build first")
+        return _err(f"[{NO_INDEX}] run cerebrofy build first")
 
     try:
         from mcp.types import TextContent

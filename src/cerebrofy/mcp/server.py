@@ -42,6 +42,7 @@ from cerebrofy.utils.paths import (
     require_repo_root,
     set_bound_root,
 )
+from cerebrofy.errors import NO_INDEX
 from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
 
 
@@ -772,11 +773,11 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = require_repo_root(Path.cwd())
     except Exception:
-        return _make_error_content("NO_INDEX: could not find .cerebrofy directory")
+        return _make_error_content(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
     if not (cerebrofy_dir / "db").exists():
-        return _make_error_content("NO_INDEX: run cerebrofy build first")
+        return _make_error_content(f"[{NO_INDEX}] run cerebrofy build first")
 
     try:
         from cerebrofy.memory.embedder import embed_memory

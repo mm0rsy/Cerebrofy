@@ -9,16 +9,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-# Error codes surfaced by the MCP tools / CLI.  Kept as module-level string
-# constants (not the exceptions.py hierarchy) for backward compatibility:
-# existing callers compare against these literals in error messages.
-SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
-NO_ACTIVE_SESSION = "NO_ACTIVE_SESSION"
-RECORDING_DISABLED = "RECORDING_DISABLED"
+from cerebrofy.errors import (
+    NO_ACTIVE_SESSION as NO_ACTIVE_SESSION,
+    RECORDING_DISABLED as RECORDING_DISABLED,
+    SESSION_NOT_FOUND as SESSION_NOT_FOUND,
+)
+
+# Error codes surfaced by the MCP tools / CLI are defined once in
+# :mod:`cerebrofy.errors` and re-exported here (via the ``recorder`` facade)
+# so existing importers keep working without duplicating the literals.
 
 
 class SessionNotFoundError(LookupError):
     """Raised when a session id does not exist."""
+
+    code: str = SESSION_NOT_FOUND
 
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from cerebrofy.changelog.classifier import ChangelogError
 from cerebrofy.constants import DEFAULT_GIT_TIMEOUT_SECONDS
+from cerebrofy.errors import NO_INDEX
 from cerebrofy.memory.store import Memory
 from cerebrofy.memory.store import list_memories as _list_memories
 from cerebrofy.memory.store import open_memories_db as _open_memories_db
@@ -25,7 +26,7 @@ def _open_index_db(db_path: Path) -> sqlite3.Connection:
     """
     if not db_path.exists():
         raise ChangelogError(
-            "NO_INDEX", "Index not found. Run 'cerebrofy build' first."
+            NO_INDEX, "Index not found. Run 'cerebrofy build' first."
         )
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
