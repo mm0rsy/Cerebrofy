@@ -9,27 +9,12 @@ explicit handoff (``--execute``) to an AI agent that verifies each step with
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import rich_click as click
 
 from cerebrofy.planning.planner import NO_INDEX, PlanError, build_refactor_plan
 from cerebrofy.search.hybrid import embed_query
-
-
-def _find_repo_root() -> Path | None:
-    """Resolve the repo root via the shared helper (config.yaml marker).
-
-    Honors an explicit ``CEREBROFY_ROOT`` binding before walking up from CWD;
-    returns ``None`` (caller exits) when no project is found.
-    """
-    from cerebrofy.utils.paths import InvalidRepoRootError, find_repo_root
-
-    try:
-        return find_repo_root(Path.cwd())
-    except InvalidRepoRootError as exc:
-        click.echo(f"Cerebrofy: {exc}", err=True)
-        sys.exit(1)
+from cerebrofy.utils.paths import InvalidRepoRootError, require_repo_root
 
 
 @click.command("plan")
@@ -61,12 +46,20 @@ def cerebrofy_plan(description: str, execute: bool, output: str) -> None:
     from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
     from cerebrofy.db.connection import open_db_readonly
 
-    root = _find_repo_root()
-    if root is None:
+    # Repo-root resolution is delegated to the shared pure finder
+    # ``require_repo_root``; failure (missing project or a bad CEREBROFY_ROOT)
+    # is handled here in the CLI layer with the existing user-facing message
+    # and exit code, so command output and exit codes are unchanged.
+    try:
+        root = require_repo_root()
+    except FileNotFoundError:
         click.echo(
             "Cerebrofy: [NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init && cerebrofy build' first."
         )
+        sys.exit(1)
+    except InvalidRepoRootError as exc:
+        click.echo(f"Cerebrofy: {exc}", err=True)
         sys.exit(1)
 
     config_path = root / ".cerebrofy" / "config.yaml"

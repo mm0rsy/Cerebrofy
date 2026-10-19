@@ -37,23 +37,26 @@ from cerebrofy.session.reporter import format_duration, format_utc, render_html,
 console = Console()
 
 
-def _find_repo_root() -> Path:
-    """Resolve the repo root via the shared helper (config.yaml marker).
+def _resolve_root() -> Path:
+    """Resolve the repo root via the shared pure finder; exit the CLI on failure.
 
-    Honors an explicit ``CEREBROFY_ROOT`` binding before walking up from CWD.
-    Exits with a clear message when no project is found.
+    The *finding* itself (walk-up for ``.cerebrofy/config.yaml``, honoring an
+    explicit ``CEREBROFY_ROOT`` binding) is delegated to
+    :func:`cerebrofy.utils.paths.require_repo_root`, which raises
+    ``FileNotFoundError`` when no project is found. Only the user-facing
+    message and exit code are handled here, in the CLI layer — this helper
+    itself no longer performs any root resolution.
     """
-    from cerebrofy.utils.paths import InvalidRepoRootError, find_repo_root
+    from cerebrofy.utils.paths import InvalidRepoRootError, require_repo_root
 
     try:
-        root = find_repo_root(Path.cwd())
+        return require_repo_root()
+    except FileNotFoundError:
+        click.echo("Error: Not initialized. Run 'cerebrofy init' first.", err=True)
+        sys.exit(1)
     except InvalidRepoRootError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
-    if root is None:
-        click.echo("Error: Not initialized. Run 'cerebrofy init' first.", err=True)
-        sys.exit(1)
-    return root
 
 
 def _open(root: Path) -> sqlite3.Connection:
@@ -131,7 +134,7 @@ def session_group() -> None:
               default="text", show_default=True, help="Output format.")
 def session_list(limit: int, fmt: str) -> None:
     """List recorded sessions, newest first."""
-    root = _find_repo_root()
+    root = _resolve_root()
     conn = _open(root)
     try:
         sessions = list_sessions(conn, limit=limit)
@@ -182,7 +185,7 @@ def session_list(limit: int, fmt: str) -> None:
               default="markdown", show_default=True, help="Output format.")
 def session_show(session_id: str | None, fmt: str) -> None:
     """Show the full replay of SESSION_ID (latest when omitted)."""
-    root = _find_repo_root()
+    root = _resolve_root()
     try:
         session, events, diff = _load_replay(root, session_id)
     except SessionNotFoundError as exc:
@@ -205,7 +208,7 @@ def session_show(session_id: str | None, fmt: str) -> None:
               default="text", show_default=True, help="Output format.")
 def session_diff(session_id: str | None, fmt: str) -> None:
     """Show the graph changes made during SESSION_ID."""
-    root = _find_repo_root()
+    root = _resolve_root()
     try:
         session, _events, diff = _load_replay(root, session_id)
     except SessionNotFoundError as exc:
@@ -295,7 +298,7 @@ def session_search(query: str, limit: int, fmt: str) -> None:
     """Semantic search across session tasks (falls back to task-text match)."""
     from cerebrofy.config.loader import load_config
 
-    root = _find_repo_root()
+    root = _resolve_root()
     config = load_config(root / ".cerebrofy" / "config.yaml")
 
     embedding: list[float] | None = None
@@ -360,7 +363,7 @@ def session_search(query: str, limit: int, fmt: str) -> None:
               help="Write to this path instead of stdout.")
 def session_export(session_id: str | None, fmt: str, output_path: str | None) -> None:
     """Export SESSION_ID as a shareable report (HTML, Markdown, or JSON)."""
-    root = _find_repo_root()
+    root = _resolve_root()
     try:
         session, events, diff = _load_replay(root, session_id)
     except SessionNotFoundError as exc:
