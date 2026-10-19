@@ -3,11 +3,11 @@
 This sub-module owns the sessions.db connection lifecycle and the row → dataclass
 converters.  It was split from ``recorder.py`` (m9 maintainability split).
 
-``sqlite_vec`` (a native C extension) stays lazily imported inside
-``open_sessions_db`` so that importing this module — which
-``cerebrofy.commands.session`` imports unconditionally for *every* CLI command —
-stays free of native-load cost.  Mirrors the same deferral in
-``cerebrofy.memory.store``.
+``sqlite_vec`` (a native C extension) is imported lazily by
+``cerebrofy.db.vec.load_sqlite_vec`` (called from ``open_sessions_db``) so that
+importing this module — which ``cerebrofy.commands.session`` imports
+unconditionally for *every* CLI command — stays free of native-load cost. The
+version guard that used to live inline is now centralized there.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from cerebrofy.db.schema import create_session_schema
+from cerebrofy.db.vec import load_sqlite_vec
 from cerebrofy.session._recorder.models import SessionEvent, SessionRecord
 
 # Re-exported logger name preserved for caplog-based tests that assert on
@@ -36,20 +37,12 @@ _SESSION_COLS = (
 
 def open_sessions_db(cerebrofy_dir: Path) -> sqlite3.Connection:
     """Open (or create) sessions.db, load sqlite-vec, apply the schema idempotently."""
-    # Lazy: sqlite_vec is a native C extension.  Import at call time rather than
-    # module scope so importing this module — which ``cerebrofy.commands.session``
-    # imports unconditionally for *every* CLI command — stays free of native-load
-    # cost.  Mirrors the same deferral in ``cerebrofy.memory.store``.
-    import sqlite_vec  # type: ignore[import-untyped]
-
     db_path = cerebrofy_dir / "db" / "sessions.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     # check_same_thread=False: the MCP middleware may touch this connection from
     # an SDK worker thread; access stays serialized in practice.
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
+    load_sqlite_vec(conn)
     conn.execute("PRAGMA journal_mode=WAL")
     create_session_schema(conn)
     return conn

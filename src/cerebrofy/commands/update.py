@@ -12,6 +12,7 @@ import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db, write_transaction
+from cerebrofy.db.integrity import write_sidecar
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.hooks.installer import upgrade_hook
 from cerebrofy.db.writer import (
@@ -358,6 +359,10 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         _record_health_snapshot_update(conn, config.lobes, str(root))
         _recompute_memory_decay_update(root, config, scope.affected_node_ids)
         conn.close()
+
+        # At-rest integrity sidecar: after the final write and the close, so
+        # WAL frames are checkpointed before the file is hashed (S2/n12).
+        write_sidecar(db_path)
 
         # Step 10: Keep installed hook blocks current (e.g. upgrade to v3 with
         # the architecture drift check after 'cerebrofy arch init').

@@ -26,6 +26,15 @@ embedding_model: local       # local | none
 
 # ── Session Recording (Idea #11) ─────────────────────────────────────────────
 record_sessions: false       # true = record every MCP tool call as a replayable, local-only session
+
+# ── Session limits (optional) ────────────────────────────────────────────────
+session:
+  max_tracked_neurons: 50    # cap on distinct neurons folded into a session
+  max_refs_per_event: 3      # cap on neuron refs resolved per recorded event
+
+# ── Database (optional) ──────────────────────────────────────────────────────
+database:
+  integrity_check: warn      # off | warn | fail — verify cerebrofy.db against its <db>.sha256 sidecar
 ```
 
 ---
@@ -111,6 +120,43 @@ record_sessions: true
 Sessions are started and ended explicitly via the `cerebrofy_session_start` / `cerebrofy_session_end` MCP tools (or the `cerebrofy session` CLI). While a session is open, each tool call — including `search_code`, `cerebrofy_impact`, and even `cerebrofy_update` — is captured. At session end the recorder folds in the depth-2 blast-radius "before" and "after" counts of the neurons the agent touched (Idea #01), so each replay answers "what did the agent do and what did it affect?".
 
 Privacy: recording is **local-only**. No session data, tool arguments, or result snippets are uploaded or sent to any server. Disable at any time by setting the flag back to `false` and restarting the MCP server.
+
+---
+
+### `database.integrity_check`
+
+**Type**: `str` (`off` | `warn` | `fail`)
+**Default**: `warn`
+
+Controls verification of `cerebrofy.db` against the SHA256 sidecar
+(`cerebrofy.db.sha256`) written by `cerebrofy build` / `cerebrofy update`.
+`warn` logs a warning on mismatch and continues; `fail` raises
+`IntegrityError`; `off` skips the check. A missing sidecar is always a no-op,
+so databases from before this feature remain readable. See
+[security.md](security.md).
+
+```yaml
+database:
+  integrity_check: warn
+```
+
+---
+
+### `session`
+
+**Type**: `dict[str, int]`
+**Default**: `{max_tracked_neurons: 50, max_refs_per_event: 3}`
+
+Caps applied while recording sessions. `max_tracked_neurons` bounds the
+distinct neurons folded into a session's blast-radius tracking;
+`max_refs_per_event` bounds how many neuron references are resolved per
+recorded event.
+
+```yaml
+session:
+  max_tracked_neurons: 50
+  max_refs_per_event: 3
+```
 
 ---
 

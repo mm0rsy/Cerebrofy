@@ -8,7 +8,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-import sqlite_vec  # type: ignore[import-untyped]
+from cerebrofy.db.integrity import verify_integrity
+from cerebrofy.db.vec import load_sqlite_vec
 
 # Process-wide lock that serializes all in-process multi-statement writers on
 # a single ``cerebrofy.db`` connection. Reads stay lock-free; only writers block
@@ -18,17 +19,21 @@ import sqlite_vec  # type: ignore[import-untyped]
 _WRITE_LOCK = threading.RLock()
 
 
-def open_db_readonly(db_path: Path) -> sqlite3.Connection:
+def open_db_readonly(db_path: Path, *, integrity_check: str = "warn") -> sqlite3.Connection:
     """Open the index in read-only mode (safe alongside builders and MCP servers).
 
     Loads the sqlite-vec extension so vector search operations work correctly.
+
+    *integrity_check* is the ``database.integrity_check`` mode (off/warn/fail):
+    the SHA256 sidecar written by ``cerebrofy build`` / ``cerebrofy update`` is
+    verified before the connection is handed out. A missing sidecar is a no-op;
+    see :mod:`cerebrofy.db.integrity` and ``docs/security.md``.
     """
     if not db_path.exists():
         raise FileNotFoundError("Index not found. Run 'cerebrofy build' first.")
+    verify_integrity(db_path, integrity_check)
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
+    load_sqlite_vec(conn)
     return conn
 
 
@@ -38,9 +43,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     Does NOT perform a schema version check — that is the caller's responsibility.
     """
     conn = sqlite3.connect(str(db_path))
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
+    load_sqlite_vec(conn)
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 

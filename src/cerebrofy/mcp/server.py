@@ -233,6 +233,18 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
         raise FileNotFoundError(
             "Index not found. Run 'cerebrofy build' first."
         )
+    integrity_check = "warn"
+    try:
+        from cerebrofy.config.loader import load_config
+
+        integrity_check = load_config(
+            root / ".cerebrofy" / "config.yaml"
+        ).database.integrity_check
+    except Exception:  # config problems surface with their own errors elsewhere
+        pass
+    from cerebrofy.db.integrity import verify_integrity
+
+    verify_integrity(db_path, integrity_check)
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
 

@@ -12,6 +12,7 @@ import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db, write_transaction
+from cerebrofy.db.integrity import write_sidecar
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
@@ -327,6 +328,12 @@ def cerebrofy_build() -> None:
         build_step6_markdown(db_path, config, state_hash, docs_dir)
 
         _record_health_snapshot(db_path, config.lobes, str(root))
+
+        # At-rest integrity sidecar: after the health snapshot (the last write
+        # to cerebrofy.db) and after its connection closed, so WAL frames are
+        # checkpointed before the file is hashed (S2/n12).
+        write_sidecar(db_path)
+
         _recompute_memory_decay_build(root, config)
 
         elapsed = time.monotonic() - start

@@ -19,8 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import sqlite_vec  # type: ignore[import-untyped]
-
+from cerebrofy.db.vec import load_sqlite_vec
 from cerebrofy.graph.edges import RUNTIME_BOUNDARY
 
 
@@ -67,10 +66,8 @@ class HybridSearchResult:
 # ---------------------------------------------------------------------------
 
 def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
-    """Load the sqlite-vec extension on *conn*."""
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
+    """Load the sqlite-vec extension on *conn* (shared version-guarded loader)."""
+    load_sqlite_vec(conn)
 
 
 def _check_schema_version(conn: sqlite3.Connection, expected: int = 1) -> None:
