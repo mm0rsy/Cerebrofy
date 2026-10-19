@@ -25,8 +25,14 @@ DEFAULT_TOP_K = 20
 # edges connect it to cluster members (spec: internal/total > 0.5).
 DEFAULT_INTERNAL_EDGE_RATIO = 0.5
 # Spec error bound: more than 200 matched neurons → CLUSTER_TOO_LARGE.
+# Per Idea #12 acceptance criteria — Error Codes table defines
+# CLUSTER_TOO_LARGE as "More than 200 neurons matched".
+# Source: .ideas/12-natural-language-refactor-planner/IDEA.md (Error Codes).
 MAX_CLUSTER_SIZE = 200
 # Spec error bound: fewer than 2 matched neurons → CLUSTER_TOO_SMALL.
+# Per Idea #12 acceptance criteria — Error Codes table defines
+# CLUSTER_TOO_SMALL as "Fewer than 2 neurons matched the description".
+# Source: .ideas/12-natural-language-refactor-planner/IDEA.md (Error Codes).
 MIN_CLUSTER_SIZE = 2
 
 
@@ -95,23 +101,23 @@ def knn_seeds(
 # Phase 2: cluster expansion
 # ---------------------------------------------------------------------------
 
-def _placeholders(count: int) -> str:
+def _in_clause_placeholders(count: int) -> str:
     return ",".join("?" * count)
 
 
-def _node_ids_present(conn: sqlite3.Connection, ids: set[str]) -> set[str]:
+def _filter_existing_node_ids(conn: sqlite3.Connection, ids: set[str]) -> set[str]:
     """Filter *ids* down to those that exist in the nodes table."""
     if not ids:
         return set()
     ordered = sorted(ids)
     rows = conn.execute(
-        f"SELECT id FROM nodes WHERE id IN ({_placeholders(len(ordered))})",
+        f"SELECT id FROM nodes WHERE id IN ({_in_clause_placeholders(len(ordered))})",
         ordered,
     ).fetchall()
     return {row[0] for row in rows}
 
 
-def _neighbor_ids(conn: sqlite3.Connection, cluster_ids: set[str]) -> set[str]:
+def _collect_cluster_neighbors(conn: sqlite3.Connection, cluster_ids: set[str]) -> set[str]:
     """Return all edge endpoints adjacent to the cluster (excluding the cluster).
 
     RUNTIME_BOUNDARY edges are never traversed (Law II).
@@ -119,7 +125,7 @@ def _neighbor_ids(conn: sqlite3.Connection, cluster_ids: set[str]) -> set[str]:
     if not cluster_ids:
         return set()
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
+    ph = _in_clause_placeholders(len(ordered))
     rows = conn.execute(
         f"SELECT src_id, dst_id FROM edges "
         f"WHERE (src_id IN ({ph}) OR dst_id IN ({ph})) AND rel_type != ?",
@@ -152,7 +158,7 @@ def _edge_counts(
     total = int(total_row[0]) if total_row else 0
 
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
+    ph = _in_clause_placeholders(len(ordered))
     internal_row = conn.execute(
         f"SELECT COUNT(*) FROM edges WHERE rel_type != ? AND ("
         f"(src_id = ? AND dst_id IN ({ph})) OR (dst_id = ? AND src_id IN ({ph})))",
@@ -179,7 +185,9 @@ def expand_cluster(
 
     while True:
         members = set(cluster)
-        candidates = _node_ids_present(conn, _neighbor_ids(conn, members)) - members
+        candidates = _filter_existing_node_ids(
+            conn, _collect_cluster_neighbors(conn, members)
+        ) - members
         added = False
         for candidate_id in sorted(candidates):
             internal, total = _edge_counts(conn, candidate_id, set(cluster))
@@ -219,7 +227,7 @@ def _fetch_callers(
     src_ids: set[str],
 ) -> list[ClusterNeuron]:
     """Resolve caller ids to ClusterNeurons, sorted by (file, line, name)."""
-    present = _node_ids_present(conn, src_ids)
+    present = _filter_existing_node_ids(conn, src_ids)
     nodes = _fetch_nodes_by_ids(conn, sorted(present))
     callers = [
         ClusterNeuron(
@@ -247,10 +255,9 @@ def find_external_callers(
     if not cluster_ids:
         return []
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
     rows = conn.execute(
         f"SELECT DISTINCT src_id FROM edges "
-        f"WHERE dst_id IN ({ph}) AND src_id NOT IN ({ph}) AND rel_type != ?",
+        f"WHERE dst_id IN ({_in_clause_placeholders(len(ordered))}) AND src_id NOT IN ({_in_clause_placeholders(len(ordered))}) AND rel_type != ?",
         [*ordered, *ordered, RUNTIME_BOUNDARY],
     ).fetchall()
     return _fetch_callers(conn, {row[0] for row in rows})
@@ -264,9 +271,8 @@ def find_runtime_boundary_callers(
     if not cluster_ids:
         return []
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
     rows = conn.execute(
-        f"SELECT DISTINCT src_id FROM edges WHERE dst_id IN ({ph}) AND rel_type = ?",
+        f"SELECT DISTINCT src_id FROM edges WHERE dst_id IN ({_in_clause_placeholders(len(ordered))}) AND rel_type = ?",
         [*ordered, RUNTIME_BOUNDARY],
     ).fetchall()
     return sorted(row[0] for row in rows)

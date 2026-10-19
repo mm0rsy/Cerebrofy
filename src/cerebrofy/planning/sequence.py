@@ -38,13 +38,13 @@ class MigrationStep:
 def _reverse_topo_order(cluster_ids: set[str], conn: sqlite3.Connection) -> list[str]:
     """Reverse-topo order of the cluster (callees first), deterministic.
 
-    ``_build_caller_graph`` feeds set iteration order into its dict, which is
-    not stable across processes; re-keying by sorted id makes the Kahn queue
-    and the cycle-fallback tail deterministic without touching Idea #07.
+    ``analysis.sequence._build_caller_graph`` now inserts nodes/edges in
+    stable sorted-id order and ``_topological_sort`` seeds its queue
+    deterministically, so the reverse order is stable without any re-keying
+    here.
     """
     graph = _build_caller_graph(cluster_ids, conn)
-    stable_graph = {nid: graph[nid] for nid in sorted(graph)}
-    order = _topological_sort(stable_graph)
+    order = _topological_sort(graph)
     order.reverse()
     return order
 

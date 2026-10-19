@@ -27,6 +27,10 @@ from pathlib import Path
 from cerebrofy.analysis.blast_radius import BlastNeuron, compute_neuron_blast_radius
 from cerebrofy.analysis.impact import ImpactNeuron, compute_impact
 from cerebrofy.config.loader import _GENERIC_MODULE_WORDS
+from cerebrofy.context.optimizer import optimize_context
+from cerebrofy.intent.loader import load_intent
+from cerebrofy.memory.search import recall_memories
+from cerebrofy.memory.store import open_memories_db
 from cerebrofy.planning.extractor import (
     DEFAULT_TOP_K,
     MAX_CLUSTER_SIZE,
@@ -45,8 +49,8 @@ CLUSTER_TOO_LARGE = "CLUSTER_TOO_LARGE"
 _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 # Words that describe the shape of an extraction rather than its new name.
-# Single source of truth lives in cerebrofy.config.loader (moved in Wave A);
-# re-exported here so derive_module_name() keeps working with no code change.
+# Single source of truth lives in cerebrofy.config.loader (imported above);
+# derive_module_name() defaults generic_words to this set when None.
 
 _NAMED_MODULE_RE = re.compile(
     r"\binto\s+(?:its\s+own\s+|a\s+|an\s+|the\s+)?(?:new\s+)?`?([a-z][a-z0-9_.-]*)`?"
@@ -123,19 +127,31 @@ def _graph_derived_module(cluster: list[ClusterNeuron]) -> str:
     return "extracted"
 
 
-def derive_module_name(description: str, cluster: list[ClusterNeuron]) -> str:
+def derive_module_name(
+    description: str,
+    cluster: list[ClusterNeuron],
+    *,
+    generic_words: frozenset[str] | None = None,
+) -> str:
     """Derive the proposed new module name from the description or graph.
 
     Examples: "extract the payment logic into a payments service" → ``payments``;
     "move database code into a db/ module" → ``db``. When the description names
     no target, the dominant parent directory inside the cluster is used.
+
+    *generic_words* overrides the default filter set for tokens that describe
+    the extraction shape rather than a concrete name. When ``None`` (the
+    default) the module-level ``_GENERIC_MODULE_WORDS`` from
+    ``cerebrofy.config.loader`` is used — no literal is duplicated.
     """
+    if generic_words is None:
+        generic_words = _GENERIC_MODULE_WORDS
     for pattern in (_NAMED_MODULE_RE, _INTO_TOKEN_RE):
         match = pattern.search(description)
         if match is None:
             continue
         candidate = _sanitize_module(match.group(1))
-        if candidate and candidate not in _GENERIC_MODULE_WORDS:
+        if candidate and candidate not in generic_words:
             return candidate
     fallback = _sanitize_module(_graph_derived_module(cluster))
     return fallback or "extracted"
@@ -273,9 +289,6 @@ def _memory_context(
     if not (cerebrofy_dir / "db" / "memories.db").exists():
         return []
     try:
-        from cerebrofy.memory.search import recall_memories
-        from cerebrofy.memory.store import open_memories_db
-
         conn = open_memories_db(cerebrofy_dir)
         try:
             results = recall_memories(conn, embedding, limit=5)
@@ -293,8 +306,6 @@ def _avoid_pattern_warnings(
 ) -> list[str]:
     """#23 intent.yaml: warn when the extraction touches an avoided pattern."""
     try:
-        from cerebrofy.intent.loader import load_intent
-
         intent = load_intent(repo_root / ".cerebrofy")
     except Exception:
         return []
@@ -323,8 +334,6 @@ def _execution_handoff(
     # TODO(integration-11): record the approved execution as a session.
     # TODO(integration-17): after execution, review it against this plan.
     try:
-        from cerebrofy.context.optimizer import optimize_context
-
         context_plan = optimize_context(
             task=description,
             db_path=db_path,

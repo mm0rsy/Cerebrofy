@@ -151,6 +151,21 @@ def test_derive_module_name_handles_backticked_target() -> None:
     assert derive_module_name("move the logic into `billing_v2` package", []) == "billing_v2"
 
 
+def test_derive_module_name_honors_custom_generic_words() -> None:
+    """A custom generic_words set changes which tokens are filtered out.
+
+    With the default set, "services" is generic → filtered → graph fallback.
+    With an empty custom set, "services" is accepted as the derived name.
+    """
+    description = "extract the logic into a services package"
+    # Default filter excludes "services" (a generic word) → graph fallback.
+    assert derive_module_name(description, []) == "extracted"
+    # Empty custom set → "services" is no longer filtered → returned as name.
+    assert derive_module_name(
+        description, [], generic_words=frozenset()
+    ) == "services"
+
+
 # ---------------------------------------------------------------------------
 # map_cluster_files
 # ---------------------------------------------------------------------------
@@ -284,7 +299,7 @@ def test_dry_run_true_never_prepares_handoff(tmp_path: Path, monkeypatch: pytest
     def _boom(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover - must not run
         raise AssertionError("optimize_context must not be called for dry runs")
 
-    monkeypatch.setattr("cerebrofy.context.optimizer.optimize_context", _boom)
+    monkeypatch.setattr("cerebrofy.planning.planner.optimize_context", _boom)
     plan = _generate(tmp_path, db_path, dry_run=True)
     assert plan.handoff_summary is None
 
@@ -293,7 +308,7 @@ def test_dry_run_false_prepares_handoff_summary(tmp_path: Path, monkeypatch: pyt
     db_path = a_payment_cluster_with_5_callers(tmp_path)
     fake_plan = SimpleNamespace(neurons=[1, 2, 3], tokens_used=1200, token_budget=2000)
     monkeypatch.setattr(
-        "cerebrofy.context.optimizer.optimize_context", lambda **kwargs: fake_plan
+        "cerebrofy.planning.planner.optimize_context", lambda **kwargs: fake_plan
     )
 
     plan = _generate(tmp_path, db_path, dry_run=False)
@@ -312,6 +327,6 @@ def test_handoff_degrades_to_none_when_optimizer_fails(
     def _fail(**kwargs: Any) -> Any:
         raise RuntimeError("no context db")
 
-    monkeypatch.setattr("cerebrofy.context.optimizer.optimize_context", _fail)
+    monkeypatch.setattr("cerebrofy.planning.planner.optimize_context", _fail)
     plan = _generate(tmp_path, db_path, dry_run=False)
     assert plan.handoff_summary is None
