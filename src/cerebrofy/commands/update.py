@@ -11,7 +11,7 @@ from pathlib import Path
 import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
-from cerebrofy.db.connection import check_schema_version, open_db
+from cerebrofy.db.connection import check_schema_version, open_db, write_transaction
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.hooks.installer import upgrade_hook
 from cerebrofy.db.writer import (
@@ -130,14 +130,18 @@ def _run_update_transaction(
     new_vectors: dict[str, list[float]],
     new_state_hash: str,
 ) -> tuple[int, int]:
-    """Execute partial update inside BEGIN IMMEDIATE. Returns (nodes_reindexed, nodes_deleted).
+    """Execute partial update inside ``write_transaction``.
 
-    new_vectors must be pre-computed BEFORE this call — embedding must NOT happen
-    inside the write lock.
+    Returns ``(nodes_reindexed, nodes_deleted)``.
+
+    ``new_vectors`` must be pre-computed BEFORE this call — embedding must NOT
+    happen inside the write lock (or while holding ``_WRITE_LOCK``). The actual
+    ``BEGIN IMMEDIATE`` / ``COMMIT`` / ``rollback`` is handled by
+    ``write_transaction`` in :mod:`cerebrofy.db.connection`, which serializes
+    all in-process writers and rejects nesting.
     """
     target_files = scope.changed_files | scope.deleted_files
-    try:
-        conn.execute("BEGIN IMMEDIATE")
+    with write_transaction(conn):
         deleted_ids = delete_nodes_for_files(conn, target_files)
         delete_edges_for_files(conn, target_files, deleted_ids)
         # vec_neurons table only exists when embedding_model != "none"
@@ -159,11 +163,7 @@ def _run_update_transaction(
 
         write_file_hashes(conn, file_hash_map)
         write_build_meta(conn, new_state_hash)
-        conn.execute("COMMIT")
         return len(new_neurons), len(deleted_ids)
-    except Exception:
-        conn.rollback()
-        raise
 
 
 def _rewrite_markdown_after_update(
