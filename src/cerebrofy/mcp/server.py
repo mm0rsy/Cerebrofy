@@ -20,13 +20,14 @@ import subprocess
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.lowlevel.server import NotificationOptions
 from pydantic import AnyUrl
 
+from cerebrofy.mcp.tool_specs import SPEC_BY_NAME, TOOL_SPECS
 from cerebrofy.mcp.tools.changelog import handle_changelog as _handle_changelog
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
@@ -1348,6 +1349,110 @@ def _handle_arch_check(arguments: dict[str, Any]) -> list[Any]:
 
 
 # ---------------------------------------------------------------------------
+# Declarative tool dispatch (replaces the per-tool ``_dispatch_tool`` elif chain)
+# ---------------------------------------------------------------------------
+# ``TOOL_SPECS``/``SPEC_BY_NAME`` (from :mod:`cerebrofy.mcp.tool_specs`) are the
+# single source of truth for the catalog: names, order, descriptions, schemas,
+# and which tools receive epistemic/intent injection. ``_HANDLERS`` binds each
+# spec's ``handler_name`` to the module-level ``_handle_*`` implementation defined
+# above. Wiring is checked at import time: a renamed or deleted handler fails
+# loudly (ImportError) instead of producing a silent "Unknown tool" error at
+# call time, and the explicit mapping lets static analysis see every handler as
+# used (ruff F401).
+_HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
+    "_handle_search_code": _handle_search_code,
+    "_handle_get_neuron": _handle_get_neuron,
+    "_handle_list_lobes": _handle_list_lobes,
+    "_handle_list_resources": _handle_list_resources,
+    "_handle_context": _handle_context,
+    "_handle_blast_radius": _handle_blast_radius,
+    "_handle_epistemic": _handle_epistemic,
+    "_handle_health": _handle_health,
+    "_handle_intent": _handle_intent,
+    "_handle_build": _handle_build,
+    "_handle_update": _handle_update,
+    "_handle_validate": _handle_validate,
+    "_handle_remember": _handle_remember,
+    "_handle_recall": _handle_recall,
+    "_handle_memories": _handle_memories,
+    "_handle_link_memories": _handle_link_memories,
+    "_handle_trace_history": _handle_trace_history,
+    "_handle_onboard": _handle_onboard,
+    "_handle_impact": _handle_impact,
+    "_handle_silo": _handle_silo,
+    "_handle_coverage_gap": _handle_coverage_gap,
+    "_handle_vuln": _handle_vuln,
+    "_handle_arch_check": _handle_arch_check,
+    "_handle_session_start": _handle_session_start,
+    "_handle_session_end": _handle_session_end,
+    "_handle_session_show": _handle_session_show,
+    "_handle_plan": _handle_plan,
+    "_handle_changelog": _handle_changelog,
+}
+_unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
+if _unwired:
+    raise ImportError(
+        "TOOL_SPECS references handler(s) not wired in _HANDLERS: " + ", ".join(_unwired)
+    )
+del _unwired
+
+
+async def dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
+    """Dispatch *name* to its handler with the original error-mapping semantics.
+
+    Replaces the previous 28-branch ``_dispatch_tool`` elif chain with a
+    declarative lookup against :data:`TOOL_SPECS` (order/descriptions/schemas),
+    :data:`SPEC_BY_NAME` (routing), and :data:`_HANDLERS` (implementation).
+
+    Behaviour preserved verbatim:
+
+    * unknown tool -> ``Unknown tool: {name}``;
+    * data-reading tools (``spec.inject``) receive ``_with_epistemic`` then
+      ``_with_intent`` enrichment, quietly skipped if the repository root
+      cannot be resolved;
+    * the exact outer exception mapping:
+      ``FileNotFoundError`` -> init hint, ``ValueError`` (schema/embed branches),
+      ``subprocess.TimeoutExpired`` -> timeout message, generic ``Exception``
+      -> stderr print + ``[error]`` payload.
+    """
+    args = arguments or {}
+    spec = SPEC_BY_NAME.get(name)
+    if spec is None:
+        return _make_error_content(f"Unknown tool: {name}")
+
+    try:
+        result = _HANDLERS[spec.handler_name](args)
+        if not spec.inject:
+            return result
+
+        # Cross-cutting enrichment for all data-reading tools
+        try:
+            root = require_repo_root(Path.cwd())
+            result = _with_epistemic(result, root)
+            result = _with_intent(result, root)
+            return result
+        except Exception:
+            return result
+
+    except FileNotFoundError as exc:
+        return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' first.")
+    except ValueError as exc:
+        msg = str(exc)
+        if "schema" in msg.lower():
+            return _make_error_content("Schema version mismatch. Run 'cerebrofy migrate'.")
+        if "embed" in msg.lower():
+            return _make_error_content("Embedding model mismatch. Run 'cerebrofy build'.")
+        return _make_error_content(f"[error] {msg}")
+    except subprocess.TimeoutExpired:
+        return _make_error_content(
+            f"[error] Command timed out after {DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS} seconds."
+        )
+    except Exception as exc:
+        print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
+        return _make_error_content(f"[error] {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Server entrypoint
 # ---------------------------------------------------------------------------
 
@@ -1425,666 +1530,17 @@ async def run_mcp_server(root: Path | str | None = None) -> None:
 
     app = CerebrofyMCPServer("cerebrofy")
 
-    _EMPTY: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
-
-    _SEARCH_SCHEMA: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "Natural-language search query"},
-            "top_k": {"type": "integer", "description": "Max results (default: 10)", "default": 10, "minimum": 1, "maximum": 50},
-            "lobe": {"type": "string", "description": "Filter to a specific lobe/module (optional)"},
-        },
-        "required": ["query"],
-    }
-
-    _NEURON_SCHEMA: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Exact function/class name"},
-            "file": {"type": "string", "description": "Source file path (partial match)"},
-            "line": {"type": "integer", "description": "Line number within the file (requires 'file')"},
-        },
-    }
-
-    _UPDATE_SCHEMA: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "path": {"type": "string", "description": "Specific file to re-index (omit for auto-detect)"},
-        },
-    }
-
-    _RESOURCES_SCHEMA: dict[str, Any] = {
-        "type": "object",
-        "properties": {
-            "filter": {
-                "type": "string",
-                "description": (
-                    "Filter resource types: 'graph', 'lobes', 'neurons', 'health', "
-                    "'memories', 'blast-radius', or 'all' (default)."
-                ),
-                "default": "all",
-            },
-        },
-        "required": [],
-    }
-
     @app.list_tools()  # type: ignore[no-untyped-call,untyped-decorator]
     async def list_tools() -> list[Tool]:
         return [
-            Tool(name="search_code", description=(
-                "Hybrid semantic + keyword search over the Cerebrofy index. "
-                "ALWAYS call this first when asked about code structure or behaviour. "
-                "Returns ranked Neurons with file path and line number. "
-                "Never glob-read source files — use this instead."
-            ), inputSchema=_SEARCH_SCHEMA),
-            Tool(name="get_neuron", description=(
-                "Fetch details for a specific Neuron by name or file path. "
-                "Use after search_code to get the full signature, docstring, and location."
-            ), inputSchema=_NEURON_SCHEMA),
-            Tool(name="list_lobes", description=(
-                "List all indexed lobes (modules/packages) with summary file paths. "
-                "Use for high-level orientation before searching."
-            ), inputSchema=_EMPTY),
-            Tool(name="cerebrofy_list_resources", description=(
-                "List every MCP resource URI this server exposes — static resources "
-                "(codebase map, entry points, health) and URI templates (neurons, files, "
-                "search, memories, blast radius). Use this to discover ambient context, "
-                "then read a URI directly via the MCP resources/read protocol method. "
-                "Supports subscribing to resources/updated notifications."
-            ), inputSchema=_RESOURCES_SCHEMA),
-            Tool(name="cerebrofy_context", description=(
-                "Build the optimal context window for a coding task within a token budget. "
-                "Embeds the task, runs KNN + BFS, scores candidates by relevance, and "
-                "greedy-packs neurons with tier degradation (full_source → signature → lobe_summary → name_only). "
-                "Call this before starting any non-trivial coding task."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "task": {"type": "string", "description": "Natural language coding task description."},
-                    "budget": {"type": "integer", "default": 8000, "description": "Token budget."},
-                    "model": {"type": "string", "default": "auto", "description": "Model for token counting."},
-                    "format": {"type": "string", "default": "json", "enum": ["json", "markdown", "claude-xml"]},
-                },
-                "required": ["task"],
-            }),
-            Tool(name="cerebrofy_blast_radius", description=(
-                "Compute the blast radius of a changed neuron — every caller at depth 1 and 2, "
-                "test coverage, lobe spread, and a risk score. "
-                "Use after a PR diff to understand what a change affects before merging."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": (
-                            "Neuron to analyse. Accepts: "
-                            "'file::name', 'file:line', or plain name."
-                        ),
-                    },
-                    "depth": {"type": "integer", "default": 2, "minimum": 1, "maximum": 5},
-                    "format": {"type": "string", "default": "json", "enum": ["json", "markdown"]},
-                },
-                "required": ["target"],
-            }),
-            Tool(name="cerebrofy_epistemic", description=(
-                "Return the epistemic confidence score for the current index — "
-                "graph age, neurons changed since last build, unindexed languages, "
-                "dynamic dispatch count, and a composite confidence score (0.5–1.0). "
-                "Call this before any architectural decision to understand how much to "
-                "trust the index. All other Cerebrofy tool responses include an "
-                "'epistemic' field automatically."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "format": {"type": "string", "default": "json", "enum": ["json", "human"]},
-                },
-            }),
-            Tool(name="cerebrofy_health", description=(
-                "Return longitudinal codebase health metrics derived from the call graph. "
-                "Includes coupling, blast radius trend, dead code %, lobe cohesion, "
-                "test surface coverage, drift velocity, and hub concentration. "
-                "Use to understand whether the codebase is improving or degrading over time."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "since_build": {"type": "integer", "default": 1, "description": "Compare against N builds ago."},
-                    "metric": {"type": "string", "default": "all", "description": "Specific metric name or 'all'."},
-                    "format": {"type": "string", "default": "markdown", "enum": ["markdown", "json"]},
-                },
-            }),
-            Tool(name="cerebrofy_intent", description=(
-                "Return the current product intent — sprint goals, active incidents, "
-                "architectural direction, and team context. Pass 'lobe' or 'neuron' to "
-                "get relevance scoring for a specific part of the codebase. "
-                "Call this at the start of any task to understand team priorities and known risks."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "lobe": {"type": "string", "description": "Get intent relevance for a specific lobe (optional)"},
-                    "neuron": {"type": "string", "description": "Get intent relevance for a specific neuron path (optional)"},
-                    "format": {"type": "string", "default": "json", "enum": ["json", "human"]},
-                },
-            }),
-            Tool(name="cerebrofy_build", description=(
-                "Full atomic re-index of the entire repository. "
-                "Use when the index is missing or a full rebuild is needed."
-            ), inputSchema=_EMPTY),
-            Tool(name="cerebrofy_update", description=(
-                "Incremental re-index of changed files (auto-detected via git diff). "
-                "Pass 'path' to limit to a specific file."
-            ), inputSchema=_UPDATE_SCHEMA),
-            Tool(name="cerebrofy_validate", description=(
-                "Check for drift between source code and the index. "
-                "Returns 'clean', 'minor_drift', or 'structural_drift'. Zero writes."
-            ), inputSchema=_EMPTY),
-            Tool(name="cerebrofy_remember", description=(
-                "Write a structured memory (decision, warning, context, pattern, agent_action) "
-                "attached to a neuron or lobe. Call this after any important decision, gotcha, "
-                "or completed refactor so future agents have context."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Short memory title"},
-                    "body": {"type": "string", "description": "Full memory content"},
-                    "type": {
-                        "type": "string",
-                        "enum": ["decision", "warning", "context", "pattern", "agent_action"],
-                    },
-                    "neuron": {"type": "string", "description": "Neuron name or file::name"},
-                    "lobe": {"type": "string", "description": "Lobe name"},
-                    "tags": {"type": "array", "items": {"type": "string"}},
-                    "author": {"type": "string"},
-                },
-                "required": ["title", "body", "type"],
-            }),
-            Tool(name="cerebrofy_recall", description=(
-                "Semantic search across all memories. Use before starting a task to surface "
-                "relevant decisions, warnings, and past agent actions."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "type": {
-                        "type": "string",
-                        "enum": ["decision", "warning", "context", "pattern", "agent_action", "insight"],
-                    },
-                    "lobe": {"type": "string"},
-                    "limit": {"type": "integer", "default": 10},
-                    "include_stale": {"type": "boolean", "default": False},
-                },
-                "required": ["query"],
-            }),
-            Tool(name="cerebrofy_memories", description=(
-                "List memories for a specific neuron or lobe without a search query. "
-                "Use when you already know which neuron/lobe you are working with."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "neuron": {"type": "string"},
-                    "lobe": {"type": "string"},
-                    "type": {"type": "string"},
-                    "include_stale": {"type": "boolean", "default": False},
-                },
-            }),
-            Tool(name="cerebrofy_link_memories", description=(
-                "Create a typed causal edge between two memories (Phase 2 causal graph). "
-                "Use to record why a decision was made, what an action resolved, or how "
-                "two memories relate. rel_type: caused | motivated | resolved | contradicts | updated_by."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "from_memory": {"type": "string", "description": "ID of the source memory"},
-                    "to_memory": {"type": "string", "description": "ID of the target memory"},
-                    "rel_type": {
-                        "type": "string",
-                        "enum": ["caused", "motivated", "resolved", "contradicts", "updated_by"],
-                    },
-                    "author": {"type": "string"},
-                },
-                "required": ["from_memory", "to_memory", "rel_type"],
-            }),
-            Tool(name="cerebrofy_trace_history", description=(
-                "Walk the causal memory graph backward from a memory to explain why a neuron "
-                "is the way it is. Returns the full causal chain up to 'depth' hops. "
-                "Use when you need to understand the decision history behind a piece of code."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "memory": {"type": "string", "description": "Memory ID to trace backward from"},
-                    "depth": {"type": "integer", "default": 5, "minimum": 1, "maximum": 20},
-                },
-                "required": ["memory"],
-            }),
-            Tool(name="cerebrofy_onboard", description=(
-                "Generate a structured onboarding guide from the cerebrofy index. "
-                "Returns full Markdown and a structured JSON summary of reading order, "
-                "entry points, complexity hotspots, safe zones, and architectural warnings. "
-                "Call this at the start of any onboarding session or when joining a new repo."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "Recipient name for the header (optional)"},
-                    "focus_lobe": {"type": "string", "description": "Restrict guide to this lobe (optional)"},
-                    "depth": {
-                        "type": "string",
-                        "enum": ["junior", "senior"],
-                        "default": "junior",
-                        "description": "Calibration hint for AI agents reading the output",
-                    },
-                },
-            }),
-            Tool(name="cerebrofy_impact", description=(
-                "Pre-change impact prediction. Run before any refactor to see every caller, "
-                "test coverage, lobe spread, estimated LoC, and a recommended refactoring sequence. "
-                "Standard pre-flight check before touching any function or class."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": (
-                            "Neuron to analyse. Accepts: "
-                            "'file::name' (e.g. auth/tokens.py::validate_token), "
-                            "'file:line' (e.g. auth/tokens.py:42), "
-                            "or plain name (e.g. validate_token)."
-                        ),
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "description": "BFS caller traversal depth (default: 2).",
-                        "default": 2,
-                        "minimum": 1,
-                        "maximum": 5,
-                    },
-                    "show_tests": {
-                        "type": "boolean",
-                        "description": "Include covering test list (default: true).",
-                        "default": True,
-                    },
-                },
-                "required": ["target"],
-            }),
-            Tool(name="cerebrofy_silo", description=(
-                "Detect knowledge silos: functions with high blast radius owned by few contributors. "
-                "Overlays git blame authorship on the call graph to compute bus factor risk per neuron. "
-                "silo_score = caller_count / unique_authors — high score means one person owns "
-                "widely-called code. Use before team changes or major refactors to surface key-person risk. "
-                "Pass 'author' to answer 'if this person left, what breaks?'"
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "depth": {
-                        "type": "integer",
-                        "description": "BFS caller traversal depth (default: 2).",
-                        "default": 2,
-                        "minimum": 1,
-                        "maximum": 5,
-                    },
-                    "min_callers": {
-                        "type": "integer",
-                        "description": "Minimum caller count to include a neuron (default: 1).",
-                        "default": 1,
-                    },
-                    "top": {
-                        "type": "integer",
-                        "description": "Number of top silos to return (default: 20).",
-                        "default": 20,
-                    },
-                    "lobe": {
-                        "type": "string",
-                        "description": "Filter analysis to a specific lobe (optional).",
-                    },
-                    "author": {
-                        "type": "string",
-                        "description": "Filter to silos owned by a specific author email (optional).",
-                    },
-                    "risk_level": {
-                        "type": "string",
-                        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
-                        "description": "Filter by risk level (optional, default: all).",
-                    },
-                    "write_memories": {
-                        "type": "boolean",
-                        "description": "Write warning memories to HIGH/CRITICAL silo neurons (default: false).",
-                        "default": False,
-                    },
-                },
-            }),
-            Tool(name="cerebrofy_coverage_gap", description=(
-                "Rank uncovered neurons by blast radius × change velocity to find the functions "
-                "most likely to cause production bugs. A function that is widely-called, "
-                "actively changing, and has no tests is the highest risk. "
-                "Coverage is read from coverage.xml if present (pytest-cov output), "
-                "otherwise derived from the call graph. "
-                "Use before a sprint or release to identify the most dangerous untested code."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "days": {
-                        "type": "integer",
-                        "description": "Velocity window in days — commits within this window count (default: 30).",
-                        "default": 30,
-                        "minimum": 1,
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "description": "BFS caller traversal depth (default: 2).",
-                        "default": 2,
-                        "minimum": 1,
-                        "maximum": 5,
-                    },
-                    "min_blast": {
-                        "type": "number",
-                        "description": "Minimum weighted blast radius (d1 + 0.4×d2) to include (default: 0).",
-                        "default": 0.0,
-                    },
-                    "top": {
-                        "type": "integer",
-                        "description": "Number of top gaps to return (default: 20).",
-                        "default": 20,
-                    },
-                    "lobe": {
-                        "type": "string",
-                        "description": "Filter analysis to a specific lobe (optional).",
-                    },
-                    "risk_level": {
-                        "type": "string",
-                        "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
-                        "description": "Filter by risk level (optional, default: all).",
-                    },
-                    "write_memories": {
-                        "type": "boolean",
-                        "description": "Write warning memories to HIGH/CRITICAL gap neurons (default: false).",
-                        "default": False,
-                    },
-                },
-            }),
-            Tool(name="cerebrofy_vuln", description=(
-                "Map which of YOUR functions are exposed to a vulnerable package. "
-                "Finds all call sites of the package via the graph, traces backward to "
-                "trust boundary entry points, scores exposure, and generates a remediation sequence. "
-                "Run this before patching a dependency to know exactly what to update."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "package": {
-                        "type": "string",
-                        "description": "Package name to scan (e.g. 'requests', 'pyyaml').",
-                    },
-                    "function_pattern": {
-                        "type": "string",
-                        "description": "Specific function to trace (e.g. 'requests.get'). Omit to scan the full package.",
-                    },
-                    "depth": {
-                        "type": "integer",
-                        "description": "Upstream BFS depth (default: 2).",
-                        "default": 2,
-                        "minimum": 1,
-                        "maximum": 5,
-                    },
-                    "write_memories": {
-                        "type": "boolean",
-                        "description": "Write warning memories to each directly-affected neuron (default: false).",
-                        "default": False,
-                    },
-                },
-                "required": ["package"],
-            }),
-            Tool(name="cerebrofy_arch_check", description=(
-                "Check .cerebrofy/arch-rules.yaml architecture drift rules against the "
-                "live call graph: forbidden lobe-to-lobe edges, circular lobe dependencies, "
-                "allowed-callers isolation, and max blast radius. Use after making changes "
-                "to catch architectural drift before merge. Results include the index "
-                "confidence score and flag warning rules escalated by the active sprint's "
-                "priority lobes (treat escalated rules as failures). Returns NO_INDEX / "
-                "NO_RULES_FILE / RULE_NOT_FOUND guidance when prerequisites are missing."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "rule": {
-                        "type": "string",
-                        "description": "Specific rule name to check, or 'all' (default).",
-                        "default": "all",
-                    },
-                    "format": {
-                        "type": "string",
-                        "description": "Output format (default: markdown).",
-                        "enum": ["markdown", "json", "github-annotations"],
-                        "default": "markdown",
-                    },
-                    "since": {
-                        "type": "string",
-                        "description": (
-                            "Only report drift touching files changed since this git ref "
-                            "(e.g. 'HEAD~1'). Omit to check everything."
-                        ),
-                    },
-                },
-            }),
-            Tool(name="cerebrofy_session_start", description=(
-                "Start recording an agent session. Call this BEFORE a coding task, then "
-                "cerebrofy_session_end when done. Every MCP tool call in between is "
-                "recorded locally into a replayable session (opt-in: record_sessions: true)."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "task": {
-                        "type": "string",
-                        "description": "Human-readable description of the coding task being started.",
-                    },
-                    "agent": {
-                        "type": "string",
-                        "description": "Agent identifier (e.g. 'claude-sonnet-4-6', 'human:alice').",
-                    },
-                },
-                "required": ["task"],
-            }),
-            Tool(name="cerebrofy_session_end", description=(
-                "End the current agent session: records the outcome and returns the "
-                "session's duration, neurons touched, events recorded, and blast-radius "
-                "before/after (Idea #01)."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID returned by cerebrofy_session_start.",
-                    },
-                    "outcome": {
-                        "type": "string",
-                        "enum": ["success", "partial", "failed", "unknown"],
-                        "description": "Session outcome (default: unknown).",
-                    },
-                    "summary": {
-                        "type": "string",
-                        "description": "Optional human-readable summary of what was accomplished.",
-                    },
-                },
-                "required": ["session_id"],
-            }),
-            Tool(name="cerebrofy_session_show", description=(
-                "Return a recorded session as a full replay — timeline of tool calls, "
-                "neurons touched, graph diff, and blast-radius risk verdict. Omit "
-                "session_id for the most recent session. Use before reviewing "
-                "AI-authored changes to see what the agent actually did."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "session_id": {
-                        "type": "string",
-                        "description": "Session ID to retrieve; omit for the most recent session.",
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["markdown", "json"],
-                        "default": "markdown",
-                        "description": "Output format (default: markdown).",
-                    },
-                },
-            }),
-            Tool(name="cerebrofy_plan", description=(
-                "Generate a step-by-step, graph-aware refactoring plan from a "
-                "plain-English description — which neurons to extract, where they "
-                "move, which callers to update, and in what safe order. "
-                "The plan is a human-in-the-loop pre-flight checklist; it never "
-                "modifies files. Pass dry_run=false to also prepare an execution "
-                "handoff for the agent that will implement the plan."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "description": {
-                        "type": "string",
-                        "description": "Natural language description of the desired refactoring.",
-                    },
-                    "format": {
-                        "type": "string",
-                        "description": "Output format (default: markdown).",
-                        "enum": ["markdown", "json"],
-                        "default": "markdown",
-                    },
-                    "dry_run": {
-                        "type": "boolean",
-                        "description": "If true, generate the plan only — do not modify any files (default: true).",
-                        "default": True,
-                    },
-                },
-                "required": ["description"],
-            }),
-            Tool(name="cerebrofy_changelog", description=(
-                "Generate a semantic changelog for a git range — classified from the "
-                "call graph, drift records, and memories, never from commit messages. "
-                "Entry types: feat, fix, refactor, security, breaking, perf, internal. "
-                "Audiences: developer (default), pm, user. Formats: markdown (default), "
-                "github, slack. 'since' accepts a tag, commit hash, 'last-build', or "
-                "'project-start'. Returns structured entries, breaking_changes, "
-                "health_delta, and the formatted full_text. "
-                "Error codes: NO_INDEX, REF_NOT_FOUND."
-            ), inputSchema={
-                "type": "object",
-                "properties": {
-                    "since": {
-                        "type": "string",
-                        "description": (
-                            "Start point: git tag, commit hash, 'last-build' "
-                            "(commit of the newest health snapshot), or 'project-start'."
-                        ),
-                    },
-                    "audience": {
-                        "type": "string",
-                        "enum": ["developer", "pm", "user"],
-                        "default": "developer",
-                        "description": "Target audience for the generated prose.",
-                    },
-                    "format": {
-                        "type": "string",
-                        "enum": ["markdown", "github", "slack"],
-                        "default": "markdown",
-                        "description": "Output format for full_text.",
-                    },
-                },
-                "required": ["since"],
-            }),
+            Tool(name=s.name, description=s.description, inputSchema=s.input_schema)
+            for s in TOOL_SPECS
         ]
-
-    async def _dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
-        args = arguments or {}
-        # Subprocess tools don't benefit from epistemic injection
-        _subprocess_tools = {"cerebrofy_build", "cerebrofy_update", "cerebrofy_validate"}
-
-        try:
-            if name == "cerebrofy_epistemic":
-                # Returns its own full epistemic payload — no further injection needed
-                return _handle_epistemic(args)
-            elif name == "cerebrofy_intent":
-                # Returns its own full intent payload — no further cross-cutting injection needed
-                return _handle_intent(args)
-            elif name == "cerebrofy_health":
-                result = _handle_health(args)
-            elif name == "cerebrofy_context":
-                result = _handle_context(args)
-            elif name == "cerebrofy_blast_radius":
-                result = _handle_blast_radius(args)
-            elif name == "search_code":
-                result = _handle_search_code(args)
-            elif name == "get_neuron":
-                result = _handle_get_neuron(args)
-            elif name == "list_lobes":
-                result = _handle_list_lobes(args)
-            elif name == "cerebrofy_list_resources":
-                return _handle_list_resources(args)
-            elif name == "cerebrofy_build":
-                return _handle_build(args)
-            elif name == "cerebrofy_update":
-                return _handle_update(args)
-            elif name == "cerebrofy_validate":
-                return _handle_validate(args)
-            elif name == "cerebrofy_remember":
-                return _handle_remember(args)
-            elif name == "cerebrofy_recall":
-                return _handle_recall(args)
-            elif name == "cerebrofy_memories":
-                return _handle_memories(args)
-            elif name == "cerebrofy_link_memories":
-                return _handle_link_memories(args)
-            elif name == "cerebrofy_trace_history":
-                return _handle_trace_history(args)
-            elif name == "cerebrofy_onboard":
-                result = _handle_onboard(args)
-            elif name == "cerebrofy_impact":
-                result = _handle_impact(args)
-            elif name == "cerebrofy_plan":
-                # Self-contained payload — skip epistemic/intent injection so the
-                # plan JSON keeps the exact documented schema.
-                return _handle_plan(args)
-            elif name == "cerebrofy_silo":
-                result = _handle_silo(args)
-            elif name == "cerebrofy_coverage_gap":
-                result = _handle_coverage_gap(args)
-            elif name == "cerebrofy_vuln":
-                result = _handle_vuln(args)
-            elif name == "cerebrofy_arch_check":
-                result = _handle_arch_check(args)
-            elif name == "cerebrofy_session_start":
-                return _handle_session_start(args)
-            elif name == "cerebrofy_session_end":
-                return _handle_session_end(args)
-            elif name == "cerebrofy_session_show":
-                return _handle_session_show(args)
-            elif name == "cerebrofy_changelog":
-                result = _handle_changelog(args)
-            else:
-                return _make_error_content(f"Unknown tool: {name}")
-
-            # Cross-cutting enrichment for all data-reading tools
-            try:
-                root = require_repo_root(Path.cwd())
-                result = _with_epistemic(result, root)
-                result = _with_intent(result, root)
-                return result
-            except Exception:
-                return result
-
-        except FileNotFoundError as exc:
-            return _make_error_content(f"[error] {exc}\nRun 'cerebrofy init' first.")
-        except ValueError as exc:
-            msg = str(exc)
-            if "schema" in msg.lower():
-                return _make_error_content("Schema version mismatch. Run 'cerebrofy migrate'.")
-            if "embed" in msg.lower():
-                return _make_error_content("Embedding model mismatch. Run 'cerebrofy build'.")
-            return _make_error_content(f"[error] {msg}")
-        except subprocess.TimeoutExpired:
-            return _make_error_content(
-                f"[error] Command timed out after {DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS} seconds."
-            )
-        except Exception as exc:
-            print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
-            return _make_error_content(f"[error] {exc}")
 
     @app.call_tool()  # type: ignore[no-untyped-call,untyped-decorator]
     async def call_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         """Dispatch the tool call, then offer it to the session recorder (#11)."""
-        result = await _dispatch_tool(name, arguments)
+        result = await dispatch_tool(name, arguments)
         _record_session_event(name, arguments or {}, result)
         return result
 
