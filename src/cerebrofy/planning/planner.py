@@ -35,7 +35,6 @@ from cerebrofy.planning.extractor import (
     find_extraction_cluster,
 )
 from cerebrofy.planning.sequence import MigrationStep, build_migration_steps
-from cerebrofy.search.hybrid import _open_ro
 
 # Error codes (spec — shared by the CLI and MCP surfaces).
 NO_INDEX = "NO_INDEX"

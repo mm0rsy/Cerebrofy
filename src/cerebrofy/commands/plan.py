@@ -8,7 +8,6 @@ explicit handoff (``--execute``) to an AI agent that verifies each step with
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -16,7 +15,6 @@ import rich_click as click
 
 from cerebrofy.planning.planner import NO_INDEX, PlanError, build_refactor_plan
 from cerebrofy.search.hybrid import embed_query
-from cerebrofy.db.connection import open_db_readonly
 
 
 def _find_repo_root() -> Path | None:

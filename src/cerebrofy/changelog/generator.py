@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sqlite3
 import subprocess
@@ -57,10 +56,7 @@ _AUDIENCE_TYPES: dict[str, frozenset[str]] = {
     "user": frozenset({BREAKING, SECURITY, FEAT, FIX}),
 }
 
-#: Max limits for pagination parameters
-_MAX_TOP_K = 200
-_MAX_LIMIT = 200
-_MAX_GIT_TIMEOUT = 15  # seconds
+_GIT_TIMEOUT = 15  # seconds
 
 # Valid git ref pattern (alphanumeric, hyphens, underscores, slashes, dots)
 _GIT_REF_PATTERN = re.compile(r'^[a-zA-Z0-9._/-]+$')
