@@ -10,6 +10,8 @@ import pytest
 
 from cerebrofy.db.schema import create_schema
 from cerebrofy.session.recorder import (
+    MAX_REFS_PER_EVENT,
+    MAX_TRACKED_NEURONS,
     SESSION_NOT_FOUND,
     VALID_OUTCOMES,
     SessionNotFoundError,
@@ -279,7 +281,20 @@ def test_end_session_missing_session_raises(sessions_conn: sqlite3.Connection) -
 
 
 def test_valid_outcomes_constant() -> None:
-    assert VALID_OUTCOMES == {"success", "partial", "failed", "unknown"}
+    # n5: VALID_OUTCOMES is an ordered tuple (severity ladder), not a frozenset.
+    assert VALID_OUTCOMES == ("success", "partial", "failed", "unknown")
+    assert isinstance(VALID_OUTCOMES, tuple)
+    # Membership + the sorted()/join() path used by end_session's error message.
+    assert "success" in VALID_OUTCOMES and "bogus" not in VALID_OUTCOMES
+    assert ", ".join(sorted(VALID_OUTCOMES))
+
+
+def test_record_event_default_caps_match_session_config() -> None:
+    """m4: module constants (and record_event defaults) come from SessionConfig."""
+    from cerebrofy.config.loader import SessionConfig
+
+    assert MAX_TRACKED_NEURONS == SessionConfig().max_tracked_neurons == 50
+    assert MAX_REFS_PER_EVENT == SessionConfig().max_refs_per_event == 3
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +397,40 @@ def test_tracking_is_capped_at_max_tracked_neurons(
     assert len(session.neurons_touched) == cap
     assert len(session.neurons_touched) < cap + 10  # capped, not unbounded
     index_conn.close()
+
+
+def test_record_event_configurable_caps(
+    sessions_conn: sqlite3.Connection, index_conn: sqlite3.Connection
+) -> None:
+    """m4: max_tracked_neurons / max_refs_per_event cap tracking + ref resolution."""
+    session = start_session(sessions_conn, task="T", now=1000)
+    # Record one event per neuron; cap the tracked set at 2 so the third neuron
+    # is dropped (the cap is an early return, not a post-hoc filter).
+    for i, name in enumerate(("hub", "caller", "caller2")):
+        record_event(
+            sessions_conn, session.id,
+            tool="get_neuron", args={"name": name},
+            ts=1001 + i, index_conn=index_conn,
+            max_tracked_neurons=2, max_refs_per_event=1,
+        )
+    session = get_session(sessions_conn, session.id)
+    assert session is not None
+    assert session.neurons_touched == ("a.py::hub", "a.py::caller")
+    assert len(session.neurons_touched) == 2  # capped at the smaller limit
+    assert session.blast_radius_before == 4   # hub(3) + caller(1)
+
+    # max_refs_per_event caps per-event resolution: a single event whose args
+    # resolve to 3 neurons (via the ``path`` key) resolves only the first.
+    sess2 = start_session(sessions_conn, task="T2", now=2000)
+    record_event(
+        sessions_conn, sess2.id, tool="cerebrofy_impact",
+        args={"path": "a.py"}, ts=2001, index_conn=index_conn,
+        max_tracked_neurons=50, max_refs_per_event=1,
+    )
+    sess2 = get_session(sessions_conn, sess2.id)
+    assert sess2 is not None
+    assert sess2.neurons_touched == ("a.py::hub",)
+    assert sess2.blast_radius_before == 3
 
 
 def test_end_session_recomputes_after_metric(
@@ -742,6 +791,77 @@ def test_write_memory_if_possible_swallows_and_logs(
             result = write_memory_if_possible(_cerebrofy_dir(tmp_path), mem, embed_memory)
     assert result is False
     assert "failed to write session summary memory" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# #11 -> #05 embedder injection (n14)
+# ---------------------------------------------------------------------------
+
+
+def test_write_session_summary_memory_uses_injected_embedder_no_model_init(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """n14: an injected embedder is used; the real fastembed-backed embed_memory
+    is never imported or called, so no model/network initialization occurs."""
+    from unittest.mock import patch
+
+    from cerebrofy.memory.store import list_memories, open_memories_db
+
+    session = start_session(sessions_conn, task="Inject me", agent="bob", now=1000)
+    closed = end_session(sessions_conn, session.id, outcome="success", now=1060)
+
+    captured: list[tuple[str, str]] = []
+
+    def fake_embed(title: str, body: str) -> list[float]:
+        captured.append((title, body))
+        return [0.0] * 384
+
+    with patch("cerebrofy.memory.embedder.embed_memory") as real_embed:
+        wrote = write_session_summary_memory(
+            _cerebrofy_dir(tmp_path), closed, embed_memory_fn=fake_embed
+        )
+    assert wrote is True
+    real_embed.assert_not_called()  # real (fastembed-backed) embedder untouched
+    assert len(captured) == 1
+    title, body = captured[0]
+    assert title == "Inject me"
+    assert "agent=bob" in body
+    assert "outcome=success" in body
+
+    mconn = open_memories_db(_cerebrofy_dir(tmp_path))
+    try:
+        mems = list_memories(mconn, type_filter="decision")
+    finally:
+        mconn.close()
+    assert len(mems) == 1
+    assert mems[0].title == "Inject me"
+
+
+def test_end_session_injects_embedder_no_model_init(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """n14: end_session forwards an injected embedder to the memory writer."""
+    from unittest.mock import patch
+
+    session = start_session(sessions_conn, task="End me", agent="carol", now=1000)
+    captured: list[tuple[str, str]] = []
+
+    def fake_embed(title: str, body: str) -> list[float]:
+        captured.append((title, body))
+        return [0.0] * 384
+
+    with patch("cerebrofy.memory.embedder.embed_memory") as real_embed:
+        updated = end_session(
+            sessions_conn, session.id,
+            outcome="success", now=1060,
+            cerebrofy_dir=_cerebrofy_dir(tmp_path),
+            embed_memory_fn=fake_embed,
+        )
+    assert updated.outcome == "success"
+    assert not updated.is_active
+    real_embed.assert_not_called()
+    assert captured and captured[0][0] == "End me"
+    assert "agent=carol" in captured[0][1]
 
 
 # ---------------------------------------------------------------------------

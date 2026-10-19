@@ -26,25 +26,52 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-if TYPE_CHECKING:
-    from cerebrofy.memory.store import Memory
+# Lightweight, non-cyclic collaborators hoisted from function scope (m9).
+# None of these modules import ``cerebrofy.session``, so eager module-level
+# imports introduce no import cycle and make this file's true dependency graph
+# visible at a glance. Heavy / native-backed collaborators — sqlite_vec (a native
+# C extension), the fastembed-backed embedder, and the monkeypatch-targeted
+# memory-store openers — remain imported inside their functions; see the inline
+# comments on open_sessions_db, write_memory_if_possible and
+# write_session_summary_memory for why they stay lazy.
+from cerebrofy.analysis.blast_radius import bfs_callers, neuron_for_target
+from cerebrofy.config.loader import SessionConfig
+from cerebrofy.db.schema import create_session_schema
+from cerebrofy.memory.store import Memory
 
 # Error codes surfaced by the MCP tools / CLI.
 SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
 NO_ACTIVE_SESSION = "NO_ACTIVE_SESSION"
 RECORDING_DISABLED = "RECORDING_DISABLED"
 
-VALID_OUTCOMES: frozenset[str] = frozenset({"success", "partial", "failed", "unknown"})
+# Allowed session-outcome values, ordered by the severity ladder used in
+# reports (success -> partial -> failed -> unknown). end_session() lower-cases
+# and strips any user-supplied outcome before testing membership, so ``in``
+# checks still work; the error message uses sorted() + ', '.join() which is
+# identical for a tuple. Kept as a tuple (not frozenset) so the allowed set is
+# ordered and self-documenting.
+VALID_OUTCOMES: tuple[str, ...] = (
+    "success",
+    "partial",
+    "failed",
+    "unknown",
+)
 
 _SESSION_ID_PREFIX = "sess_"
 _MAX_ARG_VALUE_CHARS = 300
 _MAX_ARG_ITEMS = 20
 
 # Bounding constants for the blast-radius tracking (overhead control).
-MAX_TRACKED_NEURONS = 50
-MAX_REFS_PER_EVENT = 3
+# Their default values originate from ``cerebrofy.config.loader.SessionConfig``
+# (which reads ``.cerebrofy/config.yaml``) so the knobs are configurable. They
+# are retained as module-level constants for backward compatibility (re-exported
+# via ``cerebrofy.session``); new callers should pass the explicit keyword-only
+# ``max_tracked_neurons`` / ``max_refs_per_event`` params on record_event()
+# instead of depending on these defaults.
+MAX_TRACKED_NEURONS: int = SessionConfig().max_tracked_neurons  # 50
+MAX_REFS_PER_EVENT: int = SessionConfig().max_refs_per_event    # 3
 _MAX_FILE_REFS = 5
 
 _SESSION_COLS = (
@@ -207,6 +234,10 @@ class SessionRecord:
 
 def open_sessions_db(cerebrofy_dir: Path) -> sqlite3.Connection:
     """Open (or create) sessions.db, load sqlite-vec, apply the schema idempotently."""
+    # Lazy: sqlite_vec is a native C extension. Import at call time rather than
+    # module scope so importing this module — which ``cerebrofy.commands.session``
+    # imports unconditionally for *every* CLI command — stays free of native-load
+    # cost. Mirrors the same deferral in ``cerebrofy.memory.store``.
     import sqlite_vec  # type: ignore[import-untyped]
 
     db_path = cerebrofy_dir / "db" / "sessions.db"
@@ -218,8 +249,6 @@ def open_sessions_db(cerebrofy_dir: Path) -> sqlite3.Connection:
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
     conn.execute("PRAGMA journal_mode=WAL")
-    from cerebrofy.db.schema import create_session_schema
-
     create_session_schema(conn)
     return conn
 
@@ -337,8 +366,6 @@ def neuron_blast_metric(
     never traversed — Law II).
     """
     try:
-        from cerebrofy.analysis.blast_radius import bfs_callers
-
         row = index_conn.execute(
             "SELECT 1 FROM nodes WHERE id = ? LIMIT 1", (neuron_id,)
         ).fetchone()
@@ -362,8 +389,6 @@ def resolve_neuron_refs(
     accepted by ``analysis.blast_radius.neuron_for_target``) and ``file`` /
     ``path`` (all non-module neurons defined in that file, capped).
     """
-    from cerebrofy.analysis.blast_radius import neuron_for_target
-
     refs: list[str] = []
 
     def _add(node_id: str | None) -> None:
@@ -444,12 +469,20 @@ def record_event(
     result_summary: str | None = None,
     ts: int | None = None,
     index_conn: sqlite3.Connection | None = None,
+    max_tracked_neurons: int = MAX_TRACKED_NEURONS,
+    max_refs_per_event: int = MAX_REFS_PER_EVENT,
 ) -> SessionEvent:
     """Append one tool-call event, bumping the session's event counter.
 
     When *index_conn* is provided, neuron references in *args* are resolved and
     their depth-2 caller counts are folded into ``blast_radius_before`` the
     first time each neuron is seen in this session.
+
+    *max_tracked_neurons* (default ``MAX_TRACKED_NEURONS`` / ``SessionConfig``)
+    bounds the total number of neurons tracked per session, and
+    *max_refs_per_event* (default ``MAX_REFS_PER_EVENT`` / ``SessionConfig``)
+    bounds how many neuron references a single event may resolve. Omitting both
+    preserves the existing behavior.
     """
     event_args = truncate_args(args or {})
     summary = truncate_summary(result_summary)
@@ -463,7 +496,11 @@ def record_event(
         "UPDATE sessions SET event_count = event_count + 1 WHERE id = ?", (session_id,)
     )
     if index_conn is not None:
-        _track_neuron_refs(conn, session_id, event_args, index_conn)
+        _track_neuron_refs(
+            conn, session_id, event_args, index_conn,
+            max_tracked_neurons=max_tracked_neurons,
+            max_refs_per_event=max_refs_per_event,
+        )
     conn.commit()
     return SessionEvent(
         session_id=session_id, ts=event_ts, tool=tool,
@@ -480,12 +517,21 @@ def _track_neuron_refs(
     session_id: str,
     args: dict[str, Any],
     index_conn: sqlite3.Connection,
+    *,
+    max_tracked_neurons: int,
+    max_refs_per_event: int,
 ) -> None:
     """Fold newly-referenced neurons into ``neurons_touched`` / ``blast_radius_before``.
 
     This function acquires the global ``_SESSION_LOCK`` to serialise the
     read-modify-write on the session row, preventing lost updates when
     concurrent tool calls touch the same session.
+
+    *max_tracked_neurons* caps the total number of neurons recorded for the
+    session (bounding blast-radius lookup cost); *max_refs_per_event* caps how
+    many neuron references a single event may resolve. Both flow from
+    :func:`record_event` (whose defaults are the SessionConfig-backed module
+    constants) so callers can override the bounds without touching module state.
     """
     with _SESSION_LOCK:
         row = conn.execute(
@@ -506,12 +552,12 @@ def _track_neuron_refs(
         touched: list[str] = [
             str(x) for x in touched_raw
         ] if isinstance(touched_raw, list) else []
-        if len(touched) >= MAX_TRACKED_NEURONS:
+        if len(touched) >= max_tracked_neurons:
             return
 
         before: int | None = int(row[1]) if row[1] is not None else None
         changed = False
-        for node_id in resolve_neuron_refs(index_conn, args):
+        for node_id in resolve_neuron_refs(index_conn, args, limit=max_refs_per_event):
             if node_id in touched:
                 continue
             metric = neuron_blast_metric(index_conn, node_id)
@@ -520,7 +566,7 @@ def _track_neuron_refs(
             touched.append(node_id)
             before = (before or 0) + metric
             changed = True
-            if len(touched) >= MAX_TRACKED_NEURONS:
+            if len(touched) >= max_tracked_neurons:
                 break
 
         if changed:
@@ -545,8 +591,6 @@ def build_session_memory(
     Split out from :func:`write_session_summary_memory` so the memory
     construction is unit-testable without mocking the memory store.
     """
-    from cerebrofy.memory.store import Memory
-
     title = (session.task or "").strip()[:120] or "[no task]"
     blast = ""
     if session.blast_radius_before is not None or session.blast_radius_after is not None:
@@ -591,6 +635,11 @@ def write_memory_if_possible(
     never fail because the memory layer did.
     """
     try:
+        # Lazy: kept at call site (not module scope) so tests can monkeypatch
+        # ``cerebrofy.memory.store.open_memories_db`` / ``write_memory``; a
+        # module-level ``from`` would bind these names at import time and defeat
+        # that patching. Not a true import cycle — this is a deliberate test
+        # seam for the #05 memory integration.
         from cerebrofy.memory.store import open_memories_db, write_memory
 
         conn = open_memories_db(cerebrofy_dir)
@@ -614,17 +663,30 @@ def write_session_summary_memory(
     session: SessionRecord,
     *,
     author: str = "agent:session-recorder",
+    embed_memory_fn: Callable[[str, str], list[float]] | None = None,
 ) -> bool:
     """Fold a closed session into the #05 memory layer as a single decision memory.
 
     Thin orchestrator: :func:`build_session_memory` constructs the pure
     :class:`Memory`, then :func:`write_memory_if_possible` persists it. The
     memory write is non-fatal — a ``False`` return never masks a closed session.
-    """
-    from cerebrofy.memory.embedder import embed_memory
 
+    *embed_memory_fn* overrides the embedder used to embed the memory (defaults
+    to the fastembed-backed ``cerebrofy.memory.embedder.embed_memory`` when
+    omitted, preserving existing behavior). Injecting a fake here lets callers —
+    and tests — avoid any model/network initialization.
+    """
+    if embed_memory_fn is None:
+        # Lazy: the default embed_memory pulls in the fastembed model provider
+        # at import time, so defer it to call time. This keeps importing this
+        # module — which every CLI command does via ``cerebrofy.commands.session``
+        # — free of the heavy ONNX model load, and lets callers fully override
+        # the embedder via *embed_memory_fn* to avoid model/network init.
+        from cerebrofy.memory.embedder import embed_memory
+
+        embed_memory_fn = embed_memory
     memory = build_session_memory(session, author=author)
-    return write_memory_if_possible(cerebrofy_dir, memory, embed_memory)
+    return write_memory_if_possible(cerebrofy_dir, memory, embed_memory_fn)
 
 
 def end_session(
@@ -636,6 +698,7 @@ def end_session(
     now: int | None = None,
     index_conn: sqlite3.Connection | None = None,
     cerebrofy_dir: Path | None = None,
+    embed_memory_fn: Callable[[str, str], list[float]] | None = None,
 ) -> SessionRecord:
     """Close a session: set ended_at / outcome / notes and the after-metric.
 
@@ -647,6 +710,8 @@ def end_session(
     also folded into the #05 memory layer as a single decision memory via
     :func:`write_session_summary_memory` — the Phase 2 loop #11 -> #05 -> #11.
     This step is non-fatal: a memory-store failure never masks a closed session.
+    *embed_memory_fn* is forwarded to :func:`write_session_summary_memory` to
+    override the default embedder (defaults to the current import when omitted).
 
     TODO(integration-24): the cross-session synthesizer will read closed
     sessions (outcome + outcome_notes) from this table to detect patterns.
@@ -695,7 +760,9 @@ def end_session(
     if cerebrofy_dir is not None:
         # Phase 2 loop (#11 -> #05 -> #11): summarise the closed session as a
         # decision memory. Non-fatal — never let the memory layer fail a close.
-        write_session_summary_memory(cerebrofy_dir, updated)
+        write_session_summary_memory(
+            cerebrofy_dir, updated, embed_memory_fn=embed_memory_fn
+        )
     return updated
 
 
