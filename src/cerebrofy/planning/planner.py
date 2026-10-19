@@ -26,6 +26,7 @@ from pathlib import Path
 
 from cerebrofy.analysis.blast_radius import BlastNeuron, compute_neuron_blast_radius
 from cerebrofy.analysis.impact import ImpactNeuron, compute_impact
+from cerebrofy.config.loader import _GENERIC_MODULE_WORDS
 from cerebrofy.planning.extractor import (
     DEFAULT_TOP_K,
     MAX_CLUSTER_SIZE,
@@ -44,11 +45,8 @@ CLUSTER_TOO_LARGE = "CLUSTER_TOO_LARGE"
 _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 # Words that describe the shape of an extraction rather than its new name.
-_GENERIC_MODULE_WORDS = frozenset({
-    "service", "services", "module", "modules", "package", "packages",
-    "library", "libraries", "directory", "folder", "layer", "code", "logic",
-    "it", "everything", "separate", "own", "new",
-})
+# Single source of truth lives in cerebrofy.config.loader (moved in Wave A);
+# re-exported here so derive_module_name() keeps working with no code change.
 
 _NAMED_MODULE_RE = re.compile(
     r"\binto\s+(?:its\s+own\s+|a\s+|an\s+|the\s+)?(?:new\s+)?`?([a-z][a-z0-9_.-]*)`?"

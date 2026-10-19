@@ -9,7 +9,12 @@ import yaml
 
 from cerebrofy.config.loader import (
     DEFAULT_TRACKED_EXTENSIONS,
+    ChangelogConfig,
+    ConfigError,
     CerebrоfyConfig,
+    DatabaseConfig,
+    PlanningConfig,
+    SessionConfig,
     build_default_config,
     load_config,
     validate_config,
@@ -296,3 +301,178 @@ def test_load_arch_rules_warns_when_oversized(
     cfg = load_arch_rules(tmp_path)
     assert cfg is not None
     assert "exceeds 50KB" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Optional config sections (session / planning / changelog / database)
+# ---------------------------------------------------------------------------
+
+
+def _write_config(tmp_path: Path, data: dict) -> Path:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(yaml.dump(data), encoding="utf-8")
+    return cfg_path
+
+
+def test_config_sections_default_when_absent(tmp_path: Path) -> None:
+    """Sections omitted from YAML get their dataclass defaults."""
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+    })
+    loaded = load_config(cfg_path)
+    assert loaded.session == SessionConfig()
+    assert loaded.planning == PlanningConfig()
+    assert loaded.changelog == ChangelogConfig()
+    assert loaded.database == DatabaseConfig()
+
+
+def test_config_sections_custom_values(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "session": {"max_tracked_neurons": 10, "max_refs_per_event": 7},
+        "planning": {
+            "min_cluster_size": 3,
+            "max_cluster_size": 150,
+            "generic_module_words": ["foo", "bar"],
+        },
+        "changelog": {"breaking_cross_lobe_threshold": 5},
+        "database": {"integrity_check": "fail"},
+    })
+    loaded = load_config(cfg_path)
+    assert loaded.session == SessionConfig(max_tracked_neurons=10, max_refs_per_event=7)
+    assert loaded.planning == PlanningConfig(
+        min_cluster_size=3,
+        max_cluster_size=150,
+        generic_module_words=frozenset({"foo", "bar"}),
+    )
+    assert loaded.changelog == ChangelogConfig(breaking_cross_lobe_threshold=5)
+    assert loaded.database == DatabaseConfig(integrity_check="fail")
+
+
+def test_config_null_section_uses_defaults(tmp_path: Path) -> None:
+    """A `section:` key with a null value must fall back to defaults."""
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "session": None,
+        "planning": None,
+        "changelog": None,
+        "database": None,
+    })
+    loaded = load_config(cfg_path)
+    assert loaded.session == SessionConfig()
+    assert loaded.planning == PlanningConfig()
+    assert loaded.changelog == ChangelogConfig()
+    assert loaded.database == DatabaseConfig()
+
+
+# --- strict int validation -------------------------------------------------
+
+
+def test_config_rejects_string_for_int(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "session": {"max_tracked_neurons": "50"},
+    })
+    with pytest.raises(ConfigError, match="must be an int"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_bool_for_int(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "changelog": {"breaking_cross_lobe_threshold": True},
+    })
+    with pytest.raises(ConfigError, match="must be an int"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_non_positive_int(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "planning": {"min_cluster_size": 0},
+    })
+    with pytest.raises(ConfigError, match="must be > 0"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_min_greater_than_max(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "planning": {"min_cluster_size": 10, "max_cluster_size": 2},
+    })
+    with pytest.raises(ConfigError, match="must be <="):
+        load_config(cfg_path)
+
+
+def test_config_rejects_empty_generic_word(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "planning": {"generic_module_words": ["valid", ""]},
+    })
+    with pytest.raises(ConfigError, match="non-empty string"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_invalid_integrity_check(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "database": {"integrity_check": "loud"},
+    })
+    with pytest.raises(ConfigError, match="off/warn/fail"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_non_mapping_section(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "session": "not-a-mapping",
+    })
+    with pytest.raises(ConfigError, match="'session' must be a mapping"):
+        load_config(cfg_path)
+
+
+# --- YAML / top-level shape ------------------------------------------------
+
+
+def test_config_rejects_malformed_yaml(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    # Unclosed flow sequence is not valid YAML.
+    cfg_path.write_text(
+        "lobes: {src: src/}\n  tracked_extensions: [1, 2\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="invalid YAML"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_top_level_list(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("- a\n- b\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="top-level YAML mapping"):
+        load_config(cfg_path)
+
+
+def test_config_rejects_top_level_none(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("", encoding="utf-8")
+    with pytest.raises(ConfigError, match="top-level YAML mapping"):
+        load_config(cfg_path)
