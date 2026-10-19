@@ -7,6 +7,7 @@ and product intent (#23) — never from commit messages.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -61,6 +62,39 @@ _SECURITY_TAGS = frozenset({"security", "vuln", "cve", "vulnerability"})
 _PERF_TAGS = frozenset({"perf", "performance"})
 
 _REV_PARSE_TIMEOUT = 15  # seconds
+
+#: Git ref characters allowed in user-supplied refs (tags, hashes, branch names
+#: with ``/`` and ``.``, revision specs like ``HEAD~1`` / ``HEAD^`` / ``HEAD@{1}``).
+#: ``-`` is allowed but only when not leading (checked separately to prevent
+#: option-injection such as ``--help``).
+_GIT_REF_PATTERN = re.compile(r"^[a-zA-Z0-9._~^@{}/-]+$")
+
+
+def validate_git_ref(ref: str) -> str:
+    """Validate a user-supplied git ref before passing it to git.
+
+    Rejects empty strings, option-like refs (leading ``-``), and refs
+    containing characters outside the allowed set.
+
+    Raises:
+        ChangelogError(CODE_REF_NOT_FOUND): if the ref is invalid.
+
+    Returns:
+        The ref unchanged when valid.
+    """
+    if not ref:
+        raise ChangelogError(CODE_REF_NOT_FOUND, "Empty git ref is not allowed.")
+    if ref.startswith("-"):
+        raise ChangelogError(
+            CODE_REF_NOT_FOUND,
+            f"Git ref must not start with '-' (option injection): {ref!r}",
+        )
+    if not _GIT_REF_PATTERN.match(ref):
+        raise ChangelogError(
+            CODE_REF_NOT_FOUND,
+            f"Invalid git ref: {ref!r}",
+        )
+    return ref
 
 
 class ChangelogError(Exception):
@@ -145,6 +179,7 @@ def _run_git(args: list[str], repo_root: Path) -> str | None:
 
 
 def _rev_parse(ref: str, repo_root: Path) -> str | None:
+    validate_git_ref(ref)
     out = _run_git(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], repo_root)
     return out or None
 

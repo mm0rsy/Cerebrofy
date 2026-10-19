@@ -16,6 +16,8 @@ from cerebrofy.changelog.generator import (
     _entry_title,
     _health_delta,
     _load_memories,
+    _open_index_db,
+    validate_git_ref,
 )
 from cerebrofy.changelog.classifier import (
     BREAKING,
@@ -253,7 +255,7 @@ def test_generate_changelog_end_to_end(monkeypatch, tmp_path: Path) -> None:
 
     # Spec output schema (exact keys)
     data = report.to_dict()
-    assert set(data) == {"since", "until", "entries", "breaking_changes", "health_delta", "full_text"}
+    assert set(data) == {"since", "until", "entries", "breaking_changes", "health_delta", "full_text", "note"}
     assert report.since == "v1.0.0"
     assert report.until == "bbb"
     assert set(data["entries"][0]) == {"type", "title", "description", "neurons", "blast_radius", "audience_text"}
@@ -373,3 +375,88 @@ def test_narrative_events_schema_columns(tmp_path: Path) -> None:
     }
     # idempotent re-create
     ensure_narrative_schema(conn)
+
+
+# ---------------------------------------------------------------------------
+# ChangelogReport.to_dict includes note
+# ---------------------------------------------------------------------------
+
+
+def test_to_dict_includes_note_when_present() -> None:
+    report = ChangelogReport(
+        since="v1.0.0", until="abc1234", entries=(),
+        breaking_changes=(), health_delta={"coupling": 0.0, "avg_blast": 0.0},
+        full_text="", audience="developer", format="markdown",
+        note="last-build fallback: no snapshot found",
+    )
+    data = report.to_dict()
+    assert data["note"] == "last-build fallback: no snapshot found"
+
+
+def test_to_dict_includes_note_null_when_none() -> None:
+    report = ChangelogReport(
+        since="v1.0.0", until="abc1234", entries=(),
+        breaking_changes=(), health_delta={"coupling": 0.0, "avg_blast": 0.0},
+        full_text="", audience="developer", format="markdown",
+        note=None,
+    )
+    data = report.to_dict()
+    assert "note" in data
+    assert data["note"] is None
+
+
+# ---------------------------------------------------------------------------
+# _open_index_db seam (testability finding #7)
+# ---------------------------------------------------------------------------
+
+
+def test_open_index_db_raises_no_index_when_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / ".cerebrofy" / "db" / "cerebrofy.db"
+    with pytest.raises(ChangelogError) as exc_info:
+        _open_index_db(db_path)
+    assert exc_info.value.code == "NO_INDEX"
+
+
+def test_open_index_db_opens_real_file(tmp_path: Path) -> None:
+    db_path = tmp_path / "index.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE t (x INT)")
+    conn.commit()
+    conn.close()
+    conn = _open_index_db(db_path)
+    try:
+        result = conn.execute("SELECT COUNT(*) FROM t").fetchone()
+        assert result[0] == 0
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Invalid/malicious ref rejection in generate_changelog
+# ---------------------------------------------------------------------------
+
+
+def test_generate_changelog_rejects_malicious_since(tmp_path: Path) -> None:
+    """Option-like refs must raise REF_NOT_FOUND before reaching git."""
+    conn = _fixture_conn()
+    for bad_ref in ("--help", "--upload-pack=x", "", "foo; rm -rf /"):
+        # validate_git_ref raises immediately — no git invocation
+        with pytest.raises(ChangelogError) as exc_info:
+            validate_git_ref(bad_ref)
+        assert exc_info.value.code == "REF_NOT_FOUND"
+
+        # generate_changelog surfaces the same error before touching git
+        with pytest.raises(ChangelogError) as exc_info:
+            generate_changelog(tmp_path, bad_ref, conn=conn)
+        assert exc_info.value.code == "REF_NOT_FOUND"
+
+
+def test_validate_git_ref_accepts_valid_refs() -> None:
+    """Tags, hashes, HEAD~1, HEAD^, HEAD@{1}, branch names with / and . pass."""
+    valid_refs = [
+        "HEAD", "HEAD~1", "HEAD~5", "HEAD^", "HEAD@{1}",
+        "v1.0.0", "v2.3.4-rc1", "abcdef1234567890",
+        "feature/foo", "release/2.0", "main",
+    ]
+    for ref in valid_refs:
+        assert validate_git_ref(ref) == ref

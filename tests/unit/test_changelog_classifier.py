@@ -16,6 +16,7 @@ import pytest
 from cerebrofy.changelog.classifier import (
     BREAKING,
     BREAKING_CROSS_LOBE_CALLERS,
+    CODE_REF_NOT_FOUND,
     FEAT,
     FIX,
     INTERNAL,
@@ -37,6 +38,7 @@ from cerebrofy.changelog.classifier import (
     is_test_file,
     lobe_for_file,
     resolve_range,
+    validate_git_ref,
 )
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import ChangeSet, FileChange
@@ -472,3 +474,144 @@ def test_fixture_graph_breaking_recall() -> None:
     recall = detected / len(breaking_scenarios)
     assert recall >= 0.95
     assert detected == len(breaking_scenarios)
+
+
+# ---------------------------------------------------------------------------
+# validate_git_ref: reject malicious/option-like refs
+# ---------------------------------------------------------------------------
+
+
+def test_validate_git_ref_rejects_empty() -> None:
+    with pytest.raises(ChangelogError) as exc_info:
+        validate_git_ref("")
+    assert exc_info.value.code == CODE_REF_NOT_FOUND
+
+
+def test_validate_git_ref_rejects_option_like() -> None:
+    """Refs starting with '-' must be rejected before they reach git as options."""
+    bad_refs = ["--help", "--upload-pack=x", "-x"]
+    for ref in bad_refs:
+        with pytest.raises(ChangelogError) as exc_info:
+            validate_git_ref(ref)
+        assert exc_info.value.code == CODE_REF_NOT_FOUND
+
+
+def test_validate_git_ref_rejects_shell_metacharacters() -> None:
+    bad_refs = ["foo; rm -rf /", "foo|bar", "foo$BAR", "foo`bar", "foo\nbar", "foo bar"]
+    for ref in bad_refs:
+        with pytest.raises(ChangelogError) as exc_info:
+            validate_git_ref(ref)
+        assert exc_info.value.code == CODE_REF_NOT_FOUND
+
+
+def test_validate_git_ref_accepts_valid_refs() -> None:
+    """Tags, hashes, HEAD~1, HEAD^, HEAD@{1}, branch names with / and . pass."""
+    valid_refs = [
+        "HEAD", "HEAD~1", "HEAD~5", "HEAD^", "HEAD@{1}",
+        "v1.0.0", "v2.3.4-rc1", "abcdef1234567890",
+        "feature/foo", "release/2.0", "main",
+    ]
+    for ref in valid_refs:
+        assert validate_git_ref(ref) == ref
+
+
+# ---------------------------------------------------------------------------
+# resolve_range: malicious refs raise before git is invoked
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_range_rejects_malicious_ref(tmp_path: Path) -> None:
+    """Option-like refs raise REF_NOT_FOUND and never reach git as options."""
+    conn = sqlite3.connect(":memory:")
+    repo, first, head = _git_repo(tmp_path)
+    bad_refs = ["--help", "--upload-pack=x", "", "foo; rm -rf /"]
+    for bad_ref in bad_refs:
+        with pytest.raises(ChangelogError) as exc_info:
+            resolve_range(repo, bad_ref, conn)
+        assert exc_info.value.code == "REF_NOT_FOUND"
+
+
+def test_resolve_range_rejects_malicious_ref_without_git_invocation(tmp_path: Path) -> None:
+    """validate_git_ref raises before _run_git is ever called for malicious refs."""
+    conn = sqlite3.connect(":memory:")
+    repo, first, head = _git_repo(tmp_path)
+
+    def mock_run_git(args: list[str], repo_root: Path) -> str | None:
+        joined = " ".join(args)
+        # Malicious refs must never reach git — validate_git_ref blocks them first
+        if "--help" in joined or "--upload-pack" in joined:
+            raise AssertionError(f"git should not be called with malicious ref: {args}")
+        # HEAD rev-parse is legitimate — return the head hash
+        if "rev-parse" in args and "HEAD" in args:
+            return head
+        return None
+
+    with patch("cerebrofy.changelog.classifier._run_git", side_effect=mock_run_git):
+        with pytest.raises(ChangelogError) as exc_info:
+            resolve_range(repo, "--help", conn)
+        assert exc_info.value.code == "REF_NOT_FOUND"
+
+
+# ---------------------------------------------------------------------------
+# Rename detection (git mv → A+D pair → MOVED → REFACTOR)
+# ---------------------------------------------------------------------------
+
+
+def test_collect_changes_rename_detected_as_moved(tmp_path: Path) -> None:
+    """A git mv (A+D pair, same neuron name, different lobes) → KIND_MOVED → REFACTOR."""
+    repo = tmp_path
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@t.t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+
+    # File in auth/ lobe with a neuron
+    (repo / "auth").mkdir()
+    (repo / "auth" / "tokens.py").write_text(
+        "def validate_token():\n    pass\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "add tokens"], cwd=repo, check=True)
+    first = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    # git mv to utils/ lobe (different first path segment → different lobe)
+    (repo / "utils").mkdir()
+    subprocess.run(["git", "mv", "auth/tokens.py", "utils/tokens.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "move tokens"], cwd=repo, check=True)
+
+    # DB with the neuron indexed under the OLD path
+    conn = sqlite3.connect(":memory:")
+    conn.execute(_NODES_DDL)
+    conn.execute(_EDGES_DDL)
+    conn.execute("CREATE TABLE file_hashes (file TEXT PRIMARY KEY, hash TEXT NOT NULL)")
+    conn.execute(
+        "INSERT INTO nodes VALUES (?,?,?,?,?,?,?,?,?)",
+        ("auth/tokens.py::validate_token", "validate_token", "auth/tokens.py",
+         "function", 1, 8, "def validate_token():", None, "h1"),
+    )
+    conn.commit()
+
+    # Mock classify_drift to report the neuron as added at the new path
+    with patch(
+        "cerebrofy.validate.drift_classifier.classify_drift",
+        return_value=[DriftRecord(
+            file="utils/tokens.py", drift_type="structural",
+            changed_neurons=("validate_token",), drift_detail="add",
+            neuron_details=(
+                NeuronDrift(name="validate_token", kind="added", neuron_type="function"),
+            ),
+        )],
+    ):
+        collected = collect_changes(repo, conn, first)
+
+    kinds = {c.kind for c in collected.changes}
+    assert KIND_REMOVED in kinds  # old path neuron (from DB index)
+    assert KIND_ADDED in kinds  # new path neuron (from drift)
+
+    # classify_changes merges same-name, different-lobe move into REFACTOR
+    classified = classify_changes(collected.changes, conn, memories_by_neuron=None, lobes=None)
+    refactors = [c for c in classified if c.entry_type == REFACTOR]
+    assert len(refactors) == 1
+    assert any(n.kind == KIND_MOVED for n in refactors[0].neurons)
+    assert {n.file for n in refactors[0].neurons} == {"auth/tokens.py", "utils/tokens.py"}

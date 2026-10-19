@@ -214,7 +214,7 @@ def test_mcp_changelog_returns_spec_schema(repo: Path, monkeypatch: pytest.Monke
     monkeypatch.chdir(repo)
     result = handle_changelog({"since": "v1.0.0", "audience": "pm", "format": "github"})
     data = json.loads(result[0].text)
-    assert set(data) == {"since", "until", "entries", "breaking_changes", "health_delta", "full_text"}
+    assert set(data) == {"since", "until", "entries", "breaking_changes", "health_delta", "full_text", "note"}
     assert data["since"] == "v1.0.0"
     assert isinstance(data["entries"], list)
     assert isinstance(data["breaking_changes"], list)

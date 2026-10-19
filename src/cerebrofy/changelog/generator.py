@@ -32,6 +32,7 @@ from cerebrofy.changelog.classifier import (
     CollectedChanges,
     NeuronChange,
     collect_changes,
+    validate_git_ref,
 )
 from cerebrofy.memory.store import Memory
 from cerebrofy.memory.store import list_memories as _list_memories
@@ -58,8 +59,18 @@ _AUDIENCE_TYPES: dict[str, frozenset[str]] = {
 
 _GIT_TIMEOUT = 15  # seconds
 
-# Valid git ref pattern (alphanumeric, hyphens, underscores, slashes, dots)
-_GIT_REF_PATTERN = re.compile(r'^[a-zA-Z0-9._/-]+$')
+
+def _open_index_db(db_path: Path) -> sqlite3.Connection:
+    """Open the changelog index DB read-only, or raise NO_INDEX.
+
+    Separated from ``generate_changelog`` so the connection-opening seam is
+    independently testable (testability finding #7).
+    """
+    if not db_path.exists():
+        raise ChangelogError(
+            "NO_INDEX", "Index not found. Run 'cerebrofy build' first."
+        )
+    return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +129,7 @@ class ChangelogReport:
             "breaking_changes": [dict(b) for b in self.breaking_changes],
             "health_delta": dict(self.health_delta),
             "full_text": self.full_text,
+            "note": self.note,
         }
 
 
@@ -165,9 +177,11 @@ def _health_delta(conn: sqlite3.Connection) -> dict[str, float]:
 
 
 def _git_output(args: list[str], repo_root: Path) -> str | None:
-    # Validate git arguments to prevent command injection (though we use list form)
+    # Validate git arguments to prevent command injection (though we use list form).
+    # User-supplied refs are validated via validate_git_ref at call sites; this
+    # is a defence-in-depth check that also allows git option characters.
     for arg in args:
-        if not re.match(r'^[a-zA-Z0-9._/-]+$', arg):
+        if not re.match(r"^[a-zA-Z0-9._/=%-]+$", arg):
             return None
     try:
         result = subprocess.run(
@@ -428,18 +442,14 @@ def generate_changelog(
         )
 
     # Validate git ref format
-    if not _GIT_REF_PATTERN.match(since) and since not in ("last-build", "project-start"):
-        raise ChangelogError("REF_NOT_FOUND", f"Invalid git ref: {since}")
+    if since not in ("last-build", "project-start"):
+        validate_git_ref(since)
 
     cerebrofy_dir = repo_root / ".cerebrofy"
     db_path = cerebrofy_dir / "db" / "cerebrofy.db"
     owns_conn = conn is None
     if owns_conn:
-        if not db_path.exists():
-            raise ChangelogError(
-                "NO_INDEX", "Index not found. Run 'cerebrofy build' first."
-            )
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        conn = _open_index_db(db_path)
 
     assert conn is not None  # narrowed by the owns_conn branch above
     try:
@@ -489,7 +499,9 @@ def generate_changelog(
             audience=audience,
             format=output_format,
             until_short=until[:7],
-            until_date=_git_output(["show", "-s", "--format=%cs", until], repo_root) or "",
+            until_date=(_git_output(
+                ["show", "-s", "--format=%cs", validate_git_ref(until)], repo_root
+            ) or ""),
             note=collected.range.note,
         )
         return _with_full_text(report)
@@ -523,7 +535,11 @@ def _with_full_text(report: ChangelogReport) -> ChangelogReport:
 
 def _commit_ts(repo_root: Path | None, commit_ref: str) -> int:
     if repo_root is not None:
-        out = _git_output(["show", "-s", "--format=%ct", commit_ref], repo_root)
+        try:
+            validated = validate_git_ref(commit_ref)
+        except ChangelogError:
+            return int(time.time())
+        out = _git_output(["show", "-s", "--format=%ct", validated], repo_root)
         if out and out.isdigit():
             return int(out)
     return int(time.time())
