@@ -19,7 +19,9 @@ from cerebrofy.utils.paths import (
     find_repo_root,
     require_repo_root,
     reset_bound_root,
+    reset_root_boundary,
     set_bound_root,
+    set_root_boundary,
 )
 
 
@@ -239,6 +241,87 @@ def test_require_repo_root_returns_bound_root(
 
 
 # ---------------------------------------------------------------------------
+# Launch boundary (C1/S1) — process-wide clip on CWD routing
+# ---------------------------------------------------------------------------
+
+def test_launch_boundary_allows_walk_up_inside_project(tmp_path: Path) -> None:
+    root = _make_repo(tmp_path)
+    nested = root / "src" / "pkg" / "deep"
+    nested.mkdir(parents=True)
+    set_root_boundary(root)
+
+    assert find_repo_root(nested) == root
+
+
+def test_launch_boundary_blocks_sibling_project(tmp_path: Path) -> None:
+    root_a = _make_repo(tmp_path / "a")
+    root_b = _make_repo(tmp_path / "b")
+    (root_b / "src").mkdir(parents=True)
+    set_root_boundary(root_a)
+
+    assert find_repo_root(root_a / "src") == root_a
+    assert find_repo_root(root_b / "src") is None
+
+
+def test_launch_boundary_at_workspace_root_allows_child_repos(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    child = _make_repo(workspace)          # workspace/repo
+    sibling = _make_repo(tmp_path / "elsewhere")
+    (child / "src").mkdir()
+    (sibling / "src").mkdir()
+    set_root_boundary(workspace)
+
+    assert find_repo_root(workspace) is None        # workspace itself is not a project
+    assert find_repo_root(child / "src") == child   # child repos are served
+    assert find_repo_root(sibling / "src") is None  # siblings outside are not
+
+
+def test_explicit_bound_root_wins_over_launch_boundary(tmp_path: Path) -> None:
+    root_a = _make_repo(tmp_path / "a")
+    root_b = _make_repo(tmp_path / "b")
+    set_bound_root(root_a)
+    set_root_boundary(root_b)
+
+    assert find_repo_root(root_b / "src") == root_a
+
+
+def test_env_root_outside_launch_boundary_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root_a = _make_repo(tmp_path / "a")
+    root_b = _make_repo(tmp_path / "b")
+    set_root_boundary(root_a)
+    monkeypatch.setenv("CEREBROFY_ROOT", str(root_b))
+
+    with pytest.raises(InvalidRepoRootError):
+        find_repo_root(tmp_path)
+
+
+def test_reset_bound_root_clears_launch_boundary(tmp_path: Path) -> None:
+    root_a = _make_repo(tmp_path / "a")
+    root_b = _make_repo(tmp_path / "b")
+    (root_b / "src").mkdir()
+    set_root_boundary(root_a)
+    reset_bound_root()
+
+    assert find_repo_root(root_b / "src") == root_b
+
+
+def test_reset_root_boundary_restores_walk_up(tmp_path: Path) -> None:
+    root = _make_repo(tmp_path)
+    nested = root / "src"
+    nested.mkdir()
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    set_root_boundary(blocked)
+
+    assert find_repo_root(nested) is None
+    reset_root_boundary()
+    assert find_repo_root(nested) == root
+
+
+# ---------------------------------------------------------------------------
 # Reset / require_repo_root
 # ---------------------------------------------------------------------------
 
@@ -302,6 +385,7 @@ pytest.importorskip("mcp")
 
 from cerebrofy.mcp.server import (  # noqa: E402  (import after skip guard)
     _bootstrap_root,
+    _bind_launch_boundary,
     _parse_int_arg,
     _run_cerebrofy,
     _MAX_LIMIT,
@@ -412,6 +496,33 @@ def test_bootstrap_root_rejects_explicit_root_without_config(tmp_path: Path) -> 
     bogus.mkdir()
     with pytest.raises(InvalidRepoRootError):
         _bootstrap_root(bogus)
+
+
+# ---------------------------------------------------------------------------
+# _bind_launch_boundary — no explicit pin → clipped CWD routing
+# ---------------------------------------------------------------------------
+
+def test_bind_launch_boundary_inside_project_sets_project_root(tmp_path: Path) -> None:
+    root = _make_repo(tmp_path)
+    nested = root / "src"
+    nested.mkdir()
+    sibling = _make_repo(tmp_path / "sib")
+    (sibling / "src").mkdir()
+
+    assert _bind_launch_boundary(nested) == root
+    # Boundary applies to every later lookup: the sibling project is unreachable.
+    assert find_repo_root(nested) == root
+    assert find_repo_root(sibling / "src") is None
+
+
+def test_bind_launch_boundary_workspace_root_serves_children(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    child = _make_repo(workspace)      # workspace/repo
+    (child / "src").mkdir()
+
+    assert _bind_launch_boundary(workspace) is None
+    assert find_repo_root(child / "src") == child
 
 
 # ===========================================================================

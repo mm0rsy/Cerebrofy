@@ -41,6 +41,7 @@ from cerebrofy.utils.paths import (
     find_repo_root,
     require_repo_root,
     set_bound_root,
+    set_root_boundary,
 )
 from cerebrofy.errors import NO_INDEX
 from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
@@ -1499,6 +1500,25 @@ def _bootstrap_root(root: Path | str | None) -> Path | None:
     return found
 
 
+def _bind_launch_boundary(start: Path | None = None) -> Path | None:
+    """Set the process-wide launch boundary for an unbound server (C1/S1).
+
+    Called at start-up when no explicit ``--root`` / ``CEREBROFY_ROOT`` pin is
+    given. Per-call CWD routing is preserved, but the walk-up can never leave
+    the launch directory: launched inside a project the boundary is that
+    project root (sibling projects stay unreachable); launched at a non-project
+    directory (e.g. a workspace root) the boundary is the launch CWD itself, so
+    the repos *beneath* it remain routable while siblings and parents do not.
+
+    Returns the launch project root when the launch CWD was inside one, else
+    ``None`` (workspace-root mode).
+    """
+    cwd = (start if start is not None else Path.cwd()).resolve()
+    launch_root = find_repo_root(cwd)
+    set_root_boundary(launch_root if launch_root is not None else cwd)
+    return launch_root
+
+
 async def run_mcp_server(root: Path | str | None = None) -> None:
     """Start the cerebrofy MCP stdio server.
 
@@ -1523,11 +1543,22 @@ async def run_mcp_server(root: Path | str | None = None) -> None:
             file=sys.stderr,
         )
     else:
-        print(
-            "cerebrofy mcp: CWD routing enabled (no explicit root); "
-            "set CEREBROFY_ROOT or pass --root to pin the project",
-            file=sys.stderr,
-        )
+        launch_root = _bind_launch_boundary()
+        if launch_root is not None:
+            print(
+                "cerebrofy mcp: CWD routing enabled within launch boundary "
+                f"{launch_root} (project root); sibling projects are blocked. "
+                "Set CEREBROFY_ROOT or pass --root to pin the project",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "cerebrofy mcp: CWD routing enabled within launch boundary "
+                f"{Path.cwd().resolve()} (workspace root); repos beneath it are "
+                "served, siblings are blocked. Set CEREBROFY_ROOT or pass "
+                "--root to pin the project",
+                file=sys.stderr,
+            )
 
     app = CerebrofyMCPServer("cerebrofy")
 

@@ -14,9 +14,17 @@ There is now one helper with a strict resolution order:
         > walk up from *start* (defaults to CWD) for ``.cerebrofy/config.yaml``
 
 Without an explicit binding the walk-up runs per call, preserving the documented
-CWD routing (one MCP entry serving multiple repos). When an explicit binding is
-in effect the walk-up is skipped entirely, so a compromised CWD can no longer
-redirect the server to another project.
+CWD routing (one MCP entry serving multiple repos). Two hardening layers apply:
+
+* the MCP server sets a **launch boundary** (:func:`set_root_boundary`) at
+  start-up — routing may still follow the CWD per call, but never leaves the
+  directory the server was launched from: inside a project the boundary is that
+  project root, and at a non-project directory (e.g. a workspace root) it is
+  the launch CWD itself, so the repos beneath it are still served while
+  siblings and parents are not;
+* an explicit binding (``--root`` / ``CEREBROFY_ROOT``) wins over the boundary
+  and skips the walk-up entirely, so a compromised CWD cannot redirect the
+  server to another project.
 """
 
 from __future__ import annotations
@@ -50,6 +58,24 @@ class InvalidRepoRootError(ValueError):
 # :func:`reset_bound_root`.
 _bound_root: Path | None = None
 
+#: Process-wide launch boundary (set by the MCP server at start-up when no
+#: explicit root is given). The CWD walk-up never escapes this directory: a
+#: server launched inside project A cannot route at sibling project B, while a
+#: server launched at a workspace root can still serve every repo beneath it.
+_root_boundary: Path | None = None
+
+
+def set_root_boundary(boundary: Path | str | None) -> None:
+    """Bind the process-wide launch boundary (MCP server start-up)."""
+    global _root_boundary
+    _root_boundary = Path(boundary).resolve() if boundary else None
+
+
+def reset_root_boundary() -> None:
+    """Clear the launch boundary (test hygiene)."""
+    global _root_boundary
+    _root_boundary = None
+
 
 def set_bound_root(root: Path | str | None) -> None:
     """Bind the repo root for the running process (MCP server start-up)."""
@@ -58,9 +84,10 @@ def set_bound_root(root: Path | str | None) -> None:
 
 
 def reset_bound_root() -> None:
-    """Clear any bound root (test hygiene)."""
-    global _bound_root
+    """Clear any bound root and launch boundary (test hygiene)."""
+    global _bound_root, _root_boundary
     _bound_root = None
+    _root_boundary = None
 
 
 def find_repo_root(
@@ -82,10 +109,15 @@ def find_repo_root(
          (defaults to ``.cerebrofy/config.yaml``).
 
     *boundary* optionally clips the walk so it never escapes a parent project
-    (returns ``None`` instead of scanning above the boundary). *marker* lets
+    (returns ``None`` instead of scanning above the boundary). When *boundary*
+    is ``None`` and the MCP server set a launch boundary
+    (:func:`set_root_boundary`), that process boundary applies. *marker* lets
     callers that only need an indexed tree (the silo / coverage-gap commands)
     search for the DB file instead of the config.
     """
+    if boundary is None:
+        boundary = _root_boundary
+
     if _bound_root is not None:
         return _bound_root
 
@@ -105,7 +137,7 @@ def find_repo_root(
         return root
 
     start = start if start is not None else Path.cwd()
-    current = start if start.is_dir() else start.parent
+    current = (start if start.is_dir() else start.parent).resolve()
     for candidate in (current, *current.parents):
         if boundary is not None and not candidate.is_relative_to(boundary):
             break
