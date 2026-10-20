@@ -260,3 +260,116 @@ class TestApplyFixes:
         )()
         results = apply_fixes(plan, manifest, scan, tmp_path)  # type: ignore[arg-type]
         assert "no safe AST transform" in results[0].errors[0]
+
+
+def test_attribute_transform_is_scoped_to_scanned_lines(tmp_path: Path) -> None:
+    manifest = parse_manifest(
+        {
+            "package": "pydantic",
+            "changes": [
+                {
+                    "type": "rename",
+                    "old": ".dict()",
+                    "new": ".model_dump()",
+                    "severity": "breaking",
+                    "category": "call",
+                    "match": r"\.dict\s*\(",
+                    "auto_fix": True,
+                }
+            ],
+        }
+    )
+    source = (
+        "from pydantic import BaseModel\n"
+        "\n"
+        "def target(o):\n"
+        "    return o.dict()\n"
+        "\n"
+        "def unrelated(o):\n"
+        "    return o.dict()\n"
+    )
+    (tmp_path / "u.py").write_text(source, encoding="utf-8")
+    change = manifest.changes[0]
+    site = UsageSite(
+        change_index=0,
+        neuron_id="u.py::target",
+        neuron_name="target",
+        file="u.py",
+        line=4,
+        snippet="return o.dict()",
+    )
+    scan = ScanResult(
+        package="pydantic",
+        imported=True,
+        import_files=["u.py"],
+        usages=[ChangeUsage(change_index=0, change=change, sites=[site])],
+        files_scanned=1,
+    )
+    plan = type(
+        "Plan",
+        (),
+        {
+            "steps": [
+                type(
+                    "Step",
+                    (),
+                    {
+                        "step_number": 1,
+                        "change_index": 0,
+                        "auto_fix": True,
+                    },
+                )()
+            ]
+        },
+    )()
+
+    results = apply_fixes(plan, manifest, scan, tmp_path)  # type: ignore[arg-type]
+    lines = (tmp_path / "u.py").read_text(encoding="utf-8").splitlines()
+
+    assert lines[3] == "    return o.model_dump()"
+    assert lines[6] == "    return o.dict()"  # outside the scanned site line
+    assert results[0].sites_fixed == 1
+    assert not results[0].errors
+
+
+def test_refuses_paths_outside_repository_root(tmp_path: Path) -> None:
+    manifest = _manifest()
+    change = manifest.changes[1]
+    site = UsageSite(
+        change_index=1,
+        neuron_id="outside::f",
+        neuron_name="f",
+        file="../outside.py",
+        line=1,
+        snippet="obj.dict()",
+    )
+    scan = ScanResult(
+        package="pydantic",
+        imported=True,
+        import_files=["../outside.py"],
+        usages=[ChangeUsage(change_index=1, change=change, sites=[site])],
+        files_scanned=1,
+    )
+    plan = type(
+        "Plan",
+        (),
+        {
+            "steps": [
+                type(
+                    "Step",
+                    (),
+                    {
+                        "step_number": 1,
+                        "change_index": 1,
+                        "auto_fix": True,
+                    },
+                )()
+            ]
+        },
+    )()
+
+    results = apply_fixes(plan, manifest, scan, tmp_path)  # type: ignore[arg-type]
+
+    assert len(results) == 1
+    assert "refusing to edit outside the repository root" in results[0].errors[0]
+    assert not results[0].files_modified

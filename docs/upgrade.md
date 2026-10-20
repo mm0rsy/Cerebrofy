@@ -31,7 +31,8 @@ planner.py ── base/config steps → call sites by blast radius desc → vali
         │      risk LOW/MEDIUM/HIGH
         ▼
 fixer.py  ── AST transforms for attribute calls, decorators, import symbols
-        │      re-parse before writing; invalid files are left untouched
+        │      edits restricted to scanned site lines; re-parse before writing;
+        │      invalid files are left untouched
         ▼
 validator.py ── rescan without an import gate → PASS/FAIL + file:line
 ```
@@ -95,7 +96,11 @@ cerebrofy upgrade PACKAGE [--from VERSION] [--to VERSION] [--breaking-only]
 ```
 
 - Default output is Markdown; `--format json` emits the MCP schema.
-- `--breaking-only` filters `severity: deprecated` changes.
+- `--breaking-only` filters `severity: deprecated` changes. It is an opt-in CLI
+  flag (default: false), so an interactive `cerebrofy upgrade pydantic` shows the
+  complete curated plan. The MCP tool defaults `breaking_only` to true instead:
+  agent calls should stay focused on breaking work and avoid spending context on
+  deprecated-only noise. Pass `"breaking_only": false` to mirror the CLI.
 - `--auto-fix` is an explicit opt-in. Without `--step`, only auto-fixable steps
   run; selecting a non-mechanical step reports an error instead of guessing.
 - `--validate` alone rescans all indexed Python files and exits non-zero when

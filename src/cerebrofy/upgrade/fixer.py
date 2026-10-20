@@ -16,6 +16,7 @@ is written; a file that would become syntactically invalid is left untouched.
 from __future__ import annotations
 
 import ast
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -58,6 +59,7 @@ class FixResult:
 # ---------------------------------------------------------------------------
 # AST helpers
 # ---------------------------------------------------------------------------
+
 
 def _char_col(line: str, byte_col: int) -> int:
     """Convert an AST UTF-8 byte column to a Python string index."""
@@ -139,8 +141,15 @@ def _collect_edits(
     tree: ast.AST,
     source: str,
     change: Change,
+    target_lines: set[int] | None = None,
 ) -> list[tuple[int, int, str]]:
-    """Collect non-overlapping edits for one change."""
+    """Collect non-overlapping edits for one change.
+
+    When *target_lines* is provided, edits are restricted to AST nodes whose
+    source line is one of the scanned usage sites. This keeps a name-based
+    transform (for example ``.dict()``) from rewriting unrelated occurrences
+    elsewhere in the same file.
+    """
     lines, starts = _offsets(source)
     edits: list[tuple[int, int, str]] = []
     old = change.old.strip()
@@ -151,7 +160,9 @@ def _collect_edits(
         return []
 
     # Decorator rename: @validator -> @field_validator.
-    if old.startswith("@") or (change.category == "validator" and "(" not in old and "." not in old):
+    if old.startswith("@") or (
+        change.category == "validator" and "(" not in old and "." not in old
+    ):
         old_name = old.lstrip("@").strip()
         new_name = new.lstrip("@").strip()
         for node in ast.walk(tree):
@@ -162,15 +173,10 @@ def _collect_edits(
                         edit = _node_name_edit(lines, starts, target, new_name)
                         if edit is not None:
                             edits.append(edit)
-        return _dedupe(edits)
+        return _restrict(_dedupe(edits), starts, target_lines)
 
     # Import-symbol rename: pydantic.validator -> pydantic.field_validator.
-    if (
-        change.category == "validator"
-        and "." in old
-        and "(" not in old
-        and not old.startswith(".")
-    ):
+    if change.category == "validator" and "." in old and "(" not in old and not old.startswith("."):
         old_parts = old.split(".")
         new_parts = new.split(".")
         old_symbol = old_parts[-1]
@@ -189,7 +195,7 @@ def _collect_edits(
                     if alias.name == old:
                         start = _position(lines, starts, alias.lineno, alias.col_offset)
                         edits.append((start, start + len(alias.name), new))
-        return _dedupe(edits)
+        return _restrict(_dedupe(edits), starts, target_lines)
 
     call_parts = _call_name_parts(old, new)
     if call_parts is not None:
@@ -223,7 +229,7 @@ def _collect_edits(
                         edit = _node_name_edit(lines, starts, node.func, new_name)
                         if edit is not None:
                             edits.append(edit)
-        return _dedupe(edits)
+        return _restrict(_dedupe(edits), starts, target_lines)
 
     # Attribute without call: .dict -> .model_dump
     if old.startswith("."):
@@ -234,9 +240,20 @@ def _collect_edits(
                 edit = _attribute_edit(lines, starts, node, new_attr)
                 if edit is not None:
                     edits.append(edit)
-        return _dedupe(edits)
+        return _restrict(_dedupe(edits), starts, target_lines)
 
     return []
+
+
+def _restrict(
+    edits: list[tuple[int, int, str]],
+    starts: list[int],
+    target_lines: set[int] | None,
+) -> list[tuple[int, int, str]]:
+    """Keep only edits whose 1-based start line is a scanned target line."""
+    if target_lines is None:
+        return edits
+    return [edit for edit in edits if bisect_right(starts, edit[0]) in target_lines]
 
 
 def _dedupe(edits: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
@@ -260,6 +277,7 @@ def _apply_edits(source: str, edits: list[tuple[int, int, str]]) -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def apply_fixes(
     plan: UpgradePlan,
@@ -336,7 +354,8 @@ def apply_fixes(
                 result.errors.append(f"{file}: cannot parse ({exc.msg}, line {exc.lineno}).")
                 continue
 
-            edits = _collect_edits(tree, source, change)
+            target_lines = {site.line for site in usage.sites if site.file == file}
+            edits = _collect_edits(tree, source, change, target_lines)
             if not edits:
                 result.errors.append(
                     f"{file}: no safe AST transform found for `{change.old}` "

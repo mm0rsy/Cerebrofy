@@ -55,9 +55,7 @@ class TestUpgradeCli:
     def test_plans_builtin_manifest(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         monkeypatch.chdir(tmp_path)
         _repo(tmp_path)
-        result = CliRunner().invoke(
-            main, ["upgrade", "pydantic", "--from", "1.10", "--to", "2.0"]
-        )
+        result = CliRunner().invoke(main, ["upgrade", "pydantic", "--from", "1.10", "--to", "2.0"])
         assert result.exit_code == 0, result.output
         assert "Upgrade Navigator: pydantic" in result.output
         assert "Step-by-Step Migration Plan" in result.output
@@ -92,9 +90,7 @@ class TestUpgradeCli:
     def test_version_not_found_error(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         monkeypatch.chdir(tmp_path)
         _repo(tmp_path)
-        result = CliRunner().invoke(
-            main, ["upgrade", "pydantic", "--from", "2.0", "--to", "2.5"]
-        )
+        result = CliRunner().invoke(main, ["upgrade", "pydantic", "--from", "2.0", "--to", "2.5"])
         assert result.exit_code == 1
         assert "[VERSION_NOT_FOUND]" in result.output
 
@@ -119,6 +115,44 @@ class TestUpgradeCli:
         assert result.exit_code == 0, result.output
         assert "Auto-fix Results" in result.output
         assert "user.model_dump()" in (tmp_path / "u.py").read_text(encoding="utf-8")
+
+    def test_malformed_manifest_yaml_is_reported(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        _repo(tmp_path)
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("package: pydantic\nchanges: [unclosed\n", encoding="utf-8")
+
+        result = CliRunner().invoke(main, ["upgrade", "pydantic", "--manifest", str(bad)])
+
+        assert result.exit_code == 1
+        assert "[MANIFEST_NOT_FOUND]" in result.output
+        assert "Invalid manifest" in result.output
+
+    def test_manifest_dir_is_searched_before_bundled(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        monkeypatch.chdir(tmp_path)
+        _repo(tmp_path)
+        manifest_dir = tmp_path / "manifests"
+        manifest_dir.mkdir()
+        custom = CUSTOM_MANIFEST.replace('new: ".model_dump()"', 'new: ".as_dict()"')
+        (manifest_dir / "pydantic-custom.yaml").write_text(custom, encoding="utf-8")
+
+        result = CliRunner().invoke(
+            main,
+            [
+                "upgrade",
+                "pydantic",
+                "--from",
+                "1.10",
+                "--to",
+                "2.0",
+                "--manifest-dir",
+                str(manifest_dir),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert ".as_dict()" in result.output
+        assert ".model_dump()" not in result.output
 
     def test_validate_fails_then_passes(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         monkeypatch.chdir(tmp_path)
