@@ -107,7 +107,7 @@ def test_review_post_comments_requires_pr(repo: Path) -> None:
         )
 
     assert result.exit_code == 1
-    assert "[GH_NOT_AUTHENTICATED]" in _output(result)
+    assert "[NO_DIFF_PROVIDED]" in _output(result)
     assert "requires --pr" in _output(result)
     post.assert_not_called()
 

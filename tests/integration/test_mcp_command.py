@@ -752,7 +752,8 @@ def test_mcp_review_post_comments_requires_pr(
     monkeypatch.chdir(_make_review_repo(tmp_path))
     result = handle_review({"diff": "HEAD", "post_comments": True})
 
-    assert result[0].text.startswith("[GH_NOT_AUTHENTICATED]")
+    assert result[0].text.startswith("[NO_DIFF_PROVIDED]")
+    assert "requires the 'pr' parameter" in result[0].text
 
 
 def test_mcp_review_default_does_not_post(

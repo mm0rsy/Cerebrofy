@@ -56,7 +56,7 @@ def handle_review(arguments: dict[str, Any]) -> list[Any]:
         return _err("[NO_DIFF_PROVIDED] Provide a 'diff' ref or a 'pr' number.")
 
     if post_comments and pr is None:
-        return _err("[GH_NOT_AUTHENTICATED] 'post_comments' requires the 'pr' parameter.")
+        return _err("[NO_DIFF_PROVIDED] 'post_comments' requires the 'pr' parameter.")
 
     try:
         root = _find_root(Path.cwd())

@@ -326,7 +326,9 @@ def _memory_findings(
                 ]
         finally:
             conn.close()
-    except Exception:  # sqlite errors, OSError, malformed memory rows, ...
+    except (sqlite3.Error, OSError, TypeError, ValueError, KeyError):
+        # Storage failures and malformed memory rows degrade gracefully; anything
+        # else is a genuine bug and must propagate.
         return [], True
 
     findings: list[Finding] = []

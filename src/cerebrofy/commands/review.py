@@ -93,7 +93,7 @@ def cerebrofy_review(
 
     if pr_number is None:
         click.echo(
-            "[GH_NOT_AUTHENTICATED] --post-comments requires --pr <number>.",
+            "[NO_DIFF_PROVIDED] --post-comments requires --pr <number>.",
             err=True,
         )
         sys.exit(1)

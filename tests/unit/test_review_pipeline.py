@@ -319,6 +319,22 @@ def test_run_review_with_null_memory_timestamp(tmp_path: Path) -> None:
     assert report.findings
 
 
+def test_run_review_propagates_unexpected_memory_errors(tmp_path: Path) -> None:
+    """Only storage/parse failures degrade; programming bugs must surface."""
+    conn = make_repo(tmp_path)
+    try:
+        with patch(
+            "cerebrofy.review.pipeline.list_memories",
+            side_effect=RuntimeError("boom"),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                run_review(
+                    changed_files=["auth/tokens.py"], conn=conn, root=tmp_path
+                )
+    finally:
+        conn.close()
+
+
 def test_run_review_with_out_of_range_memory_timestamp(tmp_path: Path) -> None:
     """Bad timestamps fall back to a date label instead of raising."""
     conn = make_repo(tmp_path)
