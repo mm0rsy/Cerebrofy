@@ -260,7 +260,21 @@ def write_codeowners(
                 "Re-run with --force to overwrite it."
             )
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
+    # Atomic write: temp file + replace to avoid partial/truncated writes
+    import tempfile
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=target.parent, delete=False
+    ) as tf:
+        tf.write(content)
+        tf.flush()
+        import os
+        os.fsync(tf.fileno())
+        temp_path = Path(tf.name)
+    try:
+        temp_path.replace(target)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
 __all__ = [

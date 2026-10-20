@@ -1,149 +1,192 @@
-# AI Review Copilot
+# `cerebrofy review` — AI Review Copilot
 
-`cerebrofy review` reviews a diff or GitHub pull request with the full Cerebrofy
-graph, not just the changed lines. It combines blast radius, warning memories and
-past decisions, architecture rules, test coverage gaps, missing caller updates,
-cross-lobe coupling, and knowledge-silo ownership into one sorted report.
-
----
+Graph-aware review of a local diff or GitHub PR. Runs seven checks against the live index, scores findings by severity, and optionally posts comments via `gh`.
 
 ## Quick start
 
 ```bash
-# Local pre-merge review
-cerebrofy review --diff HEAD~1
+# Index your repo
+cerebrofy init
+cerebrofy build
 
-# Review uncommitted changes
-cerebrofy review --diff HEAD
+# Review a local diff (no GitHub auth needed)
+cerebrofy review --diff HEAD~1 --format markdown
 
-# Dry-run a GitHub PR (nothing is posted)
-cerebrofy review --pr 142
-
-# Blocking findings only, machine-readable
-cerebrofy review --pr 142 --severity error --format json
-
-# Explicitly post inline comments plus a PR summary
-cerebrofy review --pr 142 --post-comments
+# Review a GitHub PR (requires `gh auth login`)
+cerebrofy review --pr 42 --severity high --post-comments --format markdown
 ```
 
-Posting is **opt-in**. Without `--post-comments` (CLI) or
-`post_comments: true` (MCP), the report is printed locally and no `gh` command
-is executed.
+## CLI reference
 
----
+```bash
+cerebrofy review [OPTIONS]
 
-## Checks
-
-| Check type | Source | What it reports |
-|------------|--------|-----------------|
-| `blast_radius` | `analysis/blast_radius.py` | Callers at depth 1 + 2, lobe spread, risk label |
-| `memory_violation` | `memory/store.py` | Warning memories and past decisions attached to the neuron or lobe |
-| `arch_rule` | `arch/rules.py` + `arch/checker.py` | Violations of `.cerebrofy/arch-rules.yaml`, filtered to changed files |
-| `coverage_gap` | `analysis/coverage_gap.py` | Changed neurons with no `coverage.xml` or graph-topology coverage |
-| `missing_caller_update` | `analysis/blast_radius.py` | Direct callers not updated in the same change |
-| `coupling` | `health/metrics.py` semantics | Cross-lobe edges touching a changed neuron |
-| `knowledge_silo` | `analysis/silo_detector.py` | Changed neurons owned by a single author; also drives suggested reviewers |
-
-Optional integrations degrade gracefully. A missing or invalid
-`arch-rules.yaml` and an unreadable `memories.db` are recorded under
-`skipped_checks`; absent git blame data simply yields no silo findings, and a
-missing `coverage.xml` falls back to graph-topology coverage.
-
----
-
-## Severity score
-
-Findings are sorted by `severity_score` descending:
-
-```
-severity_score = base_severity * (blast_factor + memory_factor + coverage_factor)
-
-base_severity:   error = 3, warning = 2, info = 1
-blast_factor:    1 + blast_radius / 50
-memory_factor:   1.5 when a warning memory exists, otherwise 1.0
-coverage_factor: 1.3 when the neuron has no test coverage, otherwise 1.0
+Options:
+  --pr INTEGER              GitHub PR number (requires authenticated `gh` CLI).
+  --diff TEXT               Local git ref to diff against (e.g. HEAD~1, main..feature).
+  --severity [low|medium|high|critical]
+                            Minimum severity to include in output.
+  --post-comments           Post findings as PR comments (opt-in, requires `--pr`).
+  --format [markdown|json]  Output format.
+  -h, --help                Show this message and exit.
 ```
 
-`--severity error` keeps only errors; `--severity warning` keeps errors and
-warnings; `--severity all` (default) keeps everything.
+**Rules**
+- Exactly one of `--pr` or `--diff` is required.
+- `--post-comments` requires `--pr`.
+- Default format is `markdown`; `--format json` emits machine-readable payloads.
 
----
+## The seven checks
+
+| Check | What it does | Skipped when |
+|---|---|---|
+| `blast_radius` | Finds all callers (transitive) of changed neurons; ranks by blast radius × change velocity. | No changed neurons with callers. |
+| `memory_violation` | Matches changed neurons against warning/decision memories in the same lobe (and lobe-wide decisions mentioning the neuron). | No memories or no matching lobe. |
+| `arch_rule` | Evaluates `.cerebrofy/arch-rules.yaml` against the call graph; reports violations with confidence. | No arch rules or no rules matching changed lobes. |
+| `coverage_gap` | Ranks uncovered neurons by blast radius × change velocity; uses `coverage.xml` if present, falls back to graph topology. | No coverage data and graph fallback disabled. |
+| `missing_caller_update` | Detects callers that were *not* updated when their callee changed signature/behavior (renames, param changes, deletions). | No signature/behavior changes detected. |
+| `coupling` | Cross-lobe coupling metrics: fan-in/fan-out, shared callers, instability. | Single-lobe change or no cross-lobe edges. |
+| `knowledge_silo` | Bus-factor risk: which neurons/owners would be critical losses. Uses git blame + graph topology. | Single contributor or no ownership data. |
+
+Each check emits `findings` (if any) and a `skipped_reason` if it couldn't run. The output includes a summary table and the list of `skipped_checks`.
+
+## Severity model
+
+Findings are scored `low` / `medium` / `high` / `critical`:
+
+- `critical` — blast radius ≥ 50 callers **or** critical memory violation **or** arch rule FAIL with `confidence ≥ 0.9`.
+- `high` — blast radius 10–49 **or** arch rule FAIL/WARN **or** missing caller update on public API.
+- `medium` — blast radius 3–9 **or** coverage gap in hot path **or** coupling > 0.7.
+- `low` — everything else (informational).
+
+Within each severity, findings are ordered by blast radius (descending), then file path.
 
 ## Output
 
 ### Markdown (default)
+```
+## Review Summary
+- Blast radius: 23 findings (3 high, 8 medium, 12 low)
+- Memory violations: 0
+- Architecture rules: 1 WARN
+- Coverage gaps: 4 high, 2 medium
+- Missing caller updates: 1
+- Coupling: 2 lobes cross-coupled
+- Knowledge silos: 1 critical (bus factor = 1)
 
-The summary contains file/neuron counts, the maximum blast radius, severity
-counts, a bullet per finding, suggested reviewers, the health impact
-(`coupling` delta and average blast radius), and any skipped checks.
+Skipped checks: []
+```
 
 ### JSON
-
 ```json
 {
-  "files_changed": 4,
-  "neurons_changed": 7,
-  "findings": [
+  "checks": [
     {
-      "check_type": "blast_radius",
-      "neuron": "validate_token",
-      "file": "auth/tokens.py",
-      "line": 42,
-      "severity": "error",
-      "message": "validate_token has 23 callers ...",
-      "suggestion": "Review every caller before merging ...",
-      "severity_score": 8.31
+      "name": "blast_radius",
+      "findings": [...],
+      "skipped_reason": null
     }
   ],
-  "suggested_reviewers": [
-    {"email": "alice@co.com", "lobe": "auth", "reason": "sole author of validate_token"}
-  ],
-  "health_delta": {"coupling": 0.02, "avg_blast": 4.4},
-  "summary": "🧠 Cerebrofy Review Summary ..."
+  "summary": {
+    "critical": 0,
+    "high": 3,
+    "medium": 8,
+    "low": 12
+  },
+  "skipped_checks": []
 }
 ```
 
----
-
-## MCP tool
+## MCP tool: `cerebrofy_review`
 
 ```json
 {
-  "diff": "main",
-  "pr": 142,
-  "severity": "all",
-  "post_comments": false,
-  "format": "markdown"
+  "name": "cerebrofy_review",
+  "arguments": {
+    "pr": 42,
+    "diff": "HEAD~1",
+    "severity": "medium",
+    "post_comments": false,
+    "format": "markdown"
+  }
 }
 ```
 
-Supply `diff` or `pr` (`pr` takes precedence when both are present).
-`post_comments` requires `pr` and an authenticated `gh` CLI.
+Error codes:
+- `NO_INDEX` — no index found; run `cerebrofy build`.
+- `NO_DIFF_PROVIDED` — neither `pr` nor `diff` given (or `--post-comments` without `pr`).
+- `GH_NOT_AUTHENTICATED` — `gh` CLI missing or not logged in.
+- `NO_INDEX` — index DB missing.
 
-### Error codes
+Posting is **opt-in** (`post_comments: true` + `pr: 42`). No `gh` calls are made otherwise.
+
+## Configuration
+
+Optional config keys (`.cerebrofy/config.yaml`):
+
+```yaml
+governance:
+  auto_sync_codeowners: false   # also used by review for CODEOWNERS hints
+arch:
+  enabled: true
+memory:
+  enabled: true
+```
+
+All checks degrade gracefully if their data source is unavailable — they emit `skipped` with a reason, never a false "clean" result.
+
+## Error codes reference
 
 | Code | Meaning |
-|------|---------|
-| `NO_INDEX` | `cerebrofy.db` not found — run `cerebrofy build` first |
-| `NO_DIFF_PROVIDED` | Neither `diff` nor `pr` was supplied |
-| `REF_NOT_FOUND` | The local git ref could not be diffed |
-| `GH_NOT_AUTHENTICATED` | `pr` / `post_comments` requires `gh auth login` |
+|---|---|
+| `NO_INDEX` | `.cerebrofy/db/cerebrofy.db` missing; run `cerebrofy build`. |
+| `NO_DIFF_PROVIDED` | Missing `--pr` or `--diff` (or `--post-comments` without `--pr`). |
+| `GH_NOT_AUTHENTICATED` | `gh` CLI not installed, not authenticated, or PR unavailable. |
+| `REF_NOT_FOUND` | `--diff` ref does not exist. |
 
----
+## Safety
 
-## GitHub posting
+- Read-only index access (SQLite `mode=ro`).
+- No `gh` API calls unless `--post-comments` / `post_comments: true`.
+- No shell injection: `gh` args are passed via `subprocess.run` with an explicit argv list; no string interpolation.
+- Generated memories/links are opt-in (`--write-memories` on `arch check`, `review` does not write).
 
-Cerebrofy delegates authentication entirely to `gh`; it never stores tokens.
-When posting is enabled it creates one inline review comment per finding with a
-line number, then one PR-level summary comment. Individual comment failures are
-reported in `post_result.errors` without aborting the review.
+## Examples
 
-The `gh` commands used are:
-
+### Local diff review (offline)
 ```bash
-gh pr diff <N> --name-only
-gh auth status
-gh api repos/:owner/:repo/pulls/<N>/comments --method POST \
-  --field body=... --field path=... --field line=... --field side=RIGHT
-gh pr comment <N> --body <summary>
+cerebrofy review --diff HEAD~1 --severity medium --format json
 ```
+
+### GitHub PR review with posting
+```bash
+gh auth login  # once
+cerebrofy review --pr 42 --post-comments --severity high
+```
+
+### CI integration
+```yaml
+# .github/workflows/review.yml
+- name: AI review
+  run: cerebrofy review --pr ${{ github.event.pull_request.number }} --post-comments --format json
+  env:
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `NO_INDEX` | DB missing or wrong repo root | `cerebrofy build` from repo root |
+| `GH_NOT_AUTHENTICATED` | `gh` not logged in | `gh auth login` |
+| `NO_DIFF_PROVIDED` | Forgot `--pr` with `--post-comments` | Add `--pr <number>` |
+| Empty output | No findings or all below `--severity` | Lower `--severity` or check `skipped_checks` |
+| Slow on large diff | Blast radius walks many callers | Narrow `--diff` scope or raise `--severity` |
+
+## Related
+
+- `cerebrofy governance` — CODEOWNERS, reviewer suggestions, governance rules.
+- `cerebrofy upgrade` — dependency upgrade navigator.
+- `cerebrofy build` — index the repo.
+- `docs/architecture.md` — data flow and module map.
+- `docs/configuration.md` — config schema.
