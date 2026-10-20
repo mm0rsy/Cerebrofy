@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **28 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **29 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -96,6 +96,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, refactoring sequence |
 | `cerebrofy_plan` | Generate a graph-aware, step-by-step refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. Markdown + optional JSON. Never modifies files. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, generate remediation sequence |
+| `cerebrofy_upgrade` | Dependency upgrade navigator: affected neurons, effort/risk, ordered steps, optional AST auto-fix and post-upgrade validation. Offline manifests. |
 | `cerebrofy_silo` | Knowledge silo detector: git-blame overlay on the call graph — bus factor risk per neuron, filterable by lobe, author, or risk level |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: ranks uncovered neurons by blast radius × change velocity |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type |
@@ -822,6 +823,50 @@ cerebrofy_vuln(package="requests")
 → cerebrofy_vuln(package="requests")  # verify no remaining critical exposure
 → Upgrade requests in pyproject.toml
 ```
+
+---
+
+### `cerebrofy_upgrade`
+
+Plan (and optionally apply/validate) a dependency upgrade from a curated breaking-change manifest. Fully offline.
+
+**Input schema:**
+
+```json
+{
+  "package": "pydantic",
+  "from_version": "1.10.0",
+  "to_version": "2.0.0",
+  "breaking_only": true,
+  "auto_fix": false,
+  "step": [1, 2],
+  "validate": false,
+  "format": "markdown"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `package` | string | ✅ | Package name (e.g. `pydantic`, `requests`) |
+| `from_version` | string | — | Current version (used to select a manifest range) |
+| `to_version` | string | — | Target version |
+| `breaking_only` | boolean | — | Only report `breaking` changes (default: true) |
+| `auto_fix` | boolean | — | Apply AST auto-fixes (default: false) |
+| `step` | integer[] | — | Steps to auto-fix; omit for every auto-fixable step |
+| `validate` | boolean | — | Rescan for remaining old patterns (default: false) |
+| `format` | string | — | `markdown` (default) or `json` |
+
+**Example:**
+
+```
+cerebrofy_upgrade(package="pydantic", from_version="1.10", to_version="2.0", format="json")
+→ { "breaking_changes": [...], "steps": [...], "total_effort_hours": 0.4, "risk": "LOW" }
+
+cerebrofy_upgrade(package="pydantic", validate=true, format="json")
+→ { "passed": false, "remaining": [{ "file": "models.py", "line": 12, ... }] }
+```
+
+Errors use `[CODE] message`: `NO_INDEX`, `PACKAGE_NOT_USED`, `MANIFEST_NOT_FOUND`, `VERSION_NOT_FOUND`. Custom API diffs are CLI-only (`--manifest` / `--diff`).
 
 ---
 

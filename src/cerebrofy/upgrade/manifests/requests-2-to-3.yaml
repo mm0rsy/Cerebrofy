@@ -1,0 +1,43 @@
+# Curated (not exhaustive) Requests 2.x -> 3.x migration manifest.
+# Sources: Requests 3.0 release notes / deprecation guidance.
+# Cerebrofy applies these patterns only inside files that import requests.
+package: requests
+from_version: ">=2.0,<3.0"
+to_version: ">=3.0"
+notes: >
+  Curated migration guidance for the Requests 2.x -> 3.x transition. Requests
+  3 drops several long-deprecated compatibility shims; async call sites still
+  require a manual architectural decision, so they are reported but not fixed.
+
+changes:
+  - type: removed
+    old: "requests.packages"
+    new: "urllib3"
+    severity: breaking
+    category: other
+    match: '\brequests\.packages\b'
+    auto_fix: false
+
+  - type: removed
+    old: "requests.compat"
+    new: "urllib.parse / urllib3"
+    severity: breaking
+    category: other
+    match: '\brequests\.compat\b'
+    auto_fix: false
+
+  - type: removed
+    old: "requests.utils.get_encodings_from_content"
+    new: "charset_normalizer"
+    severity: breaking
+    category: call
+    match: '\brequests\.utils\.get_encodings_from_content\s*\('
+    auto_fix: false
+
+  - type: removed
+    old: "requests.utils.get_unicode_from_response"
+    new: "response.text"
+    severity: breaking
+    category: call
+    match: '\brequests\.utils\.get_unicode_from_response\s*\('
+    auto_fix: false

@@ -502,6 +502,110 @@ def test_mcp_resources_subscription_notification(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Idea #19: cerebrofy_upgrade — catalog + JSON plan over a real stdio session
+# ---------------------------------------------------------------------------
+
+
+def _make_upgrade_repo(tmp_path: Path) -> Path:
+    from tests.unit.upgrade_helpers import make_index_repo
+
+    source = (
+        "from pydantic import BaseModel\n\n"
+        "class User(BaseModel):\n"
+        "    name: str\n\n"
+        "def serialize(user):\n"
+        "    return user.dict()\n"
+    )
+    make_index_repo(
+        tmp_path,
+        {"models.py": source},
+        [
+            ("models.py::models", "models", "models.py", "module", 1, 7),
+            ("models.py::serialize", "serialize", "models.py", "function", 6, 7),
+        ],
+    )
+    return tmp_path
+
+
+def test_mcp_upgrade_tool_catalog_and_plan(tmp_path: Path) -> None:
+    """cerebrofy_upgrade is advertised with the spec schema and returns a plan."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_upgrade_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                listing = await session.list_tools()
+                tool = next(t for t in listing.tools if t.name == "cerebrofy_upgrade")
+                properties = set(tool.inputSchema.get("properties", {}))
+                assert properties == {
+                    "package",
+                    "from_version",
+                    "to_version",
+                    "breaking_only",
+                    "auto_fix",
+                    "step",
+                    "validate",
+                    "format",
+                }
+                assert tool.inputSchema["required"] == ["package"]
+
+                result = await session.call_tool(
+                    "cerebrofy_upgrade",
+                    {
+                        "package": "pydantic",
+                        "from_version": "1.10",
+                        "to_version": "2.0",
+                        "format": "json",
+                    },
+                )
+                payload = json.loads(result.content[0].text)
+                assert payload["package"] == "pydantic"
+                assert payload["steps"]
+                assert payload["total_sites"] == 1
+                assert payload["steps"][0]["old_api"] == ".dict()"
+
+                missing = await session.call_tool(
+                    "cerebrofy_upgrade", {"package": "not-a-real-package"}
+                )
+                assert missing.content[0].text.startswith("[MANIFEST_NOT_FOUND]")
+
+    asyncio.run(scenario())
+
+
+def test_mcp_upgrade_no_index(tmp_path: Path) -> None:
+    """cerebrofy_upgrade reports NO_INDEX without a built index."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    config_dir = tmp_path / ".cerebrofy"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text("lobes: {}\n", encoding="utf-8")
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(tmp_path)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "cerebrofy_upgrade", {"package": "pydantic"}
+                )
+                assert result.content[0].text.startswith("[NO_INDEX]")
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
 # T078g: session recorder (Idea #11) — start/end/show + error codes
 # ---------------------------------------------------------------------------
 

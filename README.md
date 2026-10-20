@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 28 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 29 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 28 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 29 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -514,6 +514,21 @@ cerebrofy vuln --package requests --depth 3 --output json
 | **Pinned Version** | Version pinned in `pyproject.toml` / `requirements.txt` — compare against CVE advisory manually |
 | **Remediation Sequence** | Patch highest-exposure entry points first, then pin the safe package version |
 | **Memories Written** | Warning memories auto-attached to each affected neuron (with `--write-memories`) |
+
+---
+
+### `cerebrofy upgrade`
+
+Plan a dependency upgrade from a curated breaking-change manifest: find every indexed neuron that uses the changing API, estimate migration effort, order the fix leaves-first, and optionally apply precise AST auto-fixes and validate the result. Fully offline — never calls PyPI.
+
+```bash
+cerebrofy upgrade pydantic --from v1 --to v2
+cerebrofy upgrade requests --breaking-only
+cerebrofy upgrade pydantic --manifest ./pydantic.yaml --auto-fix --step 1,2
+cerebrofy upgrade pydantic --validate
+```
+
+Bundled curated manifests cover pydantic v1 → v2 and requests 2.x → 3.x; pass `--manifest`/`--diff` for custom API diffs. Auto-fix only rewrites Python files whose transformed AST re-parses; structural changes such as `class Config` are reported for manual review. See [docs/upgrade.md](docs/upgrade.md).
 
 ---
 
@@ -654,6 +669,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
 | `cerebrofy_plan` | Generate a graph-aware, step-by-step refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. Markdown + optional JSON. Never modifies files. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
+| `cerebrofy_upgrade` | Dependency upgrade navigator: map affected neurons, score effort/risk, order the migration steps, and optionally auto-fix and validate. Offline curated manifests. |
 | `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: rank uncovered neurons by blast radius × change velocity. Uses `coverage.xml` when present, falls back to graph topology. Surfaces the functions most likely to cause production bugs if a bug is introduced. |
 | `cerebrofy_session_start` | Start recording an agent session (opt-in via `record_sessions: true`). Call before a coding task. |
@@ -788,7 +804,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 28 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 29 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support

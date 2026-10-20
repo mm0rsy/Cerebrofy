@@ -1,0 +1,62 @@
+# Curated (not exhaustive) Pydantic v1 -> v2 migration manifest.
+# Source: https://docs.pydantic.dev/latest/migration/
+# Cerebrofy applies these patterns only inside files that import pydantic.
+package: pydantic
+from_version: ">=1.0,<2.0"
+to_version: ">=2.0"
+notes: >
+  Curated from Pydantic's official v1 -> v2 migration guide. Structural changes
+  such as class Config bodies and @validator signatures still need manual review.
+
+changes:
+  - type: changed
+    old: "class Config"
+    new: "model_config = ConfigDict(...)"
+    severity: breaking
+    category: base
+    match: '^\s*class\s+Config\b'
+    auto_fix: false
+
+  - type: rename
+    old: ".dict()"
+    new: ".model_dump()"
+    severity: breaking
+    category: call
+    match: '\.dict\s*\('
+    replacement: ".model_dump("
+    auto_fix: true
+
+  - type: rename
+    old: ".json()"
+    new: ".model_dump_json()"
+    severity: deprecated
+    category: call
+    match: '\.json\s*\('
+    replacement: ".model_dump_json("
+    auto_fix: true
+
+  - type: rename
+    old: ".parse_obj()"
+    new: ".model_validate()"
+    severity: breaking
+    category: call
+    match: '\.parse_obj\s*\('
+    replacement: ".model_validate("
+    auto_fix: true
+
+  - type: rename
+    old: "@validator"
+    new: "@field_validator"
+    severity: breaking
+    category: validator
+    match: '@validator\b'
+    replacement: "@field_validator"
+    auto_fix: true
+
+  - type: rename
+    old: "pydantic.validator"
+    new: "pydantic.field_validator"
+    severity: breaking
+    category: validator
+    match: '^\s*from\s+pydantic\s+import\s+.*\bvalidator\b'
+    auto_fix: true
