@@ -20,7 +20,9 @@ src/cerebrofy/
 │   ├── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
 │   ├── session.py                ← cerebrofy session: list/show/diff/search/export replays
 │   ├── plan.py                   ← cerebrofy plan: graph-aware refactor plan (Idea #12)
-│   └── upgrade.py                ← cerebrofy upgrade: dependency upgrade navigator (Idea #19)
+│   ├── upgrade.py                ← cerebrofy upgrade: dependency upgrade navigator (Idea #19)
+│   ├── governance.py             ← cerebrofy governance: ownership, CODEOWNERS, reviewers (Idea #18)
+│   └── review.py                 ← cerebrofy review: graph-aware review copilot (Idea #17)
 │
 ├── parser/
 │   ├── engine.py                 ← Tree-sitter runner; dispatches to .scm queries
@@ -65,7 +67,9 @@ src/cerebrofy/
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
 │   ├── server.py                 ← MCPServer: tool + resource dispatch (31 tools)
-│   └── tools/upgrade.py          ← cerebrofy_upgrade handler: plan / auto-fix / validate
+│   ├── tools/upgrade.py          ← cerebrofy_upgrade handler: plan / auto-fix / validate
+│   ├── tools/governance.py       ← cerebrofy_governance handler: CODEOWNERS / reviewers / rules
+│   └── tools/review.py           ← cerebrofy_review handler: diff/PR review
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
@@ -96,6 +100,17 @@ src/cerebrofy/
 │   ├── fixer.py                  ← line-scoped AST transforms with re-parse safety
 │   ├── validator.py              ← post-upgrade rescan → PASS/FAIL + remaining sites
 │   └── manifests/                ← bundled pydantic v1→v2 and requests 2→3 manifests
+│
+├── governance/                   ← (Idea #18) Lobe Ownership & Governance
+│   ├── ownership.py              ← blame/explicit/hybrid ownership + bus factor
+│   ├── codeowners.py             ← dynamic CODEOWNERS generation
+│   ├── rules.py                  ← governance.rules evaluation
+│   └── reviewer.py               ← primary/secondary/backup reviewer suggestions
+│
+├── review/                       ← (Idea #17) AI Review Copilot
+│   ├── finding.py                ← finding model/severity + rendering
+│   ├── pipeline.py               ← diff/PR resolution + seven graph checks
+│   └── github_poster.py          ← opt-in PR comment posting
 │
 ├── planning/                     ← Refactor Planner (Idea #12)
 │   ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
