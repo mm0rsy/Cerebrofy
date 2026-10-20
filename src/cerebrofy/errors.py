@@ -136,9 +136,3 @@ class GitHubNotAuthenticatedError(GovernanceError):
     """GitHub PR metadata was requested but ``gh`` is unavailable/unauthenticated."""
 
     code: str = GH_NOT_AUTHENTICATED
-
-
-class NoGovernanceRulesError(GovernanceError):
-    """No ``governance.rules`` block exists in .cerebrofy/arch-rules.yaml."""
-
-    code: str = NO_GOVERNANCE_RULES

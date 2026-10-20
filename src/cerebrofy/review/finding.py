@@ -79,19 +79,21 @@ def compute_severity_score(
     return round(base * (blast_factor + memory_factor + coverage_factor), 3)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class Finding:
     """One actionable review finding anchored to a neuron and optional line."""
 
     check_type: str
     neuron: str
-    file: str
-    line: int
-    severity: str
-    message: str
-    suggestion: str
+    neuron_lobe: str = ""
+    file: str = ""
+    line: int = 0
+    severity: str = SEVERITY_INFO
+    message: str = ""
+    suggestion: str = ""
     severity_score: float = 0.0
     blast_radius: int = 0
+    epistemic_confidence: float = 1.0
 
     def __post_init__(self) -> None:
         if self.severity_score == 0.0:

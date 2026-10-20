@@ -35,6 +35,7 @@ from cerebrofy.arch.checker import fix_hint, run_arch_check
 from cerebrofy.arch.rules import RulesError
 from cerebrofy.config.loader import load_arch_rules, load_config
 from cerebrofy.db.connection import check_schema_version
+from cerebrofy.epistemic.state import compute_epistemic_state, EpistemicState
 from cerebrofy.errors import (
     CEREBROFY_ERROR,
     GH_NOT_AUTHENTICATED,
@@ -43,6 +44,7 @@ from cerebrofy.errors import (
     REF_NOT_FOUND,
     CerebrofyError,
 )
+from cerebrofy.intent.loader import load_intent, sprint_priority_lobes
 from cerebrofy.memory.store import Memory, list_memories
 from cerebrofy.review.finding import (
     Finding,
@@ -784,6 +786,22 @@ def run_review(
     )
     behaviors.extend(coverage_findings)
     skipped.extend(coverage_skipped)
+
+    # #22 Epistemic Confidence integration: add confidence metadata to findings
+    config = load_config(root / ".cerebrofy" / "config.yaml")
+    epistemic_state = compute_epistemic_state(conn, config.tracked_extensions, root)
+    for finding in behaviors:
+        finding.epistemic_confidence = epistemic_state.overall_confidence
+
+    # #23 Product Intent integration: escalate severity for priority lobes
+    try:
+        priority_lobes = sprint_priority_lobes(root / ".cerebrofy")
+        if priority_lobes:
+            for finding in behaviors:
+                if finding.neuron_lobe in priority_lobes:
+                    finding.severity_score = min(1.0, finding.severity_score * 1.2)
+    except Exception:
+        pass  # Intent integration degrades gracefully
 
     snapshot = _load_graph_snapshot(conn, contexts, root)
     health_delta = _compute_health_delta(snapshot, contexts)
