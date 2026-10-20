@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 28 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 29 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 28 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 29 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -439,6 +439,23 @@ cerebrofy impact auth/tokens.py::validate_token --output json
 | **Complexity Rating** | 🟢 LOW / 🟡 MEDIUM / 🔴 HIGH |
 | **Memory Warnings** | `warning` memories attached to the target from `cerebrofy memory` |
 | **Refactoring Sequence** | Reverse-topological order — update callers leaf-first to minimise breakage |
+
+---
+
+### `cerebrofy review`
+
+Graph-aware code review for a local diff or a GitHub PR — blast radius, warning memories and past decisions, architecture rules, coverage gaps, missing caller updates, cross-lobe coupling, and knowledge-silo reviewers in one report.
+
+```bash
+cerebrofy review --diff HEAD~1                 # local pre-merge review
+cerebrofy review --diff HEAD                   # uncommitted changes
+cerebrofy review --pr 142                      # dry-run PR review (nothing posted)
+cerebrofy review --pr 142 --severity error     # blocking findings only
+cerebrofy review --pr 142 --post-comments      # post inline comments + PR summary
+cerebrofy review --pr 142 --format json        # machine-readable output
+```
+
+Findings are sorted by a severity score that combines base severity with blast radius, warning memories, and missing test coverage. Posting is opt-in, delegates auth to the `gh` CLI, and never stores tokens. See [docs/review.md](docs/review.md).
 
 ---
 
@@ -788,7 +805,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 28 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 29 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support

@@ -36,6 +36,7 @@ from cerebrofy.mcp.tools.session import handle_session_end as _handle_session_en
 from cerebrofy.mcp.tools.session import handle_session_show as _handle_session_show
 from cerebrofy.mcp.tools.session import handle_session_start as _handle_session_start
 from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
+from cerebrofy.mcp.tools.review import handle_review as _handle_review
 from cerebrofy.utils.paths import (
     InvalidRepoRootError,
     find_repo_root,
@@ -1402,6 +1403,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_session_show": _handle_session_show,
     "_handle_plan": _handle_plan,
     "_handle_changelog": _handle_changelog,
+    "_handle_review": _handle_review,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
 if _unwired:

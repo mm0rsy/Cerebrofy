@@ -16,6 +16,7 @@ from cerebrofy.commands.intent import cerebrofy_intent
 from cerebrofy.commands.memory import mem_group
 from cerebrofy.commands.onboard import cerebrofy_onboard
 from cerebrofy.commands.plan import cerebrofy_plan
+from cerebrofy.commands.review import cerebrofy_review
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.session import session_group
@@ -64,6 +65,7 @@ main.add_command(cerebrofy_arch)
 main.add_command(mem_group)
 main.add_command(cerebrofy_onboard)
 main.add_command(cerebrofy_plan)
+main.add_command(cerebrofy_review)
 main.add_command(cerebrofy_silo)
 main.add_command(session_group)
 main.add_command(cerebrofy_update)

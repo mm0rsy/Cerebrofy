@@ -482,6 +482,40 @@ _CHANGELOG_SCHEMA: dict[str, Any] = {
     "required": ["since"],
 }
 
+_REVIEW_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "diff": {
+            "type": "string",
+            "description": "Git ref to diff against (e.g. 'HEAD~1', 'main').",
+        },
+        "pr": {
+            "type": "integer",
+            "description": "GitHub PR number to review (requires gh CLI auth).",
+        },
+        "severity": {
+            "type": "string",
+            "description": "Minimum severity to report.",
+            "enum": ["error", "warning", "all"],
+            "default": "all",
+        },
+        "post_comments": {
+            "type": "boolean",
+            "description": (
+                "Post findings as inline GitHub PR comments plus a summary "
+                "(requires pr and gh auth). Default is a local dry-run."
+            ),
+            "default": False,
+        },
+        "format": {
+            "type": "string",
+            "description": "Output format.",
+            "enum": ["markdown", "json"],
+            "default": "markdown",
+        },
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # The tool catalog
@@ -826,6 +860,22 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         ),
         input_schema=_CHANGELOG_SCHEMA,
         handler_name="_handle_changelog",
+        inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_review",
+        description=(
+            "Graph-aware AI review copilot. Reviews a local diff or GitHub PR with "
+            "blast radius, past warning memories/decisions, architecture rules, test "
+            "coverage gaps, missing caller updates, cross-lobe coupling, and knowledge "
+            "silo experts. Returns sorted findings (severity_score descending), "
+            "suggested reviewers, health delta, and a PR-ready markdown summary. "
+            "Posting is opt-in via post_comments=true and requires an authenticated "
+            "gh CLI; the default is a local dry-run. "
+            "Error codes: NO_INDEX, NO_DIFF_PROVIDED, GH_NOT_AUTHENTICATED."
+        ),
+        input_schema=_REVIEW_SCHEMA,
+        handler_name="_handle_review",
         inject=True,
     ),
 )

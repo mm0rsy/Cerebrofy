@@ -63,7 +63,7 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: tool + resource dispatch (28 tools)
+│   └── server.py                 ← MCPServer: tool + resource dispatch (29 tools)
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking

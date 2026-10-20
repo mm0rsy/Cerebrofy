@@ -668,3 +668,191 @@ def test_mcp_session_end_already_ended(tmp_path: Path) -> None:
                 assert "NO_ACTIVE_SESSION" in text
 
     asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# T079: cerebrofy_review MCP tool (Idea #17)
+# ---------------------------------------------------------------------------
+
+
+def _make_review_repo(tmp_path: Path) -> Path:
+    from tests.unit.review_helpers import (
+        change_tracked_files,
+        make_repo,
+        setup_git_repo,
+    )
+
+    make_repo(tmp_path).close()
+    setup_git_repo(tmp_path)
+    change_tracked_files(tmp_path)
+    return tmp_path
+
+
+def test_mcp_review_requires_diff_or_pr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({})
+
+    assert result[0].text.startswith("[NO_DIFF_PROVIDED]")
+
+
+def test_mcp_review_requires_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.unit.review_helpers import change_tracked_files, setup_git_repo, write_config
+
+    write_config(tmp_path)
+    setup_git_repo(tmp_path)
+    change_tracked_files(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    from cerebrofy.mcp.tools.review import handle_review
+
+    result = handle_review({"diff": "HEAD"})
+    assert result[0].text.startswith("[NO_INDEX]")
+
+
+def test_mcp_review_markdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD"})
+
+    text = result[0].text
+    assert "🧠 Cerebrofy Review Summary — diff HEAD" in text
+    assert "`blast_radius`" in text
+    assert "Skipped checks" not in text
+
+
+def test_mcp_review_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD", "format": "json", "severity": "error"})
+
+    payload = json.loads(result[0].text)
+    assert payload["files_changed"] == 2
+    assert payload["neurons_changed"] == 3
+    assert payload["findings"]
+    assert {finding["severity"] for finding in payload["findings"]} == {"error"}
+
+
+def test_mcp_review_post_comments_requires_pr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD", "post_comments": True})
+
+    assert result[0].text.startswith("[GH_NOT_AUTHENTICATED]")
+
+
+def test_mcp_review_default_does_not_post(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    with patch("cerebrofy.review.github_poster.post_report") as post:
+        result = handle_review({"diff": "HEAD"})
+
+    assert "Cerebrofy Review Summary" in result[0].text
+    post.assert_not_called()
+
+
+def test_mcp_review_invalid_pr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD", "pr": "not-a-number"})
+
+    assert result[0].text.startswith("[error]")
+
+
+def test_mcp_review_stdio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool is registered and reachable over the stdio MCP server."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_review_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "cerebrofy_review", {"diff": "HEAD", "format": "json"}
+                )
+                payload = json.loads(result.content[0].text)
+                assert payload["files_changed"] == 2
+                assert payload["neurons_changed"] == 3
+
+    asyncio.run(scenario())
+
+
+def test_mcp_review_posts_when_opted_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.mcp.tools.review import handle_review
+    from cerebrofy.review.finding import ReviewReport
+    from cerebrofy.review.github_poster import PostResult
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    report = ReviewReport(files_changed=1, neurons_changed=1, summary="summary\n")
+    posted = PostResult(posted_inline=2, summary_posted=True)
+
+    with (
+        patch("cerebrofy.mcp.tools.review.review_diff_or_pr", return_value=report),
+        patch("cerebrofy.review.github_poster.post_report", return_value=posted) as post,
+    ):
+        result = handle_review({"pr": 42, "post_comments": True, "format": "json"})
+
+    payload = json.loads(result[0].text)
+    assert payload["post_result"] == {
+        "posted_inline": 2,
+        "summary_posted": True,
+        "errors": [],
+    }
+    assert post.call_args.args[0] == 42
+
+
+def test_mcp_review_post_auth_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.mcp.tools.review import handle_review
+    from cerebrofy.review.finding import ReviewReport
+    from cerebrofy.review.pipeline import ReviewError
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    report = ReviewReport(files_changed=1, neurons_changed=1, summary="summary\n")
+
+    with (
+        patch("cerebrofy.mcp.tools.review.review_diff_or_pr", return_value=report),
+        patch(
+            "cerebrofy.review.github_poster.post_report",
+            side_effect=ReviewError("gh auth required", code="GH_NOT_AUTHENTICATED"),
+        ),
+    ):
+        result = handle_review({"pr": 42, "post_comments": True})
+
+    assert result[0].text.startswith("[GH_NOT_AUTHENTICATED]")
