@@ -76,22 +76,20 @@ architecture:
       - "#08 Vulnerability Blast Radius"
       - "#09 Knowledge Silo Detector"
       - "#10 MCP Resource Streaming"
+      - "#11 Live Agent Session Recorder"
+      - "#12 NL Refactor Planner"
       - "#13 Test Coverage Gap Predictor"
+      - "#14 Semantic Changelog Generator"
+      - "#16 Architecture Drift Alerts"
+      - "#17 AI Review Copilot"
+      - "#18 Lobe Ownership Governance"
+      - "#19 Dependency Upgrade Navigator"
       - "#22 Epistemic Confidence Layer"
       - "#23 Product Intent Layer"
 
     next:
-      - "#16 Architecture Drift Alerts — enforce arch rules via graph queries on commit"
-      - "#11 Live Agent Session Recorder — audit trail of every AI coding session"
       - "#15 Multi-Language Polyglot Graph — unified graph across Python, TypeScript, Rust, Go"
-
-    later:
       - "#04 Cross-Repo Dependency Graph"
-      - "#12 NL Refactor Planner"
-      - "#14 Semantic Changelog Generator"
-      - "#17 AI Review Copilot"
-      - "#18 Lobe Ownership Governance"
-      - "#19 Dependency Upgrade Navigator"
       - "#20 Cerebrofy Cloud Sync"
 
     agent_mind_layer:

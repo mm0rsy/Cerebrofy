@@ -151,9 +151,17 @@ cerebrofy viz
   crashing SQL with filesystem scan of `.cerebrofy/lobes/*_lobe.md`). Replaced
   `_handle_search_code()` crash-import with honest "not yet available" stub. Removed
   `llm_endpoint`/`llm_model`/`llm_timeout` from `CerebrофyConfig`. Archived
-  `specs/004-ai-bridge/` → `specs/_archive/`. MCP server now has 6 registered tools:
-  5 operational + 1 stub (search_code). `search/hybrid.py` is the sole remaining
-  NOT YET IMPLEMENTED item.
+  `specs/004-ai-bridge/` → `specs/_archive/`. MCP server now has 31 registered tools;
+  all operational (cerebrofy_build, cerebrofy_update, cerebrofy_validate, get_neuron,
+  list_lobes, search_code, cerebrofy_context, cerebrofy_blast_radius, cerebrofy_epistemic,
+  cerebrofy_health, cerebrofy_intent, cerebrofy_arch_check, cerebrofy_validate,
+  cerebrofy_build, cerebrofy_update, cerebrofy_remember, cerebrofy_recall,
+  cerebrofy_memories, cerebrofy_link_memories, cerebrofy_trace_history,
+  cerebrofy_onboard, cerebrofy_impact, cerebrofy_plan, cerebrofy_vuln,
+  cerebrofy_upgrade, cerebrofy_silo, cerebrofy_coverage_gap,
+  cerebrofy_session_start, cerebrofy_session_end, cerebrofy_session_show,
+  cerebrofy_list_resources, cerebrofy_changelog, cerebrofy_governance,
+  cerebrofy_review).
 
 - **cerebrofy viz + dead code removal** (2026-06-18): Added `cerebrofy viz` command — interactive
   3D brain visualization of the codebase call graph served at `http://localhost:7331`. Nodes use
