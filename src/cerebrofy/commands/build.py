@@ -44,11 +44,16 @@ from cerebrofy.parser.neuron import Neuron, ParseResult
 
 def _sync_codeowners(root: Path, config: CerebrоfyConfig, db_path: Path) -> None:
     """Regenerate CODEOWNERS when governance.auto_sync_codeowners is enabled."""
+    from cerebrofy.errors import NoGitHistoryError
     from cerebrofy.governance.codeowners import generate_codeowners, write_codeowners
 
     conn = open_db(db_path)
     try:
-        result = generate_codeowners(conn, root, config)
+        try:
+            result = generate_codeowners(conn, root, config)
+        except NoGitHistoryError as exc:
+            click.echo(f"Warning: CODEOWNERS not synced — {exc}", err=True)
+            return
     finally:
         conn.close()
     try:

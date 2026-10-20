@@ -63,7 +63,7 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
     Input: {action (required): generate-codeowners | suggest-reviewers |
     check-rules, pr?, lobe?, format?}.
 
-    Error codes: NO_INDEX, NO_GIT_HISTORY, GH_NOT_AUTHENTICATED,
+    Error codes: NO_INDEX, NO_GIT_HISTORY, CONFIG_ERROR, GH_NOT_AUTHENTICATED,
     NO_GOVERNANCE_RULES.
     """
     from mcp.types import TextContent
@@ -99,13 +99,15 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         if action == "generate-codeowners":
-            from cerebrofy.errors import NoGitHistoryError
+            from cerebrofy.errors import ConfigError, NoGitHistoryError
             from cerebrofy.governance.codeowners import generate_codeowners
 
             try:
                 result = generate_codeowners(conn, root, config)
             except NoGitHistoryError as exc:
                 return _err(f"[NO_GIT_HISTORY] {exc}")
+            except ConfigError as exc:
+                return _err(f"[CONFIG_ERROR] {exc}")
             if fmt == "json":
                 return [
                     TextContent(
@@ -126,7 +128,11 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
         else:
             pr_number = None
 
-        from cerebrofy.errors import GitHubNotAuthenticatedError, NoGitHistoryError
+        from cerebrofy.errors import (
+            ConfigError,
+            GitHubNotAuthenticatedError,
+            NoGitHistoryError,
+        )
         from cerebrofy.governance.reviewer import (
             changes_from_pr,
             detect_new_neurons,
@@ -160,6 +166,8 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
                 )
             except NoGitHistoryError as exc:
                 return _err(f"[NO_GIT_HISTORY] {exc}")
+            except ConfigError as exc:
+                return _err(f"[CONFIG_ERROR] {exc}")
             return [TextContent(type="text", text=_render_reviewers(reviewers, fmt))]
 
         from cerebrofy.arch.rules import RulesError
@@ -190,6 +198,8 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
             )
         except NoGitHistoryError as exc:
             return _err(f"[NO_GIT_HISTORY] {exc}")
+        except ConfigError as exc:
+            return _err(f"[CONFIG_ERROR] {exc}")
         except ValueError as exc:
             return _err(f"[error] {exc}")
         return [TextContent(type="text", text=_render_rules(governance_result, fmt))]

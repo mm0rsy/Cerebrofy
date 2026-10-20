@@ -6,8 +6,11 @@ import sqlite3
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from cerebrofy.commands.build import _sync_codeowners
 from cerebrofy.config.loader import CerebrоfyConfig, GovernanceConfig
+from cerebrofy.errors import NoGitHistoryError
 from cerebrofy.governance.codeowners import CodeownersResult
 
 
@@ -59,6 +62,25 @@ def test_sync_codeowners_warns_when_file_is_manual(tmp_path: Path) -> None:
     finally:
         conn.close()
     # The helper must not raise: build treats CODEOWNERS sync as best-effort.
+
+
+def test_sync_codeowners_warns_and_returns_without_git_history(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = sqlite3.connect(":memory:")
+    try:
+        with patch("cerebrofy.commands.build.open_db", return_value=conn), patch(
+            "cerebrofy.governance.codeowners.generate_codeowners",
+            side_effect=NoGitHistoryError("no commits yet"),
+        ), patch("cerebrofy.governance.codeowners.write_codeowners") as write:
+            _sync_codeowners(tmp_path, _config(), tmp_path / "db.sqlite")
+    finally:
+        conn.close()
+
+    write.assert_not_called()
+    captured = capsys.readouterr()
+    assert "Warning: CODEOWNERS not synced" in captured.err
+    assert "no commits yet" in captured.err
 
 
 def test_build_sync_is_opt_in_by_default() -> None:

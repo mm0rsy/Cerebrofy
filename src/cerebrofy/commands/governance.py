@@ -165,6 +165,9 @@ def generate_codeowners_command(
         except NoGitHistoryError as exc:
             click.echo(f"Error: [NO_GIT_HISTORY] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
+        except ConfigError as exc:
+            click.echo(f"Error: [CONFIG_ERROR] {exc}", err=True)
+            sys.exit(_EXIT_ERROR)
     finally:
         conn.close()
 
@@ -199,6 +202,9 @@ def sync_codeowners_command() -> None:
             result = generate_codeowners(conn, root, config)
         except NoGitHistoryError as exc:
             click.echo(f"Error: [NO_GIT_HISTORY] {exc}", err=True)
+            sys.exit(_EXIT_ERROR)
+        except ConfigError as exc:
+            click.echo(f"Error: [CONFIG_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
     finally:
         conn.close()
@@ -245,6 +251,9 @@ def suggest_reviewers_command(pr: int | None, diff_ref: str | None, fmt: str) ->
             )
         except NoGitHistoryError as exc:
             click.echo(f"Error: [NO_GIT_HISTORY] {exc}", err=True)
+            sys.exit(_EXIT_ERROR)
+        except ConfigError as exc:
+            click.echo(f"Error: [CONFIG_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
     finally:
         conn.close()
@@ -310,7 +319,12 @@ def check_rules_command(
                 strategy=config.governance.strategy,
                 activity_days=config.governance.activity_days,
             )
-        except (NoGitHistoryError, ValueError, GovernanceRulesError) as exc:
+        except (
+            NoGitHistoryError,
+            ConfigError,
+            ValueError,
+            GovernanceRulesError,
+        ) as exc:
             code = getattr(exc, "code", "CONFIG_ERROR")
             click.echo(f"Error: [{code}] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
