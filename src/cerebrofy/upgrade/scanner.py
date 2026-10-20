@@ -215,7 +215,6 @@ def _resolve_reexports(tree: ast.AST, package: str) -> dict[str, str]:
     - ``import pydantic`` -> {"pydantic": "pydantic"}
     """
     aliases: dict[str, str] = {}
-    pkg = _normalise_package(package)
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -325,10 +324,9 @@ def scan_package(
             continue
 
         # Resolve re-exports and aliases for this file
-        reexport_map = {}
         try:
             tree = ast.parse(source)
-            reexport_map = _resolve_reexports(tree, package)
+            _resolve_reexports(tree, package)
         except SyntaxError:
             pass  # regex fallback already handled in detect_imports
 
