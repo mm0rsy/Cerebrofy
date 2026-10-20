@@ -9,7 +9,7 @@ Last updated: 2026-06-14
 - **Parser**: `tree-sitter` ≥ 0.21 + `tree-sitter-languages` ≥ 1.10
 - **Ignore matching**: `pathspec` ≥ 0.12 (gitignore dialect)
 - **Config**: `PyYAML` ≥ 6.0
-- **Vector storage**: `sqlite-vec` ≥ 0.5 (extends SQLite with `vec0` virtual table)
+- **Vector storage**: `sqlite-vec` ≥ 0.1.6, < 0.2.0 (extends SQLite with `vec0` virtual table; runtime version guard in `db/vec.py`)
 - **Embedding (local)**: `fastembed` ≥ 0.3 — `BAAI/bge-small-en-v1.5`, 384-dim, ONNX, offline, bundled in base install
 - **Testing**: `pytest` with `tmp_path` for filesystem isolation
 - **Distribution**: pip package + platform bundles (Homebrew, Snap, winget)

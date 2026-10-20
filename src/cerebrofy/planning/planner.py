@@ -105,7 +105,7 @@ class PlanContext:
     Bundled once in :func:`build_refactor_plan` and handed to each pipeline
     step so individual steps receive only the data they need rather than a
     long positional argument list. The connection lifecycle stays with the
-    caller/orchestrator (``build_refactor_plan`` closes it in ``finally``).
+    caller; ``build_refactor_plan`` never closes the injected connection.
     """
 
     repo_root: Path
@@ -566,33 +566,30 @@ def build_refactor_plan(
         dry_run=dry_run,
     )
 
-    try:
-        cluster = _extract_cluster_step(ctx)
-        new_module = _name_module_step(ctx, cluster)
-        file_map = _map_files_step(ctx, cluster, new_module)
-        steps = _sequence_step(ctx, cluster, new_module, file_map)
-        steps, impact_warnings = _annotate_impact_step(ctx, steps)
-        blast_label = _blast_label_step(ctx, cluster, steps)
-        context = _collect_context_step(ctx, cluster, new_module, impact_warnings)
-        estimated_hours, files_affected = _estimate_step(cluster, file_map)
-        handoff = _handoff_step(ctx)
+    cluster = _extract_cluster_step(ctx)
+    new_module = _name_module_step(ctx, cluster)
+    file_map = _map_files_step(ctx, cluster, new_module)
+    steps = _sequence_step(ctx, cluster, new_module, file_map)
+    steps, impact_warnings = _annotate_impact_step(ctx, steps)
+    blast_label = _blast_label_step(ctx, cluster, steps)
+    context = _collect_context_step(ctx, cluster, new_module, impact_warnings)
+    estimated_hours, files_affected = _estimate_step(cluster, file_map)
+    handoff = _handoff_step(ctx)
 
-        return RefactorPlan(
-            description=description.strip(),
-            cluster=cluster.neurons,
-            seeds=cluster.seeds,
-            callers_to_update=cluster.external_callers,
-            new_module=new_module,
-            proposed_files=sorted(set(file_map.values())),
-            file_map=file_map,
-            steps=steps,
-            estimated_hours=estimated_hours,
-            files_affected=files_affected,
-            blast_radius_label=blast_label,
-            memory_context=context.memory_context,
-            avoid_pattern_warnings=context.avoid_pattern_warnings,
-            runtime_boundary_callers=cluster.runtime_boundary_callers,
-            handoff_summary=handoff,
-        )
-    finally:
-        conn.close()
+    return RefactorPlan(
+        description=description.strip(),
+        cluster=cluster.neurons,
+        seeds=cluster.seeds,
+        callers_to_update=cluster.external_callers,
+        new_module=new_module,
+        proposed_files=sorted(set(file_map.values())),
+        file_map=file_map,
+        steps=steps,
+        estimated_hours=estimated_hours,
+        files_affected=files_affected,
+        blast_radius_label=blast_label,
+        memory_context=context.memory_context,
+        avoid_pattern_warnings=context.avoid_pattern_warnings,
+        runtime_boundary_callers=cluster.runtime_boundary_callers,
+        handoff_summary=handoff,
+    )

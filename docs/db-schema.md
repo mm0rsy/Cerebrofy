@@ -40,11 +40,13 @@ The contract:
 2. **Reads are lock-free.** `SELECT` queries (including the depth-2 BFS in the
    scope resolver, hybrid search, and MCP reads) never touch `_WRITE_LOCK`.
    WAL mode allows concurrent readers while a writer holds the reserved lock.
-3. **Nesting is rejected.** If `conn.in_transaction` is already `True` when a
-   `write_transaction` is entered, it raises
-   `RuntimeError("write_transaction cannot be nested")` *before* acquiring the
-   lock. This prevents a second transaction from being started on a connection
-   that is already mid-transaction.
+3. **Nesting is rejected.** `write_transaction` acquires the process-wide
+   writer lock first, then raises
+   `RuntimeError("write_transaction cannot be nested")` when
+   `conn.in_transaction` is already `True`. Checking after acquiring the lock
+   makes a concurrent second writer serialize and fail with that explicit
+   error, rather than racing the check and hitting SQLite's generic
+   "cannot start a transaction within a transaction".
 4. **`BEGIN IMMEDIATE` is required.** The helper issues `BEGIN IMMEDIATE`
    (acquires a SQLite reserved lock up-front) rather than the default deferred
    begin, avoiding late `database is locked` errors and ensuring the writer

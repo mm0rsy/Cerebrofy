@@ -43,6 +43,10 @@ def open_sessions_db(cerebrofy_dir: Path) -> sqlite3.Connection:
     # an SDK worker thread; access stays serialized in practice.
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
     load_sqlite_vec(conn)
+    # Session start/end use fresh short-lived connections that are not covered
+    # by SessionMiddleware._sessions_lock; give them a bounded wait instead of
+    # failing immediately when a recording write holds the WAL write lock.
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA journal_mode=WAL")
     create_session_schema(conn)
     return conn
