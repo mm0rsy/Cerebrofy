@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 29 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 30 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 29 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 30 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -557,6 +557,25 @@ cerebrofy silo --output json               # machine-readable output
 
 ---
 
+### `cerebrofy governance`
+
+Own the codebase instead of maintaining CODEOWNERS by hand. Ownership is derived from `git blame` (or `.cerebrofy/team.yaml`, or a recent-activity hybrid), then combined with the call graph so cross-lobe callers become co-reviewers and brand-new modules receive a fallback owner.
+
+```bash
+cerebrofy governance generate-codeowners              # write ./CODEOWNERS
+cerebrofy governance generate-codeowners --dry-run    # preview without writing
+cerebrofy governance generate-codeowners --output .github/CODEOWNERS
+cerebrofy governance sync                             # regenerate in place after ownership changes
+cerebrofy governance suggest-reviewers --pr 142       # primary / secondary / backup
+cerebrofy governance suggest-reviewers --diff origin/main --format json
+cerebrofy governance check-rules --lobe auth          # reporting only
+cerebrofy governance check-rules --diff origin/main --format json
+```
+
+Governance rules live in the existing `.cerebrofy/arch-rules.yaml` under `governance.rules` (blast-radius approval thresholds, bus-factor non-owner review, and new-neuron test coverage). `check-rules` never blocks a merge. Full reference: [docs/governance.md](docs/governance.md).
+
+---
+
 ### `cerebrofy coverage-gap`
 
 Rank uncovered neurons by **blast radius × change velocity** to surface functions most likely to cause production bugs. A function that is widely-called, actively changing, and has no tests is the highest-priority coverage gap.
@@ -677,6 +696,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_session_show` | Return a full replay of a session (latest when omitted): timeline, neurons touched, graph diff, blast-radius verdict. |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type. |
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories, never from commit messages. |
+| `cerebrofy_governance` | Lobe ownership + review governance: generate CODEOWNERS content from blame + graph topology, suggest primary/secondary/backup reviewers, and evaluate reporting-only `governance.rules` from arch-rules.yaml. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
@@ -804,7 +824,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 29 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 30 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support

@@ -527,6 +527,37 @@ _CHANGELOG_SCHEMA: dict[str, Any] = {
     "required": ["since"],
 }
 
+_GOVERNANCE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "description": (
+                "Action to perform: 'generate-codeowners', 'suggest-reviewers', "
+                "or 'check-rules'"
+            ),
+            "enum": ["generate-codeowners", "suggest-reviewers", "check-rules"],
+        },
+        "pr": {
+            "type": "integer",
+            "description": (
+                "GitHub PR number — used by suggest-reviewers and check-rules"
+            ),
+        },
+        "lobe": {
+            "type": "string",
+            "description": "Restrict output to a specific lobe",
+        },
+        "format": {
+            "type": "string",
+            "description": "Output format: 'markdown' or 'json'",
+            "enum": ["markdown", "json"],
+            "default": "markdown",
+        },
+    },
+    "required": ["action"],
+}
+
 
 # ---------------------------------------------------------------------------
 # The tool catalog
@@ -885,6 +916,22 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         ),
         input_schema=_CHANGELOG_SCHEMA,
         handler_name="_handle_changelog",
+        inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_governance",
+        description=(
+            "Lobe ownership and review governance. Generates a GitHub CODEOWNERS "
+            "file from git blame + call-graph topology ('generate-codeowners'), "
+            "suggests primary/secondary/backup reviewers for a PR "
+            "('suggest-reviewers'), and evaluates reporting-only governance rules "
+            "from governance.rules in .cerebrofy/arch-rules.yaml ('check-rules'). "
+            "Use this before merging or when deciding who must review a change. "
+            "Returns NO_INDEX / NO_GIT_HISTORY / GH_NOT_AUTHENTICATED / "
+            "NO_GOVERNANCE_RULES guidance when prerequisites are missing."
+        ),
+        input_schema=_GOVERNANCE_SCHEMA,
+        handler_name="_handle_governance",
         inject=True,
     ),
 )

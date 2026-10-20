@@ -64,7 +64,7 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   ├── server.py                 ← MCPServer: tool + resource dispatch (29 tools)
+│   ├── server.py                 ← MCPServer: tool + resource dispatch (30 tools)
 │   └── tools/upgrade.py          ← cerebrofy_upgrade handler: plan / auto-fix / validate
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
