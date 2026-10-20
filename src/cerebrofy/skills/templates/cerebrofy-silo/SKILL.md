@@ -12,7 +12,7 @@ Only open a specific source file *after* cerebrofy has returned its exact file p
 
 ## When to use this skill
 
-Invoke `/cerebrofy-silo` when you need to:
+Invoke `/cerebrofy:silo` when you need to:
 - Identify which functions are owned by a single contributor (bus factor = 1)
 - Prioritise knowledge-transfer sessions before a team member leaves
 - Find the riskiest silos before a major refactor

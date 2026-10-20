@@ -12,7 +12,7 @@ Only open a specific source file *after* cerebrofy has returned its exact file p
 
 ## When to use this skill
 
-Invoke `/cerebrofy-coverage-gap` when you need to:
+Invoke `/cerebrofy:coverage-gap` when you need to:
 - Prioritise which untested functions to cover before a release
 - Find the highest-risk blind spots after adding new features
 - Answer "what untested code is most likely to break in production?"

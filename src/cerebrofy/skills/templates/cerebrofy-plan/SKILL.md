@@ -12,7 +12,7 @@ Only open a specific source file *after* cerebrofy has returned its exact file p
 
 ## When to use this skill
 
-Invoke `/cerebrofy-plan` when you need to:
+Invoke `/cerebrofy:plan` when you need to:
 - Plan an extraction ("extract the payment logic into a payments service")
 - Plan a move ("move all database connection code into a db/ module")
 - Produce a safe, ordered migration checklist before any AI agent starts editing
