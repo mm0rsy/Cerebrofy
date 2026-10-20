@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from cerebrofy.errors import MANIFEST_NOT_FOUND, VERSION_NOT_FOUND
+from cerebrofy.errors import INVALID_MANIFEST, MANIFEST_NOT_FOUND, VERSION_NOT_FOUND
 from cerebrofy.upgrade.manifest import (
     ManifestError,
     find_manifest,
@@ -60,7 +60,7 @@ class TestParseManifest:
         assert manifest.changes[0].old == "old_name()"
 
     def test_invalid_regex_rejected(self) -> None:
-        with pytest.raises(ManifestError, match="bad regex"):
+        with pytest.raises(ManifestError, match="bad regex") as excinfo:
             parse_manifest(
                 {
                     "package": "demo",
@@ -75,10 +75,48 @@ class TestParseManifest:
                     ],
                 }
             )
+        assert excinfo.value.code == INVALID_MANIFEST
 
     def test_missing_changes_rejected(self) -> None:
-        with pytest.raises(ManifestError, match="'changes' must be a list"):
+        with pytest.raises(ManifestError, match="'changes' must be a list") as excinfo:
             parse_manifest({"package": "demo"})
+        assert excinfo.value.code == INVALID_MANIFEST
+
+    def test_bad_field_value_uses_invalid_manifest_code(self) -> None:
+        with pytest.raises(ManifestError, match="change type") as excinfo:
+            parse_manifest(
+                {
+                    "package": "demo",
+                    "changes": [
+                        {
+                            "type": "exploded",
+                            "old": "old",
+                            "new": "new",
+                            "severity": "breaking",
+                        }
+                    ],
+                }
+            )
+        assert excinfo.value.code == INVALID_MANIFEST
+
+    def test_unknown_replacement_key_is_ignored(self) -> None:
+        manifest = parse_manifest(
+            {
+                "package": "demo",
+                "replacement": "ignored",
+                "changes": [
+                    {
+                        "type": "rename",
+                        "old": ".dict()",
+                        "new": ".model_dump()",
+                        "severity": "breaking",
+                        "replacement": ".model_dump(",
+                    }
+                ],
+            }
+        )
+        assert manifest.changes[0].old == ".dict()"
+        assert not hasattr(manifest.changes[0], "replacement")
 
     def test_explicit_auto_fix_opt_out(self) -> None:
         manifest = parse_manifest(
@@ -136,6 +174,11 @@ class TestFindManifest:
         with pytest.raises(ManifestError) as excinfo:
             find_manifest("pydantic", "2.0", "2.5")
         assert excinfo.value.code == VERSION_NOT_FOUND
+
+    def test_missing_manifest_file_raises_not_found(self, tmp_path: Path) -> None:
+        with pytest.raises(ManifestError) as excinfo:
+            find_manifest("demo", manifest_path=tmp_path / "absent.yaml")
+        assert excinfo.value.code == MANIFEST_NOT_FOUND
 
     def test_explicit_manifest_wins(self, tmp_path: Path) -> None:
         path = tmp_path / "custom.json"

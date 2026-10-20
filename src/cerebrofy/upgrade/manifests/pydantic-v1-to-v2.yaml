@@ -23,7 +23,6 @@ changes:
     severity: breaking
     category: call
     match: '\.dict\s*\('
-    replacement: ".model_dump("
     auto_fix: true
 
   - type: rename
@@ -32,7 +31,6 @@ changes:
     severity: deprecated
     category: call
     match: '\.json\s*\('
-    replacement: ".model_dump_json("
     auto_fix: true
 
   - type: rename
@@ -41,7 +39,6 @@ changes:
     severity: breaking
     category: call
     match: '\.parse_obj\s*\('
-    replacement: ".model_validate("
     auto_fix: true
 
   - type: rename
@@ -50,7 +47,6 @@ changes:
     severity: breaking
     category: validator
     match: '@validator\b'
-    replacement: "@field_validator"
     auto_fix: true
 
   - type: rename

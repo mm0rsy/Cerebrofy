@@ -125,7 +125,7 @@ class TestUpgradeCli:
         result = CliRunner().invoke(main, ["upgrade", "pydantic", "--manifest", str(bad)])
 
         assert result.exit_code == 1
-        assert "[MANIFEST_NOT_FOUND]" in result.output
+        assert "[INVALID_MANIFEST]" in result.output
         assert "Invalid manifest" in result.output
 
     def test_manifest_dir_is_searched_before_bundled(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

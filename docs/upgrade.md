@@ -59,9 +59,12 @@ Optional fixer metadata keeps transforms accurate:
 ```yaml
     category: call        # base | call | validator | other
     match: '\.dict\s*\(' # explicit detection regex
-    replacement: ".model_dump("
     auto_fix: true        # default: only safe rename shapes are auto-fixable
 ```
+
+Edits are derived from the AST shape of `old`/`new`; manifests never supply raw
+textual substitutions. Unknown keys are ignored, so a manifest written for a
+newer Cerebrofy version still loads.
 
 `--diff` is an alias for `--manifest` and accepts the same YAML or a JSON API
 diff. A bare JSON list of changes is accepted when a package name is supplied on
@@ -71,9 +74,13 @@ the command line. Changes may use `old_api`/`new_api` instead of `old`/`new`.
 Cerebrofy also looks in `.cerebrofy/upgrades/` automatically.
 
 Version constraints are evaluated offline with a simple numeric-prefix
-comparison. If the package is known but no manifest covers the requested pair,
-the command returns `VERSION_NOT_FOUND`; if the package has no manifest at all
-it returns `MANIFEST_NOT_FOUND`.
+comparison. Failures use these codes:
+
+| Code | Meaning |
+|---|---|
+| `MANIFEST_NOT_FOUND` | The manifest file is absent, or no manifest exists for the package. |
+| `INVALID_MANIFEST` | The manifest is malformed: invalid YAML/JSON, schema violation, bad regex, or a bad field value. |
+| `VERSION_NOT_FOUND` | A manifest for the package exists, but none covers the requested version pair. |
 
 ## Bundled manifests
 
@@ -127,7 +134,8 @@ cerebrofy upgrade PACKAGE [--from VERSION] [--to VERSION] [--breaking-only]
 Output fields: `package`, `from_version`, `to_version`, `breaking_changes`,
 `steps`, `total_effort_hours`, `risk`, `auto_fix_results` (plus `validation`
 when requested). Errors use `[CODE] message` with `NO_INDEX`,
-`PACKAGE_NOT_USED`, `MANIFEST_NOT_FOUND`, and `VERSION_NOT_FOUND`.
+`PACKAGE_NOT_USED`, `MANIFEST_NOT_FOUND`, `INVALID_MANIFEST`, and
+`VERSION_NOT_FOUND`.
 
 ## Auto-fix safety
 

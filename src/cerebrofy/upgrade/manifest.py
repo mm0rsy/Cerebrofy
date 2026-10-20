@@ -19,9 +19,11 @@ an indexed graph; always pair them with the library's own migration guide.
 Optional fields (an extension used by the fixer) keep the transform precise::
 
     match: '\\.dict\\s*\\(\\s*\\)'   # explicit regex for detection
-    replacement: ".model_dump()"     # explicit textual replacement
     category: call                   # base | call | validator | other
     auto_fix: true                   # manifest-level opt-out switch
+
+Unknown keys are ignored so manifests written for newer Cerebrofy versions
+degrade gracefully instead of failing to load.
 
 The module is offline by design — it never contacts PyPI or GitHub. Automatic
 changelog fetching is deliberately deferred (see ``docs/upgrade.md``).
@@ -38,6 +40,7 @@ from typing import Any
 import yaml
 
 from cerebrofy.errors import (
+    INVALID_MANIFEST,
     MANIFEST_NOT_FOUND,
     VERSION_NOT_FOUND,
     CerebrofyError,
@@ -49,9 +52,13 @@ _VALID_CATEGORIES = frozenset({"base", "call", "validator", "other"})
 
 
 class ManifestError(CerebrofyError):
-    """A manifest is missing, malformed, or does not cover the version pair."""
+    """A manifest is missing, malformed, or does not cover the version pair.
 
-    code: str = MANIFEST_NOT_FOUND
+    Defaults to ``INVALID_MANIFEST`` for malformed content; discovery raises
+    explicitly with ``MANIFEST_NOT_FOUND`` or ``VERSION_NOT_FOUND``.
+    """
+
+    code: str = INVALID_MANIFEST
 
 
 @dataclass(frozen=True)
@@ -64,7 +71,6 @@ class Change:
     severity: str
     category: str
     match: str | None
-    replacement: str | None
     auto_fix: bool
 
     def compiled_pattern(self) -> re.Pattern[str]:
@@ -214,9 +220,6 @@ def _coerce_change(raw: object, where: str) -> Change:
             re.compile(match)
         except re.error as exc:
             raise ManifestError(f"Invalid manifest {where}: bad regex {match!r}: {exc}") from exc
-    replacement = raw_map.get("replacement")
-    if replacement is not None and not isinstance(replacement, str):
-        raise ManifestError(f"Invalid manifest {where}: 'replacement' must be a string.")
     auto_fix_raw = raw_map.get("auto_fix")
     if auto_fix_raw is None:
         auto_fix = _derive_auto_fix(change_type, old, new, category)
@@ -229,7 +232,6 @@ def _coerce_change(raw: object, where: str) -> Change:
         severity=severity,
         category=category,
         match=match,
-        replacement=replacement,
         auto_fix=auto_fix,
     )
 
@@ -296,7 +298,8 @@ def load_manifest_file(
     if not path.exists() or not path.is_file():
         raise ManifestError(
             f"Manifest not found at {path}. Provide a YAML/JSON manifest via "
-            "--manifest/--diff or add one with --manifest-dir."
+            "--manifest/--diff or add one with --manifest-dir.",
+            code=MANIFEST_NOT_FOUND,
         )
     text = path.read_text(encoding="utf-8")
     stripped = text.lstrip()
@@ -406,8 +409,9 @@ def find_manifest(
 
     Search order: explicit ``manifest_path`` → ``manifest_dir`` → ``extra_dirs``
     → bundled manifests. Raises :class:`ManifestError` with
-    ``MANIFEST_NOT_FOUND`` (unknown package) or ``VERSION_NOT_FOUND`` (package
-    known but no manifest covers the requested pair).
+    ``MANIFEST_NOT_FOUND`` (absent file or unknown package),
+    ``VERSION_NOT_FOUND`` (package known but no manifest covers the requested
+    pair), or ``INVALID_MANIFEST`` (malformed content).
     """
     if manifest_path is not None:
         manifest = load_manifest_file(
@@ -440,7 +444,8 @@ def find_manifest(
         raise ManifestError(
             f"No breaking-change manifest found for package '{package}'. "
             "Pass a curated file with --manifest/--diff, or add one with "
-            "--manifest-dir. (Automatic PyPI changelog fetching is not enabled.)"
+            "--manifest-dir. (Automatic PyPI changelog fetching is not enabled.)",
+            code=MANIFEST_NOT_FOUND,
         )
 
     matched_versions = [
