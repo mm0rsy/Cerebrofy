@@ -1,7 +1,6 @@
 embedding_model: local
 lobes:
   cerebrofy: src/cerebrofy/
-  cerebrofy.egg-info: src/cerebrofy.egg-info/
 tracked_extensions:
 - .py
 - .js

@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 28 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 31 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 28 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 31 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -439,6 +439,23 @@ cerebrofy impact auth/tokens.py::validate_token --output json
 | **Complexity Rating** | 🟢 LOW / 🟡 MEDIUM / 🔴 HIGH |
 | **Memory Warnings** | `warning` memories attached to the target from `cerebrofy memory` |
 | **Refactoring Sequence** | Reverse-topological order — update callers leaf-first to minimise breakage |
+
+---
+
+### `cerebrofy review`
+
+Graph-aware code review for a local diff or a GitHub PR — blast radius, warning memories and past decisions, architecture rules, coverage gaps, missing caller updates, cross-lobe coupling, and knowledge-silo reviewers in one report.
+
+```bash
+cerebrofy review --diff HEAD~1                 # local pre-merge review
+cerebrofy review --diff HEAD                   # uncommitted changes
+cerebrofy review --pr 142                      # dry-run PR review (nothing posted)
+cerebrofy review --pr 142 --severity error     # blocking findings only
+cerebrofy review --pr 142 --post-comments      # post inline comments + PR summary
+cerebrofy review --pr 142 --format json        # machine-readable output
+```
+
+Findings are sorted by a severity score that combines base severity with blast radius, warning memories, and missing test coverage. Posting is opt-in, delegates auth to the `gh` CLI, and never stores tokens. See [docs/review.md](docs/review.md).
 
 ---
 
@@ -517,6 +534,21 @@ cerebrofy vuln --package requests --depth 3 --output json
 
 ---
 
+### `cerebrofy upgrade`
+
+Plan a dependency upgrade from a curated breaking-change manifest: find every indexed neuron that uses the changing API, estimate migration effort, order the fix leaves-first, and optionally apply precise AST auto-fixes and validate the result. Fully offline — never calls PyPI.
+
+```bash
+cerebrofy upgrade pydantic --from v1 --to v2
+cerebrofy upgrade requests --breaking-only
+cerebrofy upgrade pydantic --manifest ./pydantic.yaml --auto-fix --step 1,2
+cerebrofy upgrade pydantic --validate
+```
+
+Bundled curated manifests cover pydantic v1 → v2 and requests 2.x → 3.x; pass `--manifest`/`--diff` for custom API diffs. Auto-fix only rewrites Python files whose transformed AST re-parses; structural changes such as `class Config` are reported for manual review. See [docs/upgrade.md](docs/upgrade.md).
+
+---
+
 ### `cerebrofy silo`
 
 Identify knowledge silos — functions with high blast radius owned by few contributors. Overlays `git blame` authorship on the call graph to compute bus factor risk: a function called by many but written by one is a single point of failure.
@@ -539,6 +571,25 @@ cerebrofy silo --output json               # machine-readable output
 | **Unique authors** | Number of distinct contributors to this neuron |
 | **Risk** | CRITICAL (≥20) / HIGH (≥8) / MEDIUM (≥3) / LOW (<3) |
 | **Memories written** | Warning memories auto-attached to each HIGH/CRITICAL neuron (with `--write-memories`) |
+
+---
+
+### `cerebrofy governance`
+
+Own the codebase instead of maintaining CODEOWNERS by hand. Ownership is derived from `git blame` (or `.cerebrofy/team.yaml`, or a recent-activity hybrid), then combined with the call graph so cross-lobe callers become co-reviewers and brand-new modules receive a fallback owner.
+
+```bash
+cerebrofy governance generate-codeowners              # write ./CODEOWNERS
+cerebrofy governance generate-codeowners --dry-run    # preview without writing
+cerebrofy governance generate-codeowners --output .github/CODEOWNERS
+cerebrofy governance sync                             # regenerate in place after ownership changes
+cerebrofy governance suggest-reviewers --pr 142       # primary / secondary / backup
+cerebrofy governance suggest-reviewers --diff origin/main --format json
+cerebrofy governance check-rules --lobe auth          # reporting only
+cerebrofy governance check-rules --diff origin/main --format json
+```
+
+Governance rules live in the existing `.cerebrofy/arch-rules.yaml` under `governance.rules` (blast-radius approval thresholds, bus-factor non-owner review, and new-neuron test coverage). `check-rules` never blocks a merge. Full reference: [docs/governance.md](docs/governance.md).
 
 ---
 
@@ -654,6 +705,7 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, and refactoring sequence. |
 | `cerebrofy_plan` | Generate a graph-aware, step-by-step refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. Markdown + optional JSON. Never modifies files. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, and generate a remediation sequence. |
+| `cerebrofy_upgrade` | Dependency upgrade navigator: map affected neurons, score effort/risk, order the migration steps, and optionally auto-fix and validate. Offline curated manifests. |
 | `cerebrofy_silo` | Knowledge silo detector: overlay git blame on the call graph to compute bus factor risk per neuron. Filter by lobe, author, or risk level. Pass `author` to answer "if this person left, what breaks?" |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: rank uncovered neurons by blast radius × change velocity. Uses `coverage.xml` when present, falls back to graph topology. Surfaces the functions most likely to cause production bugs if a bug is introduced. |
 | `cerebrofy_session_start` | Start recording an agent session (opt-in via `record_sessions: true`). Call before a coding task. |
@@ -661,6 +713,8 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_session_show` | Return a full replay of a session (latest when omitted): timeline, neurons touched, graph diff, blast-radius verdict. |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type. |
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories, never from commit messages. |
+| `cerebrofy_governance` | Lobe ownership + review governance: generate CODEOWNERS content from blame + graph topology, suggest primary/secondary/backup reviewers, and evaluate reporting-only `governance.rules` from arch-rules.yaml. |
+| `cerebrofy_review` | Graph-aware AI review copilot: reviews a local diff or GitHub PR with blast radius, warning memories, architecture rules, coverage gaps, missing caller updates, cross-lobe coupling, and suggested reviewers. Posting is opt-in via `post_comments`. |
 
 All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
 
@@ -788,7 +842,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 28 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 31 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support

@@ -42,6 +42,27 @@ from cerebrofy.parser.engine import parse_directory
 from cerebrofy.parser.neuron import Neuron, ParseResult
 
 
+def _sync_codeowners(root: Path, config: CerebrоfyConfig, db_path: Path) -> None:
+    """Regenerate CODEOWNERS when governance.auto_sync_codeowners is enabled."""
+    from cerebrofy.errors import NoGitHistoryError
+    from cerebrofy.governance.codeowners import generate_codeowners, write_codeowners
+
+    conn = open_db(db_path)
+    try:
+        try:
+            result = generate_codeowners(conn, root, config)
+        except NoGitHistoryError as exc:
+            click.echo(f"Warning: CODEOWNERS not synced — {exc}", err=True)
+            return
+    finally:
+        conn.close()
+    try:
+        write_codeowners(result.path, result.content, repo_root=root)
+        click.echo(f"Cerebrofy: CODEOWNERS synced ({len(result.lobes)} lobes).")
+    except FileExistsError as exc:
+        click.echo(f"Warning: CODEOWNERS not synced — {exc}", err=True)
+
+
 def _record_health_snapshot(
     db_path: Path,
     lobes: dict[str, str],
@@ -326,6 +347,14 @@ def cerebrofy_build() -> None:
 
         docs_dir = root / "docs" / "cerebrofy"
         build_step6_markdown(db_path, config, state_hash, docs_dir)
+
+        if config.governance.auto_sync_codeowners:
+            try:
+                _sync_codeowners(root, config, db_path)
+            except Exception as exc:  # governance sync must never fail a build
+                click.echo(
+                    f"Warning: CODEOWNERS sync failed (non-fatal): {exc}", err=True
+                )
 
         _record_health_snapshot(db_path, config.lobes, str(root))
 

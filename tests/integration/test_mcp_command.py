@@ -502,6 +502,110 @@ def test_mcp_resources_subscription_notification(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Idea #19: cerebrofy_upgrade — catalog + JSON plan over a real stdio session
+# ---------------------------------------------------------------------------
+
+
+def _make_upgrade_repo(tmp_path: Path) -> Path:
+    from tests.unit.upgrade_helpers import make_index_repo
+
+    source = (
+        "from pydantic import BaseModel\n\n"
+        "class User(BaseModel):\n"
+        "    name: str\n\n"
+        "def serialize(user):\n"
+        "    return user.dict()\n"
+    )
+    make_index_repo(
+        tmp_path,
+        {"models.py": source},
+        [
+            ("models.py::models", "models", "models.py", "module", 1, 7),
+            ("models.py::serialize", "serialize", "models.py", "function", 6, 7),
+        ],
+    )
+    return tmp_path
+
+
+def test_mcp_upgrade_tool_catalog_and_plan(tmp_path: Path) -> None:
+    """cerebrofy_upgrade is advertised with the spec schema and returns a plan."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_upgrade_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                listing = await session.list_tools()
+                tool = next(t for t in listing.tools if t.name == "cerebrofy_upgrade")
+                properties = set(tool.inputSchema.get("properties", {}))
+                assert properties == {
+                    "package",
+                    "from_version",
+                    "to_version",
+                    "breaking_only",
+                    "auto_fix",
+                    "step",
+                    "validate",
+                    "format",
+                }
+                assert tool.inputSchema["required"] == ["package"]
+
+                result = await session.call_tool(
+                    "cerebrofy_upgrade",
+                    {
+                        "package": "pydantic",
+                        "from_version": "1.10",
+                        "to_version": "2.0",
+                        "format": "json",
+                    },
+                )
+                payload = json.loads(result.content[0].text)
+                assert payload["package"] == "pydantic"
+                assert payload["steps"]
+                assert payload["total_sites"] == 1
+                assert payload["steps"][0]["old_api"] == ".dict()"
+
+                missing = await session.call_tool(
+                    "cerebrofy_upgrade", {"package": "not-a-real-package"}
+                )
+                assert missing.content[0].text.startswith("[MANIFEST_NOT_FOUND]")
+
+    asyncio.run(scenario())
+
+
+def test_mcp_upgrade_no_index(tmp_path: Path) -> None:
+    """cerebrofy_upgrade reports NO_INDEX without a built index."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    config_dir = tmp_path / ".cerebrofy"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text("lobes: {}\n", encoding="utf-8")
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(tmp_path)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "cerebrofy_upgrade", {"package": "pydantic"}
+                )
+                assert result.content[0].text.startswith("[NO_INDEX]")
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
 # T078g: session recorder (Idea #11) — start/end/show + error codes
 # ---------------------------------------------------------------------------
 
@@ -668,3 +772,335 @@ def test_mcp_session_end_already_ended(tmp_path: Path) -> None:
                 assert "NO_ACTIVE_SESSION" in text
 
     asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# T081: governance tool — catalog wiring, guidance errors, CODEOWNERS, rules
+# ---------------------------------------------------------------------------
+
+
+def _make_governance_repo(tmp_path: Path) -> Path:
+    """Arch repo configured for explicit ownership plus a governance rule."""
+    root = _make_arch_repo(tmp_path)
+    (root / ".cerebrofy" / "config.yaml").write_text(
+        "lobes:\n  src: src/\n"
+        "tracked_extensions: [.py]\n"
+        "embedding_model: local\n"
+        "embed_dim: 2\n"
+        "governance:\n  strategy: explicit\n",
+        encoding="utf-8",
+    )
+    (root / ".cerebrofy" / "team.yaml").write_text(
+        "lobes:\n  src:\n    owners: ['alice@example.com']\n", encoding="utf-8"
+    )
+    (root / ".cerebrofy" / "arch-rules.yaml").write_text(
+        "rules: []\n"
+        "governance:\n"
+        "  rules:\n"
+        "    - name: changed-code-needs-tests\n"
+        "      check:\n"
+        "        if_blast_radius: { gt: 0 }\n"
+        "        then_require_test_file: true\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_mcp_governance_catalog_schema() -> None:
+    from cerebrofy.mcp.tool_specs import SPEC_BY_NAME
+
+    spec = SPEC_BY_NAME["cerebrofy_governance"]
+    assert spec.inject is True
+    assert spec.handler_name == "_handle_governance"
+    properties = spec.input_schema["properties"]
+    assert set(properties) == {"action", "pr", "lobe", "format"}
+    assert properties["action"]["enum"] == [
+        "generate-codeowners",
+        "suggest-reviewers",
+        "check-rules",
+    ]
+
+
+def test_mcp_governance_render_rules_without_rules() -> None:
+    from cerebrofy.governance.rules import GovernanceCheckResult
+    from cerebrofy.mcp.tools.governance import _render_rules
+
+    rendered = _render_rules(GovernanceCheckResult(), "markdown")
+    assert "_No governance rules configured._" in rendered
+
+
+def test_mcp_governance_no_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    from cerebrofy.mcp.server import _handle_governance
+
+    result = _handle_governance({"action": "generate-codeowners"})
+    assert result[0].text.startswith("[NO_INDEX]")
+
+
+def test_mcp_governance_unknown_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    from cerebrofy.mcp.server import _handle_governance
+
+    result = _handle_governance({"action": "teleport"})
+    assert result[0].text.startswith("[error]")
+
+
+def test_mcp_governance_no_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_arch_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_governance
+
+    result = _handle_governance({"action": "check-rules"})
+    assert result[0].text.startswith("[NO_GOVERNANCE_RULES]")
+
+
+def test_mcp_governance_generate_codeowners(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_governance_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_governance
+
+    result = _handle_governance({"action": "generate-codeowners"})
+    text = result[0].text
+    assert text.startswith("# Auto-generated by cerebrofy governance")
+    assert "src/ @alice" in text
+
+
+def test_mcp_governance_check_rules_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_governance_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_governance
+
+    result = _handle_governance({"action": "check-rules", "format": "json"})
+    payload = json.loads(result[0].text)
+    assert payload["result"] == "FAIL"
+    assert payload["failing"][0]["name"] == "changed-code-needs-tests"
+
+
+def test_mcp_governance_suggest_reviewers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_governance_repo(tmp_path)
+    from cerebrofy.mcp.server import _handle_governance
+
+    result = _handle_governance(
+        {"action": "suggest-reviewers", "format": "json"}
+    )
+    payload = json.loads(result[0].text)
+    assert payload["reviewers"][0]["email"] == "alice@example.com"
+    assert payload["reviewers"][0]["role"] == "primary"
+
+
+def test_mcp_governance_pr_gh_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _make_governance_repo(tmp_path)
+    from cerebrofy.errors import GitHubNotAuthenticatedError
+    from cerebrofy.mcp.server import _handle_governance
+
+    with patch(
+        "cerebrofy.governance.reviewer.changes_from_pr",
+        side_effect=GitHubNotAuthenticatedError("run gh auth login"),
+    ):
+        result = _handle_governance({"action": "suggest-reviewers", "pr": 1})
+    assert result[0].text.startswith("[GH_NOT_AUTHENTICATED]")
+
+
+# ---------------------------------------------------------------------------
+# T079: cerebrofy_review MCP tool (Idea #17)
+# ---------------------------------------------------------------------------
+
+
+def _make_review_repo(tmp_path: Path) -> Path:
+    from tests.unit.review_helpers import (
+        change_tracked_files,
+        make_repo,
+        setup_git_repo,
+    )
+
+    make_repo(tmp_path).close()
+    setup_git_repo(tmp_path)
+    change_tracked_files(tmp_path)
+    return tmp_path
+
+
+def test_mcp_review_requires_diff_or_pr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({})
+
+    assert result[0].text.startswith("[NO_DIFF_PROVIDED]")
+
+
+def test_mcp_review_requires_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.unit.review_helpers import change_tracked_files, setup_git_repo, write_config
+
+    write_config(tmp_path)
+    setup_git_repo(tmp_path)
+    change_tracked_files(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    from cerebrofy.mcp.tools.review import handle_review
+
+    result = handle_review({"diff": "HEAD"})
+    assert result[0].text.startswith("[NO_INDEX]")
+
+
+def test_mcp_review_markdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD"})
+
+    text = result[0].text
+    assert "🧠 Cerebrofy Review Summary — diff HEAD" in text
+    assert "`blast_radius`" in text
+    assert "Skipped checks" not in text
+
+
+def test_mcp_review_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD", "format": "json", "severity": "error"})
+
+    payload = json.loads(result[0].text)
+    assert payload["files_changed"] == 2
+    assert payload["neurons_changed"] == 3
+    assert payload["findings"]
+    assert {finding["severity"] for finding in payload["findings"]} == {"error"}
+
+
+def test_mcp_review_post_comments_requires_pr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD", "post_comments": True})
+
+    assert result[0].text.startswith("[NO_DIFF_PROVIDED]")
+    assert "requires the 'pr' parameter" in result[0].text
+
+
+def test_mcp_review_default_does_not_post(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    with patch("cerebrofy.review.github_poster.post_report") as post:
+        result = handle_review({"diff": "HEAD"})
+
+    assert "Cerebrofy Review Summary" in result[0].text
+    post.assert_not_called()
+
+
+def test_mcp_review_invalid_pr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from cerebrofy.mcp.tools.review import handle_review
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    result = handle_review({"diff": "HEAD", "pr": "not-a-number"})
+
+    assert result[0].text.startswith("[error]")
+
+
+def test_mcp_review_stdio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool is registered and reachable over the stdio MCP server."""
+    pytest.importorskip("mcp")
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    root = _make_review_repo(tmp_path)
+
+    async def scenario() -> None:
+        params = StdioServerParameters(
+            command=sys.executable, args=["-m", "cerebrofy", "mcp"], cwd=str(root)
+        )
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(
+                    "cerebrofy_review", {"diff": "HEAD", "format": "json"}
+                )
+                payload = json.loads(result.content[0].text)
+                assert payload["files_changed"] == 2
+                assert payload["neurons_changed"] == 3
+
+    asyncio.run(scenario())
+
+
+def test_mcp_review_posts_when_opted_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.mcp.tools.review import handle_review
+    from cerebrofy.review.finding import ReviewReport
+    from cerebrofy.review.github_poster import PostResult
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    report = ReviewReport(files_changed=1, neurons_changed=1, summary="summary\n")
+    posted = PostResult(posted_inline=2, summary_posted=True)
+
+    with (
+        patch("cerebrofy.mcp.tools.review.review_diff_or_pr", return_value=report),
+        patch("cerebrofy.review.github_poster.post_report", return_value=posted) as post,
+    ):
+        result = handle_review({"pr": 42, "post_comments": True, "format": "json"})
+
+    payload = json.loads(result[0].text)
+    assert payload["post_result"] == {
+        "posted_inline": 2,
+        "summary_posted": True,
+        "errors": [],
+    }
+    assert post.call_args.args[0] == 42
+
+
+def test_mcp_review_post_auth_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import patch
+
+    from cerebrofy.mcp.tools.review import handle_review
+    from cerebrofy.review.finding import ReviewReport
+    from cerebrofy.review.pipeline import ReviewError
+
+    monkeypatch.chdir(_make_review_repo(tmp_path))
+    report = ReviewReport(files_changed=1, neurons_changed=1, summary="summary\n")
+
+    with (
+        patch("cerebrofy.mcp.tools.review.review_diff_or_pr", return_value=report),
+        patch(
+            "cerebrofy.review.github_poster.post_report",
+            side_effect=ReviewError("gh auth required", code="GH_NOT_AUTHENTICATED"),
+        ),
+    ):
+        result = handle_review({"pr": 42, "post_comments": True})
+
+    assert result[0].text.startswith("[GH_NOT_AUTHENTICATED]")

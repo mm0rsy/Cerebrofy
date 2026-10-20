@@ -10,16 +10,19 @@ from cerebrofy.commands.changelog import cerebrofy_changelog
 from cerebrofy.commands.context import cerebrofy_context
 from cerebrofy.commands.epistemic import cerebrofy_epistemic
 from cerebrofy.commands.health import cerebrofy_health
+from cerebrofy.commands.governance import cerebrofy_governance
 from cerebrofy.commands.impact import cerebrofy_impact
 from cerebrofy.commands.init import cerebrofy_init
 from cerebrofy.commands.intent import cerebrofy_intent
 from cerebrofy.commands.memory import mem_group
 from cerebrofy.commands.onboard import cerebrofy_onboard
 from cerebrofy.commands.plan import cerebrofy_plan
+from cerebrofy.commands.review import cerebrofy_review
 from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.session import session_group
 from cerebrofy.commands.update import cerebrofy_update
+from cerebrofy.commands.upgrade import cerebrofy_upgrade
 from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
 from cerebrofy.commands.silo import cerebrofy_silo
 from cerebrofy.commands.validate import cerebrofy_validate
@@ -57,6 +60,7 @@ main.add_command(cerebrofy_changelog)
 main.add_command(cerebrofy_context)
 main.add_command(cerebrofy_epistemic)
 main.add_command(cerebrofy_health)
+main.add_command(cerebrofy_governance)
 main.add_command(cerebrofy_impact)
 main.add_command(cerebrofy_init)
 main.add_command(cerebrofy_intent)
@@ -64,9 +68,11 @@ main.add_command(cerebrofy_arch)
 main.add_command(mem_group)
 main.add_command(cerebrofy_onboard)
 main.add_command(cerebrofy_plan)
+main.add_command(cerebrofy_review)
 main.add_command(cerebrofy_silo)
 main.add_command(session_group)
 main.add_command(cerebrofy_update)
+main.add_command(cerebrofy_upgrade)
 main.add_command(cerebrofy_validate)
 main.add_command(cerebrofy_vuln)
 

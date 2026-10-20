@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **28 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **31 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -96,10 +96,13 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_impact` | Pre-change impact prediction: callers, test coverage, lobe spread, estimated LoC, memory warnings, refactoring sequence |
 | `cerebrofy_plan` | Generate a graph-aware, step-by-step refactoring plan from a plain-English description — which neurons to extract, where they move, which callers to update, and in what safe order. Markdown + optional JSON. Never modifies files. |
 | `cerebrofy_vuln` | Vulnerability blast radius: find which of your functions call a vulnerable package, score exposure by trust boundary proximity, generate remediation sequence |
+| `cerebrofy_upgrade` | Dependency upgrade navigator: affected neurons, effort/risk, ordered steps, optional AST auto-fix and post-upgrade validation. Offline manifests. |
 | `cerebrofy_silo` | Knowledge silo detector: git-blame overlay on the call graph — bus factor risk per neuron, filterable by lobe, author, or risk level |
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: ranks uncovered neurons by blast radius × change velocity |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type |
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories |
+| `cerebrofy_governance` | Lobe ownership and review governance: generate CODEOWNERS, suggest reviewers for a PR/diff, check reporting-only governance rules |
+| `cerebrofy_review` | Graph-aware AI review copilot: reviews a local diff or GitHub PR with blast radius, memories, arch rules, coverage gaps, coupling, and suggested reviewers; posting is opt-in |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -822,6 +825,119 @@ cerebrofy_vuln(package="requests")
 → cerebrofy_vuln(package="requests")  # verify no remaining critical exposure
 → Upgrade requests in pyproject.toml
 ```
+
+---
+
+### `cerebrofy_governance`
+
+Lobe ownership and review governance over the live index. Three actions:
+
+- `generate-codeowners` — build a GitHub CODEOWNERS file from git blame, `.cerebrofy/team.yaml`, and cross-lobe call edges.
+- `suggest-reviewers` — rank primary, secondary, and backup reviewers for a change set (GitHub PR or local diff).
+- `check-rules` — evaluate the reporting-only `governance.rules` block in `.cerebrofy/arch-rules.yaml`.
+
+**Input schema:**
+
+```json
+{
+  "action": "suggest-reviewers",
+  "pr": 42,
+  "lobe": "auth",
+  "format": "markdown"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | ✅ | `generate-codeowners` · `suggest-reviewers` · `check-rules` |
+| `pr` | integer | — | GitHub PR number — used by `suggest-reviewers` and `check-rules` (requires an authenticated `gh`) |
+| `lobe` | string | — | Restrict output to a specific lobe |
+| `format` | string | — | `markdown` (default) or `json` |
+
+**Output:** for `generate-codeowners`, the CODEOWNERS file content (plain text, or `{"codeowners_content": "..."}` in JSON); for `suggest-reviewers`, a reviewer table (or `{"reviewers": [...]}`); for `check-rules`, a PASS/WARN/FAIL summary with per-rule reasons (or the full result object in JSON).
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NO_GIT_HISTORY]` when ownership is requested from a repository with no commits; `[CONFIG_ERROR]` when `.cerebrofy/config.yaml` or `.cerebrofy/team.yaml` is malformed; `[GH_NOT_AUTHENTICATED]` when `gh` is unavailable; `[NO_GOVERNANCE_RULES]` when no `governance.rules` block is configured.
+
+---
+
+### `cerebrofy_upgrade`
+
+Plan (and optionally apply/validate) a dependency upgrade from a curated breaking-change manifest. Fully offline.
+
+**Input schema:**
+
+```json
+{
+  "package": "pydantic",
+  "from_version": "1.10.0",
+  "to_version": "2.0.0",
+  "breaking_only": true,
+  "auto_fix": false,
+  "step": [1, 2],
+  "validate": false,
+  "format": "markdown"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `package` | string | ✅ | Package name (e.g. `pydantic`, `requests`) |
+| `from_version` | string | — | Current version (used to select a manifest range) |
+| `to_version` | string | — | Target version |
+| `breaking_only` | boolean | — | Only report `breaking` changes (default: true) |
+| `auto_fix` | boolean | — | Apply AST auto-fixes (default: false) |
+| `step` | integer[] | — | Steps to auto-fix; omit for every auto-fixable step |
+| `validate` | boolean | — | Rescan for remaining old patterns (default: false) |
+| `format` | string | — | `markdown` (default) or `json` |
+
+**Example:**
+
+```
+cerebrofy_upgrade(package="pydantic", from_version="1.10", to_version="2.0", format="json")
+→ { "breaking_changes": [...], "steps": [...], "total_effort_hours": 0.4, "risk": "LOW" }
+
+cerebrofy_upgrade(package="pydantic", validate=true, format="json")
+→ { "passed": false, "remaining": [{ "file": "models.py", "line": 12, ... }] }
+```
+
+Errors use `[CODE] message`: `NO_INDEX`, `PACKAGE_NOT_USED`, `MANIFEST_NOT_FOUND`, `VERSION_NOT_FOUND`. Custom API diffs are CLI-only (`--manifest` / `--diff`).
+
+---
+
+### `cerebrofy_review`
+
+Graph-aware review of a local diff or GitHub PR. Combines blast radius, warning
+memories and past decisions, architecture rules, test coverage gaps, missing
+caller updates, cross-lobe coupling, and knowledge-silo ownership into one
+severity-sorted report, plus suggested reviewers and a PR-ready summary.
+
+**Input schema:**
+
+```json
+{
+  "diff": "HEAD~1",
+  "pr": 142,
+  "severity": "all",
+  "post_comments": false,
+  "format": "markdown"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `diff` | string | — | Git ref to diff against (e.g. `HEAD~1`, `main`) |
+| `pr` | integer | — | GitHub PR number to review (requires `gh` auth) |
+| `severity` | string | — | Minimum severity: `error`, `warning`, or `all` (default: `all`) |
+| `post_comments` | boolean | — | Post findings as inline PR comments plus a summary (requires `pr` and `gh` auth; default: false — local dry-run) |
+| `format` | string | — | `markdown` (default) or `json` |
+
+**Output:** findings sorted by `severity_score` descending, with `skipped_checks`
+for degraded integrations, `suggested_reviewers`, health delta, and a PR-ready
+markdown summary (or the full report object in JSON).
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NO_DIFF_PROVIDED]` when
+neither `diff` nor `pr` is supplied; `[GH_NOT_AUTHENTICATED]` when `gh` is
+unavailable or unauthenticated.
 
 ---
 
