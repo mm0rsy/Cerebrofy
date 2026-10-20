@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **30 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **31 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -102,6 +102,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type |
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories |
 | `cerebrofy_governance` | Lobe ownership and review governance: generate CODEOWNERS, suggest reviewers for a PR/diff, check reporting-only governance rules |
+| `cerebrofy_review` | Graph-aware AI review copilot: reviews a local diff or GitHub PR with blast radius, memories, arch rules, coverage gaps, coupling, and suggested reviewers; posting is opt-in |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -900,6 +901,43 @@ cerebrofy_upgrade(package="pydantic", validate=true, format="json")
 ```
 
 Errors use `[CODE] message`: `NO_INDEX`, `PACKAGE_NOT_USED`, `MANIFEST_NOT_FOUND`, `VERSION_NOT_FOUND`. Custom API diffs are CLI-only (`--manifest` / `--diff`).
+
+---
+
+### `cerebrofy_review`
+
+Graph-aware review of a local diff or GitHub PR. Combines blast radius, warning
+memories and past decisions, architecture rules, test coverage gaps, missing
+caller updates, cross-lobe coupling, and knowledge-silo ownership into one
+severity-sorted report, plus suggested reviewers and a PR-ready summary.
+
+**Input schema:**
+
+```json
+{
+  "diff": "HEAD~1",
+  "pr": 142,
+  "severity": "all",
+  "post_comments": false,
+  "format": "markdown"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `diff` | string | — | Git ref to diff against (e.g. `HEAD~1`, `main`) |
+| `pr` | integer | — | GitHub PR number to review (requires `gh` auth) |
+| `severity` | string | — | Minimum severity: `error`, `warning`, or `all` (default: `all`) |
+| `post_comments` | boolean | — | Post findings as inline PR comments plus a summary (requires `pr` and `gh` auth; default: false — local dry-run) |
+| `format` | string | — | `markdown` (default) or `json` |
+
+**Output:** findings sorted by `severity_score` descending, with `skipped_checks`
+for degraded integrations, `suggested_reviewers`, health delta, and a PR-ready
+markdown summary (or the full report object in JSON).
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NO_DIFF_PROVIDED]` when
+neither `diff` nor `pr` is supplied; `[GH_NOT_AUTHENTICATED]` when `gh` is
+unavailable or unauthenticated.
 
 ---
 
