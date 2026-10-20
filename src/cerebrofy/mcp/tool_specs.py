@@ -359,6 +359,51 @@ _VULN_SCHEMA: dict[str, Any] = {
     "required": ["package"],
 }
 
+_UPGRADE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "package": {
+            "type": "string",
+            "description": "Package name to plan the upgrade for (e.g. 'pydantic', 'requests').",
+        },
+        "from_version": {
+            "type": "string",
+            "description": "Current pinned version (e.g. '1.10.0').",
+        },
+        "to_version": {
+            "type": "string",
+            "description": "Target version (e.g. '2.0.0').",
+        },
+        "breaking_only": {
+            "type": "boolean",
+            "description": "Only report breaking API changes (default: true).",
+            "default": True,
+        },
+        "auto_fix": {
+            "type": "boolean",
+            "description": "Apply mechanical auto-fixes using AST transforms (default: false).",
+            "default": False,
+        },
+        "step": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Which steps to auto-fix (e.g. [1, 2]); only used when auto_fix=true.",
+        },
+        "validate": {
+            "type": "boolean",
+            "description": "Validate that no old API patterns remain (post-upgrade).",
+            "default": False,
+        },
+        "format": {
+            "type": "string",
+            "description": "Output format (default: markdown).",
+            "enum": ["markdown", "json"],
+            "default": "markdown",
+        },
+    },
+    "required": ["package"],
+}
+
 _ARCH_CHECK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -779,6 +824,20 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         input_schema=_VULN_SCHEMA,
         handler_name="_handle_vuln",
         inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_upgrade",
+        description=(
+            "Plan a dependency upgrade from a curated breaking-change manifest: "
+            "find every indexed neuron that uses the changing API, score migration "
+            "effort, order the steps, and optionally apply precise AST auto-fixes. "
+            "Run with validate=true after upgrading to confirm no old patterns remain. "
+            "Offline — use --manifest/--diff on the CLI for custom API diffs. "
+            "Error codes: NO_INDEX, PACKAGE_NOT_USED, MANIFEST_NOT_FOUND, VERSION_NOT_FOUND."
+        ),
+        input_schema=_UPGRADE_SCHEMA,
+        handler_name="_handle_upgrade",
+        inject=False,
     ),
     ToolSpec(
         name="cerebrofy_arch_check",

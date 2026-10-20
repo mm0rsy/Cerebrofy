@@ -21,6 +21,7 @@ from cerebrofy.commands.mcp import cerebrofy_mcp
 from cerebrofy.commands.migrate import cerebrofy_migrate
 from cerebrofy.commands.session import session_group
 from cerebrofy.commands.update import cerebrofy_update
+from cerebrofy.commands.upgrade import cerebrofy_upgrade
 from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
 from cerebrofy.commands.silo import cerebrofy_silo
 from cerebrofy.commands.validate import cerebrofy_validate
@@ -69,6 +70,7 @@ main.add_command(cerebrofy_plan)
 main.add_command(cerebrofy_silo)
 main.add_command(session_group)
 main.add_command(cerebrofy_update)
+main.add_command(cerebrofy_upgrade)
 main.add_command(cerebrofy_validate)
 main.add_command(cerebrofy_vuln)
 

@@ -4,7 +4,7 @@ These tests pin the contract that the ``TOOL_SPECS`` registry in
 :mod:`cerebrofy.mcp.tool_specs` and the ``_HANDLERS``/``dispatch_tool`` wiring in
 :mod:`cerebrofy.mcp.server` implement:
 
-* the 29-tool catalog, in the exact advertised order;
+* the 30-tool catalog, in the exact advertised order;
 * the inject/no-inject split;
 * every spec resolves to a real ``_handle_*`` handler;
 * ``dispatch_tool`` returns the documented ``Unknown tool:`` error for unknown
@@ -49,6 +49,7 @@ EXPECTED_ORDER: list[str] = [
     "cerebrofy_silo",
     "cerebrofy_coverage_gap",
     "cerebrofy_vuln",
+    "cerebrofy_upgrade",
     "cerebrofy_arch_check",
     "cerebrofy_session_start",
     "cerebrofy_session_end",
@@ -90,6 +91,7 @@ INJECT_FALSE: set[str] = {
     "cerebrofy_link_memories",
     "cerebrofy_trace_history",
     "cerebrofy_plan",
+    "cerebrofy_upgrade",
     "cerebrofy_session_start",
     "cerebrofy_session_end",
     "cerebrofy_session_show",
@@ -101,27 +103,27 @@ INJECT_FALSE: set[str] = {
 # ---------------------------------------------------------------------------
 
 
-def test_tool_specs_count_is_29() -> None:
-    assert len(TOOL_SPECS) == 29
+def test_tool_specs_count_is_30() -> None:
+    assert len(TOOL_SPECS) == 30
 
 
 def test_tool_specs_order_matches_catalog() -> None:
     assert [s.name for s in TOOL_SPECS] == EXPECTED_ORDER
 
 
-def test_spec_by_name_has_29_unique_entries() -> None:
-    assert len(SPEC_BY_NAME) == 29
+def test_spec_by_name_has_30_unique_entries() -> None:
+    assert len(SPEC_BY_NAME) == 30
     assert set(SPEC_BY_NAME) == set(EXPECTED_ORDER)
 
 
 def test_no_duplicate_names_raised_at_build() -> None:
-    """Re-constructing the lookup from TOOL_SPECS must yield exactly 29 keys
+    """Re-constructing the lookup from TOOL_SPECS must yield exactly 30 keys
     (a duplicate would have raised ValueError at import time)."""
     rebuilt: dict[str, ToolSpec] = {}
     for s in TOOL_SPECS:
         assert s.name not in rebuilt
         rebuilt[s.name] = s
-    assert len(rebuilt) == 29
+    assert len(rebuilt) == 30
 
 
 @pytest.mark.parametrize("spec", TOOL_SPECS)
@@ -149,7 +151,7 @@ def test_inject_sets_partition_the_catalog() -> None:
     assert INJECT_TRUE | INJECT_FALSE == set(EXPECTED_ORDER)
     assert INJECT_TRUE.isdisjoint(INJECT_FALSE)
     assert len(INJECT_TRUE) == 14
-    assert len(INJECT_FALSE) == 15
+    assert len(INJECT_FALSE) == 16
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +164,7 @@ def test_all_handlers_resolve_in_server() -> None:
     pytest.importorskip("mcp")
     from cerebrofy.mcp import server as server_mod
 
-    assert len(server_mod._HANDLERS) == 29
+    assert len(server_mod._HANDLERS) == 30
     for spec in TOOL_SPECS:
         handler = server_mod._HANDLERS.get(spec.handler_name)
         assert handler is not None, f"missing handler {spec.handler_name} for {spec.name}"

@@ -19,7 +19,8 @@ src/cerebrofy/
 │   ├── migrate.py                ← cerebrofy migrate: sequential schema migrations
 │   ├── mcp.py                    ← cerebrofy mcp: MCP stdio server entry point
 │   ├── session.py                ← cerebrofy session: list/show/diff/search/export replays
-│   └── plan.py                   ← cerebrofy plan: graph-aware refactor plan (Idea #12)
+│   ├── plan.py                   ← cerebrofy plan: graph-aware refactor plan (Idea #12)
+│   └── upgrade.py                ← cerebrofy upgrade: dependency upgrade navigator (Idea #19)
 │
 ├── parser/
 │   ├── engine.py                 ← Tree-sitter runner; dispatches to .scm queries
@@ -63,7 +64,8 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   └── server.py                 ← MCPServer: tool + resource dispatch (29 tools)
+│   ├── server.py                 ← MCPServer: tool + resource dispatch (30 tools)
+│   └── tools/upgrade.py          ← cerebrofy_upgrade handler: plan / auto-fix / validate
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
@@ -86,6 +88,14 @@ src/cerebrofy/
 ├── update/
 │   ├── change_detector.py        ← ChangeSet via git diff or hash comparison
 │   └── scope_resolver.py         ← UpdateScope via depth-2 BFS from changed nodes
+│
+├── upgrade/                      ← (Idea #19) Offline Dependency Upgrade Navigator
+│   ├── manifest.py               ← curated YAML/JSON manifests + version matching
+│   ├── scanner.py                ← indexed imports/APIs → per-change UsageSite list
+│   ├── planner.py                ← dependency-ordered steps, effort, risk, Markdown/JSON
+│   ├── fixer.py                  ← line-scoped AST transforms with re-parse safety
+│   ├── validator.py              ← post-upgrade rescan → PASS/FAIL + remaining sites
+│   └── manifests/                ← bundled pydantic v1→v2 and requests 2→3 manifests
 │
 ├── planning/                     ← Refactor Planner (Idea #12)
 │   ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
