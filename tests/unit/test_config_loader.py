@@ -13,6 +13,7 @@ from cerebrofy.config.loader import (
     ConfigError,
     CerebrоfyConfig,
     DatabaseConfig,
+    GovernanceConfig,
     PlanningConfig,
     SessionConfig,
     build_default_config,
@@ -475,4 +476,58 @@ def test_config_rejects_top_level_none(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.yaml"
     cfg_path.write_text("", encoding="utf-8")
     with pytest.raises(ConfigError, match="top-level YAML mapping"):
+        load_config(cfg_path)
+
+
+# --- Governance (Idea #18) -------------------------------------------------
+
+
+def test_governance_defaults_when_absent(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+    })
+    cfg = load_config(cfg_path)
+    assert cfg.governance == GovernanceConfig()
+
+
+def test_governance_custom_values(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "governance": {
+            "strategy": "hybrid",
+            "auto_sync_codeowners": True,
+            "fallback_owner": "@platform",
+            "activity_days": 30,
+        },
+    })
+    cfg = load_config(cfg_path)
+    assert cfg.governance.strategy == "hybrid"
+    assert cfg.governance.auto_sync_codeowners is True
+    assert cfg.governance.fallback_owner == "@platform"
+    assert cfg.governance.activity_days == 30
+
+
+def test_governance_rejects_unknown_strategy(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "governance": {"strategy": "vibes"},
+    })
+    with pytest.raises(ConfigError, match="git-blame/explicit/hybrid"):
+        load_config(cfg_path)
+
+
+def test_governance_rejects_non_bool_auto_sync(tmp_path: Path) -> None:
+    cfg_path = _write_config(tmp_path, {
+        "lobes": {"src": "src/"},
+        "tracked_extensions": [".py"],
+        "embedding_model": "local",
+        "governance": {"auto_sync_codeowners": "yes"},
+    })
+    with pytest.raises(ConfigError, match="must be a boolean"):
         load_config(cfg_path)

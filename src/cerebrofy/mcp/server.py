@@ -29,6 +29,7 @@ from pydantic import AnyUrl
 
 from cerebrofy.mcp.tool_specs import SPEC_BY_NAME, TOOL_SPECS
 from cerebrofy.mcp.tools.changelog import handle_changelog as _handle_changelog
+from cerebrofy.mcp.tools.governance import handle_governance as _handle_governance
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
 from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
@@ -1402,6 +1403,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_session_show": _handle_session_show,
     "_handle_plan": _handle_plan,
     "_handle_changelog": _handle_changelog,
+    "_handle_governance": _handle_governance,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
 if _unwired:

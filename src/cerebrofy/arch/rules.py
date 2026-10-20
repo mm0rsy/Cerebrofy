@@ -8,6 +8,13 @@ from typing import Any, Callable
 
 import yaml
 
+from cerebrofy.governance.rules import (
+    GovernanceRulesConfig,
+    GovernanceRulesError,
+    governance_to_dict,
+    parse_governance_config,
+)
+
 RULES_FILENAME = "arch-rules.yaml"
 
 _SEVERITIES = ("error", "warning")
@@ -80,6 +87,7 @@ class RulesConfig:
 
     rules: tuple[ArchRule, ...]
     slack_webhook: str | None = None
+    governance: GovernanceRulesConfig | None = None
 
     @property
     def rule_names(self) -> tuple[str, ...]:
@@ -109,6 +117,8 @@ def dump_arch_rules(config: RulesConfig, path: Path) -> None:
     payload: dict[str, Any] = {"rules": [_rule_to_dict(rule) for rule in config.rules]}
     if config.slack_webhook:
         payload[SLACK_WEBHOOK_KEY] = config.slack_webhook
+    if config.governance is not None:
+        payload["governance"] = governance_to_dict(config.governance)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(payload, f, sort_keys=False, allow_unicode=True)
@@ -148,7 +158,14 @@ def parse_rules_config(data: dict[str, Any], path: Path) -> RulesConfig:
     webhook = data.get(SLACK_WEBHOOK_KEY)
     if webhook is not None and not isinstance(webhook, str):
         raise RulesError(f"{path}: '{SLACK_WEBHOOK_KEY}' must be a webhook URL string")
-    return RulesConfig(rules=tuple(rules), slack_webhook=webhook or None)
+
+    try:
+        governance = parse_governance_config(data.get("governance"), path)
+    except GovernanceRulesError as exc:
+        raise RulesError(str(exc)) from exc
+    return RulesConfig(
+        rules=tuple(rules), slack_webhook=webhook or None, governance=governance
+    )
 
 
 def _parse_rule(index: int, raw: Any, path: Path) -> ArchRule:
@@ -384,4 +401,25 @@ _SCAFFOLD_CONTENT = """\
 #
 # Slack alerts (also settable via the CEREBROFY_SLACK_WEBHOOK environment var):
 # slack_webhook: "https://hooks.slack.com/services/..."
+#
+# Idea #18 — ownership governance rules (reporting only; never blocks):
+# governance:
+#   rules:
+#     - name: high-blast-requires-two-reviews
+#       description: Any PR touching blast_radius > 30 requires 2 approvals
+#       check:
+#         if_blast_radius: { gt: 30 }
+#         then_require_approvals: 2
+#
+#     - name: silo-lobes-require-backup
+#       description: Lobes with bus_factor=1 require a non-owner second reviewer
+#       check:
+#         if_bus_factor: { eq: 1 }
+#         then_require_non_owner_review: true
+#
+#     - name: new-neurons-require-coverage
+#       description: Any PR adding new neurons must include tests
+#       check:
+#         if_new_neurons: true
+#         then_require_test_file: true
 """
