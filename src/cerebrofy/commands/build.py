@@ -52,7 +52,7 @@ def _sync_codeowners(root: Path, config: CerebrоfyConfig, db_path: Path) -> Non
     finally:
         conn.close()
     try:
-        write_codeowners(result.path, result.content)
+        write_codeowners(result.path, result.content, repo_root=root)
         click.echo(f"Cerebrofy: CODEOWNERS synced ({len(result.lobes)} lobes).")
     except FileExistsError as exc:
         click.echo(f"Warning: CODEOWNERS not synced — {exc}", err=True)

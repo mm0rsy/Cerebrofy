@@ -52,6 +52,8 @@ def _render_rules(result: Any, fmt: str) -> str:
     for item in result.evaluations:
         icon = icons.get(item.status, "•")
         lines.append(f"- {icon} **{item.name}** — {item.reason}")
+    if not result.evaluations:
+        lines.append("_No governance rules configured._")
     return "\n".join(lines)
 
 

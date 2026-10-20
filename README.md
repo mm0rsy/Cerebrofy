@@ -550,6 +550,7 @@ Own the codebase instead of maintaining CODEOWNERS by hand. Ownership is derived
 cerebrofy governance generate-codeowners              # write ./CODEOWNERS
 cerebrofy governance generate-codeowners --dry-run    # preview without writing
 cerebrofy governance generate-codeowners --output .github/CODEOWNERS
+cerebrofy governance sync                             # regenerate in place after ownership changes
 cerebrofy governance suggest-reviewers --pr 142       # primary / secondary / backup
 cerebrofy governance suggest-reviewers --diff origin/main --format json
 cerebrofy governance check-rules --lobe auth          # reporting only

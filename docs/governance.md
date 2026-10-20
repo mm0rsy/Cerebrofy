@@ -54,7 +54,13 @@ cerebrofy governance generate-codeowners              # write ./CODEOWNERS
 cerebrofy governance generate-codeowners --dry-run    # print only
 cerebrofy governance generate-codeowners --output .github/CODEOWNERS
 cerebrofy governance generate-codeowners --force      # overwrite a manual file
+cerebrofy governance sync                             # regenerate ./CODEOWNERS in place
 ```
+
+`sync` is the explicit equivalent of the opt-in build hook below: it
+regenerates `<repo>/CODEOWNERS` and, like the build hook, refuses to overwrite a
+hand-maintained file. Use `generate-codeowners --force` when you intentionally
+want to replace one.
 
 Generated files start with:
 
@@ -66,7 +72,9 @@ Generated files start with:
 The generator refuses to overwrite a file that does not carry this header unless
 `--force` is passed. Each block includes the lobe's bus factor; cross-lobe
 callers contribute a co-reviewer; lobes with no commit history receive the
-configured fallback owner.
+configured fallback owner. If the repository itself has no commits at all,
+generation fails with `[NO_GIT_HISTORY]` instead of emitting an all-fallback
+file.
 
 `tests/` is treated as shared ownership: every contributing author from the test
 lobe (or, when there is no test lobe, every primary owner) is listed.

@@ -45,6 +45,7 @@ Error codes in the result:
 cerebrofy governance generate-codeowners              # write ./CODEOWNERS
 cerebrofy governance generate-codeowners --dry-run    # preview only
 cerebrofy governance generate-codeowners --output .github/CODEOWNERS
+cerebrofy governance sync                             # regenerate ./CODEOWNERS in place
 cerebrofy governance suggest-reviewers --pr 142
 cerebrofy governance suggest-reviewers --diff origin/main --format json
 cerebrofy governance check-rules --lobe auth

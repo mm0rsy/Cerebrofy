@@ -38,7 +38,7 @@ def test_sync_codeowners_writes_through_generator(tmp_path: Path) -> None:
         conn.close()
 
     generate.assert_called_once()
-    write.assert_called_once_with(result.path, result.content)
+    write.assert_called_once_with(result.path, result.content, repo_root=tmp_path)
 
 
 def test_sync_codeowners_warns_when_file_is_manual(tmp_path: Path) -> None:

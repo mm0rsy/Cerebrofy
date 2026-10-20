@@ -717,6 +717,14 @@ def test_mcp_governance_catalog_schema() -> None:
     ]
 
 
+def test_mcp_governance_render_rules_without_rules() -> None:
+    from cerebrofy.governance.rules import GovernanceCheckResult
+    from cerebrofy.mcp.tools.governance import _render_rules
+
+    rendered = _render_rules(GovernanceCheckResult(), "markdown")
+    assert "_No governance rules configured._" in rendered
+
+
 def test_mcp_governance_no_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

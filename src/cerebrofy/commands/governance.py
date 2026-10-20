@@ -173,11 +173,42 @@ def generate_codeowners_command(
         click.echo(result.content, nl=False)
         return
     try:
-        write_codeowners(target, result.content, force=force)
+        write_codeowners(target, result.content, force=force, repo_root=root)
     except FileExistsError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(_EXIT_USAGE)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(_EXIT_USAGE)
     click.echo(f"Cerebrofy: wrote {target} ({len(result.lobes)} lobes).")
+
+
+# ---------------------------------------------------------------------------
+# sync
+# ---------------------------------------------------------------------------
+
+
+@cerebrofy_governance.command("sync")
+def sync_codeowners_command() -> None:
+    """Regenerate CODEOWNERS in place (same protection as build auto-sync)."""
+    root = _resolve_root()
+    config = _load_config(root)
+    conn = _open_db(root)
+    try:
+        try:
+            result = generate_codeowners(conn, root, config)
+        except NoGitHistoryError as exc:
+            click.echo(f"Error: [NO_GIT_HISTORY] {exc}", err=True)
+            sys.exit(_EXIT_ERROR)
+    finally:
+        conn.close()
+
+    try:
+        write_codeowners(result.path, result.content, repo_root=root)
+    except FileExistsError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(_EXIT_USAGE)
+    click.echo(f"Cerebrofy: CODEOWNERS synced ({len(result.lobes)} lobes).")
 
 
 # ---------------------------------------------------------------------------
