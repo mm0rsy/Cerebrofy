@@ -35,16 +35,16 @@ from cerebrofy.arch.checker import fix_hint, run_arch_check
 from cerebrofy.arch.rules import RulesError
 from cerebrofy.config.loader import load_arch_rules, load_config
 from cerebrofy.db.connection import check_schema_version
-from cerebrofy.epistemic.state import compute_epistemic_state, EpistemicState
+from cerebrofy.epistemic.state import compute_epistemic_state
 from cerebrofy.errors import (
     CEREBROFY_ERROR,
+    CerebrofyError,
     GH_NOT_AUTHENTICATED,
     NO_DIFF_PROVIDED,
     NO_INDEX,
     REF_NOT_FOUND,
-    CerebrofyError,
 )
-from cerebrofy.intent.loader import load_intent, sprint_priority_lobes
+from cerebrofy.intent.loader import sprint_priority_lobes
 from cerebrofy.memory.store import Memory, list_memories
 from cerebrofy.review.finding import (
     Finding,

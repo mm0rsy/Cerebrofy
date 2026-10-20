@@ -16,7 +16,6 @@ is written; a file that would become syntactically invalid is left untouched.
 from __future__ import annotations
 
 import ast
-from bisect import bisect_right
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -318,9 +317,7 @@ def apply_fixes(
 
     usage_by_index = {usage.change_index: usage for usage in scan.usages}
     step_by_number = {step.step_number: step for step in plan.steps}
-    results: list[FixResult] = []
-
-    # Track modifications per file for atomic rollback
+    all_results: list[FixResult] = []
     # Map file -> (original_source, list of (step_number, edits, target_lines))
     file_modifications: dict[Path, tuple[str, list[tuple[int, list[tuple[int, int, str]], set[int]]]]] = {}
     all_results: list[FixResult] = []
@@ -429,7 +426,7 @@ def apply_fixes(
             updated = _apply_edits(original, all_edits)
             try:
                 ast.parse(updated)
-            except SyntaxError as exc:
+            except SyntaxError:
                 # If merge causes syntax error, rollback all
                 for path2, (orig, _) in file_modifications.items():
                     try:

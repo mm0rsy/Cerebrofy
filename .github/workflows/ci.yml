@@ -91,7 +91,11 @@ jobs:
   # ───────────────────────────────────────────────────────────────────────────
   cli-gates:
     name: CLI gates (validate/health/coverage-gap/vuln/arch)
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
