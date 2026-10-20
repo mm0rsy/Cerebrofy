@@ -348,8 +348,6 @@ def cerebrofy_build() -> None:
         docs_dir = root / "docs" / "cerebrofy"
         build_step6_markdown(db_path, config, state_hash, docs_dir)
 
-        _record_health_snapshot(db_path, config.lobes, str(root))
-
         if config.governance.auto_sync_codeowners:
             try:
                 _sync_codeowners(root, config, db_path)
@@ -357,6 +355,8 @@ def cerebrofy_build() -> None:
                 click.echo(
                     f"Warning: CODEOWNERS sync failed (non-fatal): {exc}", err=True
                 )
+
+        _record_health_snapshot(db_path, config.lobes, str(root))
 
         # At-rest integrity sidecar: after the health snapshot (the last write
         # to cerebrofy.db) and after its connection closed, so WAL frames are
