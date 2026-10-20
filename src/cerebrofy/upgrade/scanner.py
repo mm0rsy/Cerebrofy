@@ -205,6 +205,33 @@ def _module_imports(dotted: str | None, package: str) -> bool:
     return normalised == pkg or normalised.startswith(pkg + ".")
 
 
+def _resolve_reexports(tree: ast.AST, package: str) -> dict[str, str]:
+    """Return a mapping of local aliases to their fully-qualified package names.
+
+    Handles:
+    - ``from pydantic import BaseModel as BM`` -> {"BM": "pydantic.BaseModel"}
+    - ``from pydantic import BaseModel`` -> {"BaseModel": "pydantic.BaseModel"}
+    - ``import pydantic as pd`` -> {"pd": "pydantic"}
+    - ``import pydantic`` -> {"pydantic": "pydantic"}
+    """
+    aliases: dict[str, str] = {}
+    pkg = _normalise_package(package)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module
+            if module and _module_imports(module, package):
+                for alias in node.names:
+                    local = alias.asname or alias.name
+                    aliases[local] = f"{module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if _module_imports(alias.name, package):
+                    local = alias.asname or alias.name
+                    aliases[local] = alias.name
+    return aliases
+
+
 def detect_imports(source: str, package: str) -> tuple[bool, list[int]]:
     """Return ``(imported, [1-based line numbers])`` for *package* in *source*."""
     pkg = _normalise_package(package)
@@ -226,6 +253,19 @@ def detect_imports(source: str, package: str) -> tuple[bool, list[int]]:
         elif isinstance(node, ast.ImportFrom):
             if _module_imports(node.module, package):
                 lines.append(node.lineno)
+        # Dynamic import patterns: __import__("pydantic"), importlib.import_module("pydantic")
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in ("__import__", "importlib.import_module"):
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        if _module_imports(arg.value, package):
+                            lines.append(node.lineno)
+            elif isinstance(func, ast.Attribute) and func.attr == "import_module":
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                        if _module_imports(arg.value, package):
+                            lines.append(node.lineno)
     return bool(lines), sorted(set(lines))
 
 
@@ -283,6 +323,14 @@ def scan_package(
         scan_this_file = imported or (file in edge_files) or not require_import
         if not scan_this_file:
             continue
+
+        # Resolve re-exports and aliases for this file
+        reexport_map = {}
+        try:
+            tree = ast.parse(source)
+            reexport_map = _resolve_reexports(tree, package)
+        except SyntaxError:
+            pass  # regex fallback already handled in detect_imports
 
         source_lines = source.splitlines()
         for line_number, line_text in enumerate(source_lines, start=1):

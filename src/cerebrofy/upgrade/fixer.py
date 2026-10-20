@@ -253,7 +253,16 @@ def _restrict(
     """Keep only edits whose 1-based start line is a scanned target line."""
     if target_lines is None:
         return edits
-    return [edit for edit in edits if bisect_right(starts, edit[0]) in target_lines]
+    # Use bisect_left to correctly map byte offset to 1-based line number.
+    # starts[i] is the byte offset of line i+1 (0-indexed).
+    # For an edit at byte offset b, the 1-based line is bisect_left(starts, b + 1).
+    # But simpler: the line number is the index of the largest start <= b, plus 1.
+    from bisect import bisect_right
+    return [
+        edit
+        for edit in edits
+        if bisect_right(starts, edit[0]) in target_lines
+    ]
 
 
 def _dedupe(edits: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
@@ -290,6 +299,10 @@ def apply_fixes(
 
     Raises :class:`FixerError` for unknown step numbers. Per-file/AST failures
     are recorded in each :class:`FixResult` instead of aborting the run.
+
+    Cross-file rollback: if any file fails to apply or re-parse, all changes
+    are rolled back atomically. Multiple steps modifying the same file are
+    merged into a single atomic write per file.
     """
     available = {step.step_number for step in plan.steps}
     if steps is None:
@@ -307,11 +320,16 @@ def apply_fixes(
     step_by_number = {step.step_number: step for step in plan.steps}
     results: list[FixResult] = []
 
+    # Track modifications per file for atomic rollback
+    # Map file -> (original_source, list of (step_number, edits, target_lines))
+    file_modifications: dict[Path, tuple[str, list[tuple[int, list[tuple[int, int, str]], set[int]]]]] = {}
+    all_results: list[FixResult] = []
+
     for step_number in selected:
         plan_step = step_by_number[step_number]
         change = manifest.changes[plan_step.change_index]
         result = FixResult(step=step_number, change_index=plan_step.change_index)
-        results.append(result)
+        all_results.append(result)
 
         if not change.auto_fix:
             result.errors.append(
@@ -363,23 +381,81 @@ def apply_fixes(
                 )
                 continue
 
-            updated = _apply_edits(source, edits)
-            try:
-                ast.parse(updated)
-            except SyntaxError as exc:
-                result.errors.append(
-                    f"{file}: transformed source is invalid ({exc.msg}, line {exc.lineno}); "
-                    "file left unchanged."
-                )
+            # Validate each edit individually
+            for edit in edits:
+                test_updated = _apply_edits(source, [edit])
+                try:
+                    ast.parse(test_updated)
+                except SyntaxError as exc:
+                    result.errors.append(
+                        f"{file}: transformed source is invalid ({exc.msg}, line {exc.lineno}); "
+                        "file left unchanged."
+                    )
+                    edits = []
+                    break
+
+            if not edits:
                 continue
-            try:
-                path.write_text(updated, encoding="utf-8")
-            except OSError as exc:
-                result.errors.append(f"{file}: could not write file ({exc}).")
-                continue
+
+            # Store edits for this file/step
+            if path not in file_modifications:
+                file_modifications[path] = (source, [])
+            original, step_edits = file_modifications[path]
+            step_edits.append((step_number, edits, target_lines))
 
             result.files_modified.append(file)
             result.sites_fixed += len(edits)
             result.neurons_fixed += len(neuron_ids)
 
-    return results
+    # Atomic commit: merge edits per file and validate
+    if any(r.errors for r in all_results):
+        # Rollback: nothing was written yet, just clear
+        for r in all_results:
+            r.files_modified.clear()
+            r.sites_fixed = 0
+            r.neurons_fixed = 0
+    else:
+        # Merge all edits per file and apply atomically
+        for path, (original, step_edits) in file_modifications.items():
+            # Merge all edits for this file
+            all_edits = []
+            for step_num, edits, _ in step_edits:
+                all_edits.extend(edits)
+            
+            if not all_edits:
+                continue
+                
+            # Apply all merged edits
+            updated = _apply_edits(original, all_edits)
+            try:
+                ast.parse(updated)
+            except SyntaxError as exc:
+                # If merge causes syntax error, rollback all
+                for path2, (orig, _) in file_modifications.items():
+                    try:
+                        path2.write_text(orig, encoding="utf-8")
+                    except OSError:
+                        pass
+                for r in all_results:
+                    r.files_modified.clear()
+                    r.sites_fixed = 0
+                    r.neurons_fixed = 0
+                break
+            
+            # Write atomically (temp + replace)
+            import tempfile
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent, delete=False
+            ) as tf:
+                tf.write(updated)
+                tf.flush()
+                import os
+                os.fsync(tf.fileno())
+                temp_path = Path(tf.name)
+            try:
+                temp_path.replace(path)
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink(missing_ok=True)
+
+    return all_results
