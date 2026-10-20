@@ -326,7 +326,7 @@ def _memory_findings(
                 ]
         finally:
             conn.close()
-    except (sqlite3.Error, OSError):
+    except Exception:  # sqlite errors, OSError, malformed memory rows, ...
         return [], True
 
     findings: list[Finding] = []
@@ -338,9 +338,12 @@ def _memory_findings(
 
 
 def _memory_finding(context: _Context, memory: Memory, *, warning: bool) -> Finding:
-    created = datetime.datetime.fromtimestamp(
-        memory.created_ts, tz=datetime.timezone.utc
-    ).date().isoformat()
+    try:
+        created = datetime.datetime.fromtimestamp(
+            memory.created_ts, tz=datetime.timezone.utc
+        ).date().isoformat()
+    except (OverflowError, OSError, TypeError, ValueError):
+        created = "unknown date"
     body = memory.body.strip()
     if len(body) > _MEMORY_BODY_LIMIT:
         body = body[:_MEMORY_BODY_LIMIT].rstrip() + "…"
@@ -528,35 +531,74 @@ def _caller_update_findings(
     return findings
 
 
-def _compute_health_delta(
+@dataclass
+class _GraphSnapshot:
+    """Node/edge/lobe data loaded once for health and coupling checks."""
+
+    node_files: dict[str, str]
+    health_lobes: dict[str, str]
+    edges: list[tuple[str, str]]
+
+
+def _load_graph_snapshot(
     conn: sqlite3.Connection,
     contexts: list[_Context],
     root: Path,
-) -> HealthDelta:
-    """Return coupling delta and average blast radius for the changed neurons."""
+) -> _GraphSnapshot:
+    """Load the graph data shared by the health-delta and coupling checks."""
     from cerebrofy.health.metrics import _lobe_for_file
 
-    changed_ids = {context.neuron.id for context in contexts}
-    rows = conn.execute(
-        "SELECT id, file FROM nodes WHERE type != 'module'"
-    ).fetchall()
-    node_lobe = {
-        str(node_id): _lobe_for_file(str(file_path), {})
-        for node_id, file_path in rows
-    }
+    node_files: dict[str, str] = {}
+    health_lobes: dict[str, str] = {}
+    for node_id, file_path, node_type in conn.execute(
+        "SELECT id, file, type FROM nodes"
+    ).fetchall():
+        key = str(node_id)
+        node_files[key] = str(file_path)
+        # Match the SQL ``type != 'module'`` filter (NULL types are excluded).
+        if node_type is not None and node_type != "module":
+            health_lobes[key] = _lobe_for_file(str(file_path), {})
 
-    edge_rows = conn.execute(
-        "SELECT src_id, dst_id FROM edges WHERE rel_type != 'RUNTIME_BOUNDARY'"
-    ).fetchall()
+    # Prefer the configured lobe map when available; ad-hoc DBs keep the
+    # path-derived fallback computed above.
+    if contexts and health_lobes:
+        try:
+            config = load_config(root / ".cerebrofy" / "config.yaml")
+            health_lobes = {
+                node_id: _lobe_for_file(node_files[node_id], config.lobes)
+                for node_id in health_lobes
+            }
+        except Exception:
+            pass
+
+    edges = [
+        (str(src), str(dst))
+        for src, dst in conn.execute(
+            "SELECT src_id, dst_id FROM edges WHERE rel_type != 'RUNTIME_BOUNDARY'"
+        ).fetchall()
+    ]
+    return _GraphSnapshot(
+        node_files=node_files,
+        health_lobes=health_lobes,
+        edges=edges,
+    )
+
+
+def _compute_health_delta(
+    snapshot: _GraphSnapshot,
+    contexts: list[_Context],
+) -> HealthDelta:
+    """Return coupling delta and average blast radius for the changed neurons."""
+    changed_ids = {context.neuron.id for context in contexts}
     total_edges = 0
     total_cross = 0
     changed_edges = 0
     changed_cross = 0
-    for src, dst in edge_rows:
-        if src not in node_lobe or dst not in node_lobe:
+    for src, dst in snapshot.edges:
+        if src not in snapshot.health_lobes or dst not in snapshot.health_lobes:
             continue
         total_edges += 1
-        is_cross = node_lobe[src] != node_lobe[dst]
+        is_cross = snapshot.health_lobes[src] != snapshot.health_lobes[dst]
         if is_cross:
             total_cross += 1
         if src in changed_ids or dst in changed_ids:
@@ -568,31 +610,6 @@ def _compute_health_delta(
     local = changed_cross / changed_edges if changed_edges else 0.0
     coupling_delta = round(local - overall, 4) if changed_edges else 0.0
 
-    # Use the configured lobe map when available for a more accurate coupling
-    # delta; the fallback above still produces a stable signal for ad-hoc DBs.
-    if contexts:
-        try:
-            config = load_config(root / ".cerebrofy" / "config.yaml")
-            node_lobe = {
-                str(node_id): _lobe_for_file(str(file_path), config.lobes)
-                for node_id, file_path in rows
-            }
-            total_cross = 0
-            changed_cross = 0
-            for src, dst in edge_rows:
-                if src not in node_lobe or dst not in node_lobe:
-                    continue
-                is_cross = node_lobe[src] != node_lobe[dst]
-                if is_cross:
-                    total_cross += 1
-                if (src in changed_ids or dst in changed_ids) and is_cross:
-                    changed_cross += 1
-            overall = total_cross / total_edges if total_edges else 0.0
-            local = changed_cross / changed_edges if changed_edges else 0.0
-            coupling_delta = round(local - overall, 4) if changed_edges else 0.0
-        except Exception:
-            pass
-
     avg_blast = (
         sum(context.caller_count for context in contexts) / len(contexts)
         if contexts
@@ -603,25 +620,19 @@ def _compute_health_delta(
 
 def _coupling_findings(
     contexts: list[_Context],
-    conn: sqlite3.Connection,
+    snapshot: _GraphSnapshot,
 ) -> list[Finding]:
     """Flag changed neurons whose immediate edges cross lobe boundaries."""
-    rows = conn.execute(
-        "SELECT src_id, dst_id FROM edges WHERE rel_type != 'RUNTIME_BOUNDARY'"
-    ).fetchall()
-    node_files = {
-        str(node_id): str(file_path)
-        for node_id, file_path in conn.execute("SELECT id, file FROM nodes").fetchall()
-    }
 
     def lobe(node_id: str) -> str:
-        return Path(node_files.get(node_id, "")).parts[0] if node_files.get(node_id) else ""
+        file_path = snapshot.node_files.get(node_id, "")
+        return Path(file_path).parts[0] if file_path else ""
 
     findings: list[Finding] = []
     for context in contexts:
         touching = [
             (src, dst)
-            for src, dst in rows
+            for src, dst in snapshot.edges
             if context.neuron.id in (src, dst)
         ]
         other_lobes = sorted(
@@ -772,8 +783,9 @@ def run_review(
     behaviors.extend(coverage_findings)
     skipped.extend(coverage_skipped)
 
-    health_delta = _compute_health_delta(conn, contexts, root)
-    behaviors.extend(_coupling_findings(contexts, conn))
+    snapshot = _load_graph_snapshot(conn, contexts, root)
+    health_delta = _compute_health_delta(snapshot, contexts)
+    behaviors.extend(_coupling_findings(contexts, snapshot))
 
     reviewers, silo_findings = _silo_signals(contexts, root, conn)
     behaviors.extend(silo_findings)

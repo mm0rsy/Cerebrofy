@@ -46,7 +46,7 @@ src/
     ├── commands/validate.py     ← cerebrofy validate: drift classification command
     ├── commands/migrate.py      ← cerebrofy migrate: sequential schema migration runner
     ├── commands/mcp.py          ← cerebrofy mcp: MCP stdio server entry point
-    └── mcp/server.py            ← MCPServer: 6 registered tools; all operational (cerebrofy_build,
+    └── mcp/server.py            ← MCPServer: 29 registered tools; all operational (cerebrofy_build,
                                     cerebrofy_update, cerebrofy_validate, get_neuron, list_lobes, search_code)
                                     — hybrid KNN + BFS search via search/hybrid.py
     └── queries/                 ← Bundled default .scm files per language

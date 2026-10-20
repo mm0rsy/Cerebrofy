@@ -196,6 +196,7 @@ def test_run_review_runs_all_checks(tmp_path: Path) -> None:
 
     assert report.suggested_reviewers[0].email == "alice@co.com"
     assert report.health_delta.avg_blast == 3.33
+    assert report.health_delta.coupling == 0.0
     assert "Cerebrofy Review Summary" in report.summary
 
 
@@ -270,6 +271,76 @@ def test_run_review_with_unreadable_memories(tmp_path: Path) -> None:
     assert any(
         "memories.db is unreadable" in note for note in report.skipped_checks
     )
+
+
+def _insert_warning_memory(root: Path, created_ts: object) -> None:
+    conn = sqlite3.connect(root / ".cerebrofy" / "db" / "memories.db")
+    try:
+        conn.execute(
+            "INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "mem-bad",
+                "auth/tokens.py::validate_token",
+                "auth",
+                "warning",
+                "Malformed timestamp",
+                "This row has a bad created_ts",
+                "bob@co.com",
+                created_ts,
+                "auth",
+                1.0,
+                "active",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_run_review_with_null_memory_timestamp(tmp_path: Path) -> None:
+    """A NULL created_ts must degrade to a skipped check, not abort the review."""
+    conn = make_repo(tmp_path)
+    _insert_warning_memory(tmp_path, None)
+    try:
+        with patch("cerebrofy.review.pipeline._blame_file", return_value={}):
+            report = run_review(
+                changed_files=["auth/tokens.py"], conn=conn, root=tmp_path
+            )
+    finally:
+        conn.close()
+
+    assert any(
+        "memories.db is unreadable" in note for note in report.skipped_checks
+    )
+    assert not any(
+        finding.check_type == "memory_violation" for finding in report.findings
+    )
+    # The rest of the review still ran.
+    assert report.findings
+
+
+def test_run_review_with_out_of_range_memory_timestamp(tmp_path: Path) -> None:
+    """Bad timestamps fall back to a date label instead of raising."""
+    conn = make_repo(tmp_path)
+    _insert_warning_memory(tmp_path, 10**18)
+    try:
+        with patch("cerebrofy.review.pipeline._blame_file", return_value={}):
+            report = run_review(
+                changed_files=["auth/tokens.py"], conn=conn, root=tmp_path
+            )
+    finally:
+        conn.close()
+
+    assert not any(
+        "memories.db is unreadable" in note for note in report.skipped_checks
+    )
+    memory_findings = [
+        finding
+        for finding in report.findings
+        if finding.check_type == "memory_violation"
+    ]
+    assert memory_findings
+    assert any("unknown date" in finding.message for finding in memory_findings)
 
 
 def test_run_review_empty_diff(tmp_path: Path) -> None:
