@@ -144,7 +144,10 @@ def render_markdown(
 # HTML
 # ---------------------------------------------------------------------------
 
-_CSS = """
+# Default self-contained stylesheet for HTML export. Hoisted to a named module
+# constant (m9 readability): the rendered HTML embeds it byte-for-byte, so this
+# value is treated as output and covered by render_html's tests.
+DEFAULT_HTML_CSS = """
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
      max-width:960px;margin:0 auto;padding:2rem;color:#24292e;line-height:1.6}
 h1{border-bottom:2px solid #e1e4e8;padding-bottom:.5rem}
@@ -186,7 +189,7 @@ def render_html(
         "<meta charset='UTF-8'>",
         "<meta name='viewport' content='width=device-width,initial-scale=1'>",
         f"<title>Session Replay — {_esc(session.id)}</title>",
-        f"<style>{_CSS}</style>",
+        f"<style>{DEFAULT_HTML_CSS}</style>",
         "</head>",
         "<body>",
         f"<h1>Session Replay — <code>{_esc(session.id)}</code></h1>",

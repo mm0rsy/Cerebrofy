@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from cerebrofy.cli import main
 from cerebrofy.embedder.base import Embedder
+from cerebrofy.errors import IntegrityError
 
 
 class _FakeEmbedder(Embedder):
@@ -238,3 +239,44 @@ def test_post_merge_hook_silent_when_hashes_match(
     )
     assert result.returncode == 0
     assert result.stderr == "", f"No warning expected when hashes match. Got: {result.stderr!r}"
+
+
+def test_build_and_update_write_integrity_sidecar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """S2/n12: build + update write a matching SHA256 sidecar; reads verify it."""
+    from cerebrofy.db.integrity import (
+        compute_db_sha256,
+        sidecar_path,
+        verify_integrity,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    _setup_git_repo(tmp_path)
+    runner = CliRunner()
+    _run_init_and_build(runner, tmp_path)
+
+    db_path = tmp_path / ".cerebrofy" / "db" / "cerebrofy.db"
+    side = sidecar_path(db_path)
+    assert side.is_file(), "build must write the integrity sidecar"
+    assert side.read_text(encoding="ascii").strip() == compute_db_sha256(db_path)
+    assert verify_integrity(db_path, "fail") is True
+
+    # Tampering is detected by the fail mode...
+    original = db_path.read_bytes()
+    db_path.write_bytes(original + b"\x00")
+    with pytest.raises(IntegrityError):
+        verify_integrity(db_path, "fail")
+    db_path.write_bytes(original)  # restore
+
+    # ...and update rewrites the sidecar for the new database state.
+    (tmp_path / "src" / "mymodule" / "main.py").write_text(
+        "def greet(name: str) -> str:\n    return f'Hello, {name}'\n\n"
+        "def farewell(name: str) -> str:\n    return f'Goodbye, {name}'\n",
+        encoding="utf-8",
+    )
+    with patch("cerebrofy.commands.update.get_embedder", return_value=_FakeEmbedder()):
+        result = runner.invoke(main, ["update"])
+    assert result.exit_code == 0, f"update failed:\n{result.output}"
+    assert side.read_text(encoding="ascii").strip() == compute_db_sha256(db_path)
+    assert verify_integrity(db_path, "fail") is True

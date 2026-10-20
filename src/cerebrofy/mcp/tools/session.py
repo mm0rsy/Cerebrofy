@@ -12,8 +12,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.errors import NO_INDEX
+from cerebrofy.mcp.errors import mcp_error as _err
 from cerebrofy.session.recorder import (
     NO_ACTIVE_SESSION,
+    RECORDING_DISABLED,
     SESSION_NOT_FOUND,
     SessionRecord,
     active_session,
@@ -25,19 +28,19 @@ from cerebrofy.session.recorder import (
     open_sessions_db,
     start_session,
 )
-
-
-def _err(message: str) -> list[Any]:
-    from mcp.types import TextContent
-    return [TextContent(type="text", text=message)]
+from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
 
 
 def _find_root(cwd: Path) -> Path:
-    current = cwd if cwd.is_dir() else cwd.parent
-    for candidate in (current, *current.parents):
-        if (candidate / ".cerebrofy" / "config.yaml").exists():
-            return candidate
-    raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
+    """Resolve the repo root from *cwd* (delegates to the shared helper).
+
+    Honors an explicit ``--root``/``CEREBROFY_ROOT`` binding before walking up
+    so a manipulated CWD cannot redirect the tool at another project.
+    """
+    root = _find_repo_root_impl(cwd)
+    if root is None:
+        raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
+    return root
 
 
 def _recording_enabled(config_path: Path) -> bool:
@@ -88,12 +91,12 @@ def handle_session_start(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     config_path = root / ".cerebrofy" / "config.yaml"
     if not _recording_enabled(config_path):
         return _err(
-            "RECORDING_DISABLED: session recording is opt-in. Set "
+            f"[{RECORDING_DISABLED}] session recording is opt-in. Set "
             "'record_sessions: true' in .cerebrofy/config.yaml and restart the "
             "MCP server."
         )
@@ -139,7 +142,7 @@ def handle_session_end(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
     outcome = arguments.get("outcome")
@@ -206,7 +209,7 @@ def handle_session_show(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except Exception:
-        return _err("NO_INDEX: could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
     if not (cerebrofy_dir / "db" / "sessions.db").exists():

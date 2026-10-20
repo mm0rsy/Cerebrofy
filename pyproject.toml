@@ -28,7 +28,7 @@ dependencies = [
     "pathspec>=0.12",
     "PyYAML>=6.0",
     "click>=8.1",
-    "sqlite-vec>=0.1.6",
+    "sqlite-vec>=0.1.6,<0.2.0",
     "rich-click>=1.9.7",
     "fastembed>=0.3",
 ]

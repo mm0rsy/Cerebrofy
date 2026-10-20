@@ -25,19 +25,36 @@ DEFAULT_TOP_K = 20
 # edges connect it to cluster members (spec: internal/total > 0.5).
 DEFAULT_INTERNAL_EDGE_RATIO = 0.5
 # Spec error bound: more than 200 matched neurons → CLUSTER_TOO_LARGE.
+# Per Idea #12 acceptance criteria — Error Codes table defines
+# CLUSTER_TOO_LARGE as "More than 200 neurons matched".
+# Source: .ideas/12-natural-language-refactor-planner/IDEA.md (Error Codes).
 MAX_CLUSTER_SIZE = 200
 # Spec error bound: fewer than 2 matched neurons → CLUSTER_TOO_SMALL.
+# Per Idea #12 acceptance criteria — Error Codes table defines
+# CLUSTER_TOO_SMALL as "Fewer than 2 neurons matched the description".
+# Source: .ideas/12-natural-language-refactor-planner/IDEA.md (Error Codes).
 MIN_CLUSTER_SIZE = 2
 
 
 class ClusterSizeError(Exception):
-    """Raised when the matched cluster falls outside the supported size range."""
+    """Raised when the matched cluster falls outside the supported size range.
 
-    def __init__(self, size: int) -> None:
-        super().__init__(
-            f"cluster size {size} is outside {MIN_CLUSTER_SIZE}..{MAX_CLUSTER_SIZE}"
-        )
+    ``low``/``high`` capture the *actual* bounds that were in effect when the
+    error was raised (the defaults are the spec's 2..200 range, but callers such
+    as ``find_extraction_cluster`` forward caller-supplied ``min_size``/
+    ``max_size`` so error messages report the real thresholds).
+    """
+
+    def __init__(
+        self,
+        size: int,
+        low: int = MIN_CLUSTER_SIZE,
+        high: int = MAX_CLUSTER_SIZE,
+    ) -> None:
+        super().__init__(f"cluster size {size} is outside {low}..{high}")
         self.size = size
+        self.low = low
+        self.high = high
 
 
 @dataclass(frozen=True)
@@ -95,23 +112,23 @@ def knn_seeds(
 # Phase 2: cluster expansion
 # ---------------------------------------------------------------------------
 
-def _placeholders(count: int) -> str:
+def _in_clause_placeholders(count: int) -> str:
     return ",".join("?" * count)
 
 
-def _node_ids_present(conn: sqlite3.Connection, ids: set[str]) -> set[str]:
+def _filter_existing_node_ids(conn: sqlite3.Connection, ids: set[str]) -> set[str]:
     """Filter *ids* down to those that exist in the nodes table."""
     if not ids:
         return set()
     ordered = sorted(ids)
     rows = conn.execute(
-        f"SELECT id FROM nodes WHERE id IN ({_placeholders(len(ordered))})",
+        f"SELECT id FROM nodes WHERE id IN ({_in_clause_placeholders(len(ordered))})",
         ordered,
     ).fetchall()
     return {row[0] for row in rows}
 
 
-def _neighbor_ids(conn: sqlite3.Connection, cluster_ids: set[str]) -> set[str]:
+def _collect_cluster_neighbors(conn: sqlite3.Connection, cluster_ids: set[str]) -> set[str]:
     """Return all edge endpoints adjacent to the cluster (excluding the cluster).
 
     RUNTIME_BOUNDARY edges are never traversed (Law II).
@@ -119,7 +136,7 @@ def _neighbor_ids(conn: sqlite3.Connection, cluster_ids: set[str]) -> set[str]:
     if not cluster_ids:
         return set()
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
+    ph = _in_clause_placeholders(len(ordered))
     rows = conn.execute(
         f"SELECT src_id, dst_id FROM edges "
         f"WHERE (src_id IN ({ph}) OR dst_id IN ({ph})) AND rel_type != ?",
@@ -152,7 +169,7 @@ def _edge_counts(
     total = int(total_row[0]) if total_row else 0
 
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
+    ph = _in_clause_placeholders(len(ordered))
     internal_row = conn.execute(
         f"SELECT COUNT(*) FROM edges WHERE rel_type != ? AND ("
         f"(src_id = ? AND dst_id IN ({ph})) OR (dst_id = ? AND src_id IN ({ph})))",
@@ -167,26 +184,30 @@ def expand_cluster(
     seeds: list[ClusterNeuron],
     *,
     internal_ratio: float = DEFAULT_INTERNAL_EDGE_RATIO,
+    min_size: int = MIN_CLUSTER_SIZE,
     max_size: int = MAX_CLUSTER_SIZE,
 ) -> list[ClusterNeuron]:
     """Expand *seeds* with densely connected neighbors (fixpoint, deterministic).
 
     A candidate joins when ``internal_edges / total_edges > internal_ratio``.
     Candidates are visited in sorted-id order so the result is deterministic.
-    Raises ClusterSizeError when the cluster would exceed *max_size*.
+    Raises ``ClusterSizeError`` when the cluster would exceed *max_size*; the
+    error reports the actual *min_size*..*max_size* bounds in effect.
     """
     cluster: dict[str, ClusterNeuron] = {seed.id: seed for seed in seeds}
 
     while True:
         members = set(cluster)
-        candidates = _node_ids_present(conn, _neighbor_ids(conn, members)) - members
+        candidates = _filter_existing_node_ids(
+            conn, _collect_cluster_neighbors(conn, members)
+        ) - members
         added = False
         for candidate_id in sorted(candidates):
             internal, total = _edge_counts(conn, candidate_id, set(cluster))
             if total <= 0 or internal / total <= internal_ratio:
                 continue
             if len(cluster) >= max_size:
-                raise ClusterSizeError(len(cluster) + 1)
+                raise ClusterSizeError(len(cluster) + 1, low=min_size, high=max_size)
             rows = _fetch_nodes_by_ids(conn, [candidate_id])
             node = rows.get(candidate_id)
             if node is None:
@@ -219,7 +240,7 @@ def _fetch_callers(
     src_ids: set[str],
 ) -> list[ClusterNeuron]:
     """Resolve caller ids to ClusterNeurons, sorted by (file, line, name)."""
-    present = _node_ids_present(conn, src_ids)
+    present = _filter_existing_node_ids(conn, src_ids)
     nodes = _fetch_nodes_by_ids(conn, sorted(present))
     callers = [
         ClusterNeuron(
@@ -247,10 +268,9 @@ def find_external_callers(
     if not cluster_ids:
         return []
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
     rows = conn.execute(
         f"SELECT DISTINCT src_id FROM edges "
-        f"WHERE dst_id IN ({ph}) AND src_id NOT IN ({ph}) AND rel_type != ?",
+        f"WHERE dst_id IN ({_in_clause_placeholders(len(ordered))}) AND src_id NOT IN ({_in_clause_placeholders(len(ordered))}) AND rel_type != ?",
         [*ordered, *ordered, RUNTIME_BOUNDARY],
     ).fetchall()
     return _fetch_callers(conn, {row[0] for row in rows})
@@ -264,9 +284,8 @@ def find_runtime_boundary_callers(
     if not cluster_ids:
         return []
     ordered = sorted(cluster_ids)
-    ph = _placeholders(len(ordered))
     rows = conn.execute(
-        f"SELECT DISTINCT src_id FROM edges WHERE dst_id IN ({ph}) AND rel_type = ?",
+        f"SELECT DISTINCT src_id FROM edges WHERE dst_id IN ({_in_clause_placeholders(len(ordered))}) AND rel_type = ?",
         [*ordered, RUNTIME_BOUNDARY],
     ).fetchall()
     return sorted(row[0] for row in rows)
@@ -282,19 +301,26 @@ def find_extraction_cluster(
     top_k: int = DEFAULT_TOP_K,
     *,
     internal_ratio: float = DEFAULT_INTERNAL_EDGE_RATIO,
+    min_size: int = MIN_CLUSTER_SIZE,
+    max_size: int = MAX_CLUSTER_SIZE,
 ) -> NeuronCluster:
     """Identify the cohesive neuron cluster for a refactoring description.
 
-    Raises ClusterSizeError when fewer than 2 seeds match (CLUSTER_TOO_SMALL)
-    or the seed/cluster size exceeds 200 (CLUSTER_TOO_LARGE).
+    Raises ``ClusterSizeError`` when fewer than *min_size* seeds match
+    (CLUSTER_TOO_SMALL) or the seed/cluster size exceeds *max_size*
+    (CLUSTER_TOO_LARGE). Both bounds default to the spec's 2..200 range but are
+    honored through the size-checking and cluster-expansion phases so error
+    messages report the thresholds actually in effect.
     """
     seeds = knn_seeds(conn, embedding, top_k=top_k)
-    if len(seeds) > MAX_CLUSTER_SIZE:
-        raise ClusterSizeError(len(seeds))
-    if len(seeds) < MIN_CLUSTER_SIZE:
-        raise ClusterSizeError(len(seeds))
+    if len(seeds) > max_size:
+        raise ClusterSizeError(len(seeds), low=min_size, high=max_size)
+    if len(seeds) < min_size:
+        raise ClusterSizeError(len(seeds), low=min_size, high=max_size)
 
-    neurons = expand_cluster(conn, seeds, internal_ratio=internal_ratio)
+    neurons = expand_cluster(
+        conn, seeds, internal_ratio=internal_ratio, min_size=min_size, max_size=max_size
+    )
     cluster_ids = {n.id for n in neurons}
     return NeuronCluster(
         seeds=seeds,

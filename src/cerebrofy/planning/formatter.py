@@ -13,7 +13,10 @@ from typing import Any
 
 from cerebrofy.planning.planner import RefactorPlan
 
-_MAX_NAMES_PER_ITEM = 6
+# Display cap: at most 6 neuron names are shown in a Markdown list item before
+# truncating with "… (+N more)". This keeps terminal columns readable and
+# mirrors the limit already enforced in CLI plan output.
+MAX_DISPLAY_NAMES_PER_FILE = 6
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +76,9 @@ def _title(description: str) -> str:
 
 def _names_for(ids: list[str], by_id: dict[str, str]) -> str:
     names = [by_id.get(nid, nid) for nid in ids]
-    if len(names) > _MAX_NAMES_PER_ITEM:
-        shown = ", ".join(names[:_MAX_NAMES_PER_ITEM])
-        return f"{shown}, … (+{len(names) - _MAX_NAMES_PER_ITEM} more)"
+    if len(names) > MAX_DISPLAY_NAMES_PER_FILE:
+        shown = ", ".join(names[:MAX_DISPLAY_NAMES_PER_FILE])
+        return f"{shown}, … (+{len(names) - MAX_DISPLAY_NAMES_PER_FILE} more)"
     return ", ".join(names)
 
 
@@ -124,8 +127,8 @@ def _structure_section(plan: RefactorPlan) -> list[str]:
         movers = [
             n for n in plan.cluster if n.file == source
         ]
-        names = ", ".join(n.name for n in movers[:_MAX_NAMES_PER_ITEM])
-        if len(movers) > _MAX_NAMES_PER_ITEM:
+        names = ", ".join(n.name for n in movers[:MAX_DISPLAY_NAMES_PER_FILE])
+        if len(movers) > MAX_DISPLAY_NAMES_PER_FILE:
             names += ", …"
         origin = f"  ← {source}" + (f" ({names})" if names else "")
         lines.append(f"{branch} {target}{origin}")

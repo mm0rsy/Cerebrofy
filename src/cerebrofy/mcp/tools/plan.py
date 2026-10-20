@@ -10,19 +10,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.mcp.errors import mcp_error as _err
+from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
+
 
 def _find_root(cwd: Path) -> Path:
-    """Walk up from CWD searching for .cerebrofy/config.yaml."""
-    current = cwd if cwd.is_dir() else cwd.parent
-    for candidate in [current, *current.parents]:
-        if (candidate / ".cerebrofy" / "config.yaml").exists():
-            return candidate
-    raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
+    """Resolve the repo root from *cwd* (delegates to the shared helper).
 
-
-def _err(message: str) -> list[Any]:
-    from mcp.types import TextContent
-    return [TextContent(type="text", text=message)]
+    Honors an explicit ``--root``/``CEREBROFY_ROOT`` binding before walking up
+    so a manipulated CWD cannot redirect the tool at another project.
+    """
+    root = _find_repo_root_impl(cwd)
+    if root is None:
+        raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
+    return root
 
 
 def handle_plan(arguments: dict[str, Any]) -> list[Any]:
@@ -33,6 +34,7 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
     from cerebrofy.planning.planner import NO_INDEX, PlanError, build_refactor_plan
     from cerebrofy.search.hybrid import embed_query
+    from cerebrofy.db.connection import open_db_readonly
 
     description = str(arguments.get("description", "") or "").strip()
     if not description:
@@ -45,7 +47,7 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     try:
         root = _find_root(Path.cwd())
     except FileNotFoundError:
-        return _err("NO_INDEX: could not find .cerebrofy directory")
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     config_path = root / ".cerebrofy" / "config.yaml"
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
@@ -58,19 +60,23 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     except ValueError as exc:
         return _err(f"[error] {exc}")
 
+    conn = open_db_readonly(db_path)
     try:
-        plan = build_refactor_plan(
-            description=description,
-            db_path=db_path,
-            embedding=embedding,
-            repo_root=root,
-            config_path=config_path,
-            dry_run=dry_run,
-        )
-    except PlanError as exc:
-        return _err(f"[{exc.code}] {exc.message}")
-    except ValueError as exc:
-        return _err(f"[error] {exc}")
+        try:
+            plan = build_refactor_plan(
+                description=description,
+                conn=conn,
+                embedding=embedding,
+                repo_root=root,
+                config_path=config_path,
+                dry_run=dry_run,
+            )
+        except PlanError as exc:
+            return _err(f"[{exc.code}] {exc.message}")
+        except ValueError as exc:
+            return _err(f"[error] {exc}")
 
-    text = plan_to_json(plan) if fmt == "json" else plan_to_markdown(plan)
-    return [TextContent(type="text", text=text)]
+        text = plan_to_json(plan) if fmt == "json" else plan_to_markdown(plan)
+        return [TextContent(type="text", text=text)]
+    finally:
+        conn.close()

@@ -2,31 +2,46 @@
 
 from __future__ import annotations
 
-from cerebrofy.changelog.generator import ChangelogEntry, ChangelogReport
+from dataclasses import dataclass, field
 
-#: Section heading per entry type, in display order.
-_SECTION_ORDER: tuple[tuple[str, str], ...] = (
-    ("breaking", "⚠️ Breaking Changes"),
-    ("security", "🔒 Security"),
-    ("feat", "🚀 Features"),
-    ("fix", "🐛 Fixes"),
-    ("perf", "⚡ Performance"),
-    ("refactor", "🔧 Refactors"),
-    ("internal", "🧹 Internal"),
-    ("intent_update", "🎯 Product Intent"),
-)
+from cerebrofy.changelog.types import ChangelogEntry, ChangelogReport
 
-#: Entry types an audience does not want to see.
-_AUDIENCE_SKIP: dict[str, frozenset[str]] = {
-    "developer": frozenset(),
-    "pm": frozenset({"internal", "intent_update"}),
-    "user": frozenset({"internal", "refactor", "perf", "intent_update"}),
+
+@dataclass(frozen=True)
+class EntryTypeMeta:
+    """Display metadata for a single changelog entry type.
+
+    ``heading`` is the section heading used in rendered output.
+    ``skip_audiences`` lists audiences that should not see this type's prose
+    (the entry is still present in the data model but rendered with empty
+    ``audience_text``).
+    """
+
+    heading: str
+    skip_audiences: frozenset[str] = field(default_factory=frozenset)
+
+
+#: Single source of truth for entry-type display: heading, display order
+#: (insertion order), and per-audience visibility.  Replaces the parallel
+#: ``_SECTION_ORDER`` / ``_AUDIENCE_SKIP`` structures.
+ENTRY_TYPE_META: dict[str, EntryTypeMeta] = {
+    "breaking": EntryTypeMeta("⚠️ Breaking Changes", frozenset()),
+    "security": EntryTypeMeta("🔒 Security", frozenset()),
+    "feat": EntryTypeMeta("🚀 Features", frozenset()),
+    "fix": EntryTypeMeta("🐛 Fixes", frozenset()),
+    "perf": EntryTypeMeta("⚡ Performance", frozenset({"user"})),
+    "refactor": EntryTypeMeta("🔧 Refactors", frozenset({"user"})),
+    "internal": EntryTypeMeta("🧹 Internal", frozenset({"pm", "user"})),
+    "intent_update": EntryTypeMeta("🎯 Product Intent", frozenset({"pm", "user"})),
 }
 
 
 def _visible_types(audience: str) -> tuple[tuple[str, str], ...]:
-    skip = _AUDIENCE_SKIP.get(audience, frozenset())
-    return tuple((kind, title) for kind, title in _SECTION_ORDER if kind not in skip)
+    return tuple(
+        (kind, meta.heading)
+        for kind, meta in ENTRY_TYPE_META.items()
+        if audience not in meta.skip_audiences
+    )
 
 
 def _entries_of(report: ChangelogReport, kind: str) -> list[ChangelogEntry]:

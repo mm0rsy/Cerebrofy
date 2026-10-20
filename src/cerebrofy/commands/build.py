@@ -11,7 +11,8 @@ from pathlib import Path
 import rich_click as click
 
 from cerebrofy.config.loader import CerebrоfyConfig, load_config
-from cerebrofy.db.connection import check_schema_version, open_db
+from cerebrofy.db.connection import check_schema_version, open_db, write_transaction
+from cerebrofy.db.integrity import write_sidecar
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
 from cerebrofy.db.schema import create_schema
 from cerebrofy.db.writer import (
@@ -151,16 +152,35 @@ def build_step5_commit(
     config: CerebrоfyConfig,
     ignore_rules: IgnoreRuleSet,
 ) -> str:
-    """Step 5: Compute file hashes, write state_hash + last_build, commit."""
+    """Step 5: Compute file hashes, write state_hash + last_build, commit.
+
+    Only the final file-hash + build-meta commit is wrapped in
+    ``write_transaction`` (atomic, serialized writer). Schema creation
+    (``build_step0_create_db``) and earlier parse/write steps have their own
+    lifecycle and are intentionally left out of this transaction. The build
+    writes to a private ``.tmp`` DB and is single-writer, but using the shared
+    helper keeps the commit path consistent with ``cerebrofy update``.
+
+    Note: the earlier write steps (``write_nodes`` / ``write_edges`` /
+    ``upsert_vectors``) rely on Python sqlite3's legacy auto-begin, which leaves
+    a transaction open on the connection. That accumulated transaction is flushed
+    with an explicit ``conn.commit()`` before entering ``write_transaction`` —
+    otherwise the nesting guard (``conn.in_transaction`` check) would reject the
+    call. The final hashes + build-meta commit remains the single atomic
+    ``write_transaction`` that this function owns.
+    """
     file_hash_map = collect_tracked_file_hashes(
         root,
         config.tracked_extensions,
         ignore_rules,
     )
-    write_file_hashes(conn, file_hash_map)
     state_hash = compute_state_hash(file_hash_map)
-    write_build_meta(conn, state_hash)
+    # Flush pending parse/write DML so write_transaction starts on a clean
+    # connection (it rejects nesting by contract — never weaken that).
     conn.commit()
+    with write_transaction(conn):
+        write_file_hashes(conn, file_hash_map)
+        write_build_meta(conn, state_hash)
 
     click.echo(f"Cerebrofy: Step 5/6 — Committing index (state_hash: {state_hash[:16]}...)")
     return state_hash
@@ -308,6 +328,12 @@ def cerebrofy_build() -> None:
         build_step6_markdown(db_path, config, state_hash, docs_dir)
 
         _record_health_snapshot(db_path, config.lobes, str(root))
+
+        # At-rest integrity sidecar: after the health snapshot (the last write
+        # to cerebrofy.db) and after its connection closed, so WAL frames are
+        # checkpointed before the file is hashed (S2/n12).
+        write_sidecar(db_path)
+
         _recompute_memory_decay_build(root, config)
 
         elapsed = time.monotonic() - start

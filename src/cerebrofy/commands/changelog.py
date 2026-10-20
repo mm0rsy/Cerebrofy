@@ -59,8 +59,20 @@ def cerebrofy_changelog(
     from cerebrofy.changelog.classifier import ChangelogError
     from cerebrofy.changelog.generator import generate_changelog, write_narrative_events
     from cerebrofy.db.connection import check_schema_version, open_db, open_db_readonly
+    from cerebrofy.utils.paths import InvalidRepoRootError, find_repo_root
 
-    root = Path.cwd()
+    try:
+        root = find_repo_root(Path.cwd())
+    except InvalidRepoRootError as exc:
+        click.echo(f"Error: [NO_INDEX] {exc}", err=True)
+        sys.exit(1)
+    if root is None:
+        click.echo(
+            "Error: [NO_INDEX] No index found. Run 'cerebrofy build' first.",
+            err=True,
+        )
+        sys.exit(1)
+
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     if not db_path.exists():
         click.echo("Error: [NO_INDEX] No index found. Run 'cerebrofy build' first.", err=True)

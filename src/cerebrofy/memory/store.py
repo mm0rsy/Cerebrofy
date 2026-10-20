@@ -37,12 +37,11 @@ class MemoryEdge:
 
 def open_memories_db(cerebrofy_dir: Path) -> sqlite3.Connection:
     """Open (or create) memories.db, load sqlite-vec, create schema idempotently."""
-    import sqlite_vec  # type: ignore[import-untyped]
+    from cerebrofy.db.vec import load_sqlite_vec
+
     db_path = cerebrofy_dir / "db" / "memories.db"
     conn = sqlite3.connect(str(db_path))
-    conn.enable_load_extension(True)
-    sqlite_vec.load(conn)
-    conn.enable_load_extension(False)
+    load_sqlite_vec(conn)
     conn.execute("PRAGMA journal_mode=WAL")
     from cerebrofy.db.schema import create_memory_schema
     create_memory_schema(conn)

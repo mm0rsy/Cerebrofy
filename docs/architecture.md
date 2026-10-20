@@ -373,6 +373,8 @@ The sentinel format `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END
 
 The MCP server (`mcp/server.py`) uses **CWD routing**: at each tool invocation it calls `os.getcwd()` and walks up the directory tree looking for `.cerebrofy/config.yaml`. A single registered MCP server entry (`mcpServers.cerebrofy`) serves all repos on the machine — no per-repo registration needed.
 
+**Launch boundary (C1).** Per-call routing is clipped to a *launch boundary* set once at start-up (`utils/paths.py::set_root_boundary`): when the server is launched inside a Cerebrofy project the boundary is that project root, so a manipulated CWD cannot redirect the server at a sibling project; when it is launched at a non-project directory (for example a workspace root holding several repos) the boundary is the launch CWD itself, so the repos *beneath* it are still served while siblings and parents are not. `--root` / `CEREBROFY_ROOT` remain a hard pin — the walk-up is skipped entirely and the boundary does not apply.
+
 ```
 AI calls search_code(query="rate limiting middleware")
     │
@@ -404,7 +406,7 @@ The **Live Agent Session Recorder** captures every MCP tool call of an agent ses
 Storage is split from the index for the same reason `memories.db` (#05) is split from `cerebrofy.db`: the index is rebuilt atomically by `cerebrofy build` and written under `BEGIN IMMEDIATE` by `cerebrofy update`, while the audit trail must survive rebuilds and never contend with the index writer.
 
 - `session/recorder.py` — `sessions` + `session_events` tables in `.cerefy/db/sessions.db`; `start_session`, `record_event`, `end_session`, `search_sessions`. Argument/result payloads are truncated so storage stays well under 1 MB/hour.
-- `session/middleware.py` — thin `SessionMiddleware` with a module-level `record_tool_call()` hook; recording only fires when opt-in is enabled and a session is active, and never raises.
+- `session/middleware.py` — thin `SessionMiddleware` with per-request instances (no global singleton); recording only fires when opt-in is enabled and a session is active, and never raises.
 - `session/replay.py` — `build_session_diff()` computes the graph delta (touched / missing / appeared / index-refreshed) and a blast-radius verdict.
 - `session/reporter.py` — self-contained Markdown + HTML renderers for `cerebrofy session show/export`.
 - `mcp/tools/session.py` — `cerebrofy_session_start` / `cerebrofy_session_end` / `cerebrofy_session_show` handlers.

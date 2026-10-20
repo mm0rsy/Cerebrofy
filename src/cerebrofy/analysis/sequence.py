@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from heapq import heapify, heappop, heappush
 from pathlib import Path
 
 from cerebrofy.analysis.impact import ImpactNeuron
@@ -24,9 +25,14 @@ def _build_caller_graph(
     neuron_ids: set[str],
     conn: sqlite3.Connection,
 ) -> dict[str, set[str]]:
-    """Build adjacency map (caller → set of callees) restricted to neuron_ids."""
-    graph: dict[str, set[str]] = {nid: set() for nid in neuron_ids}
-    for nid in neuron_ids:
+    """Build adjacency map (caller → set of callees) restricted to neuron_ids.
+
+    Nodes and edges are inserted in stable sorted-id order so that the
+    resulting dict iteration order is deterministic regardless of the order
+    in which *neuron_ids* (a set) yields its members.
+    """
+    graph: dict[str, set[str]] = {nid: set() for nid in sorted(neuron_ids)}
+    for nid in sorted(neuron_ids):
         rows = conn.execute(
             "SELECT dst_id, rel_type FROM edges WHERE src_id = ? AND rel_type != ?",
             (nid, RUNTIME_BOUNDARY),
@@ -38,24 +44,31 @@ def _build_caller_graph(
 
 
 def _topological_sort(graph: dict[str, set[str]]) -> list[str]:
-    """Kahn's algorithm — returns nodes in topological order (callers before callees)."""
+    """Kahn's algorithm — returns nodes in topological order (callers before callees).
+
+    A min-heap seeds and refills the ready queue so that, among nodes with
+    zero in-degree, the smallest id is always processed first. Combined with
+    ``sorted`` edge traversal, this makes the output fully deterministic
+    regardless of graph insertion order or set iteration order.
+    """
     in_degree: dict[str, int] = {nid: 0 for nid in graph}
     for deps in graph.values():
         for dep in deps:
             in_degree[dep] = in_degree.get(dep, 0) + 1
 
-    queue = [nid for nid, deg in in_degree.items() if deg == 0]
+    heap = [nid for nid, deg in in_degree.items() if deg == 0]
+    heapify(heap)
     order: list[str] = []
-    while queue:
-        node = queue.pop(0)
+    while heap:
+        node = heappop(heap)
         order.append(node)
         for dep in sorted(graph.get(node, [])):
             in_degree[dep] -= 1
             if in_degree[dep] == 0:
-                queue.append(dep)
+                heappush(heap, dep)
 
-    # Append any remaining nodes (handles cycles gracefully)
-    remaining = [nid for nid in graph if nid not in order]
+    # Append any remaining nodes (handles cycles gracefully) in stable order.
+    remaining = sorted(nid for nid in graph if nid not in order)
     order.extend(remaining)
     return order
 

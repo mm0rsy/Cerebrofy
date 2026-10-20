@@ -567,6 +567,16 @@ def test_mcp_session_start_end_show_cycle(tmp_path: Path) -> None:
                 assert show_data["outcome_notes"] == "Fixed it"
                 assert show_data["ended_at"] is not None
 
+                # 4. Show the session again in Markdown format
+                show_md = await session.call_tool(
+                    "cerebrofy_session_show",
+                    {"session_id": session_id, "format": "markdown"},
+                )
+                md_text = show_md.content[0].text
+                assert "# Session Replay" in md_text
+                assert "Fix bug in parser" in md_text
+                assert "success" in md_text
+
     asyncio.run(scenario())
 
 

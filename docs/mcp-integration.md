@@ -705,6 +705,8 @@ Some MCP clients can pin resources so they load into every session without an ex
 
 The MCP server uses **CWD routing**: at each tool call it reads `os.getcwd()` and walks up the directory tree to find `.cerebrofy/config.yaml`. A single registered MCP entry serves all Cerebrofy-initialized repositories on the machine — no per-repo setup needed.
 
+**Launch boundary.** Routing is clipped to where the server was launched: launched inside a repo, the boundary is that project root (a CWD pointing at a sibling repo is refused); launched at a non-project directory such as a workspace root, the boundary is that directory, so repos beneath it are served but siblings and parents are not. To pin one project explicitly — skipping the boundary logic entirely — set `CEREBROFY_ROOT` or pass `--root`.
+
 If the AI client's CWD is not within a Cerebrofy-initialized repo, the tool returns:
 
 ```

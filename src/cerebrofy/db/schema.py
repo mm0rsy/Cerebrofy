@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 NODES_DDL = """
-CREATE TABLE nodes (
+CREATE TABLE IF NOT EXISTS nodes (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
   file        TEXT NOT NULL,
@@ -19,12 +19,12 @@ CREATE TABLE nodes (
 """
 
 NODES_INDEX_DDL = """
-CREATE INDEX idx_nodes_file ON nodes(file);
-CREATE INDEX idx_nodes_name ON nodes(name);
+CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file);
+CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name);
 """
 
 EDGES_DDL = """
-CREATE TABLE edges (
+CREATE TABLE IF NOT EXISTS edges (
   src_id    TEXT REFERENCES nodes(id),
   dst_id    TEXT,
   rel_type  TEXT NOT NULL,
@@ -34,19 +34,19 @@ CREATE TABLE edges (
 """
 
 EDGES_INDEX_DDL = """
-CREATE INDEX idx_edges_src ON edges(src_id);
-CREATE INDEX idx_edges_dst ON edges(dst_id);
+CREATE INDEX IF NOT EXISTS idx_edges_src ON edges(src_id);
+CREATE INDEX IF NOT EXISTS idx_edges_dst ON edges(dst_id);
 """
 
 META_DDL = """
-CREATE TABLE meta (
+CREATE TABLE IF NOT EXISTS meta (
   key    TEXT PRIMARY KEY,
   value  TEXT
 );
 """
 
 FILE_HASHES_DDL = """
-CREATE TABLE file_hashes (
+CREATE TABLE IF NOT EXISTS file_hashes (
   file  TEXT PRIMARY KEY,
   hash  TEXT NOT NULL
 );
@@ -54,7 +54,7 @@ CREATE TABLE file_hashes (
 
 
 HEALTH_SNAPSHOTS_DDL = """
-CREATE TABLE health_snapshots (
+CREATE TABLE IF NOT EXISTS health_snapshots (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   build_ts          INTEGER NOT NULL,
   commit_hash       TEXT,
@@ -68,7 +68,7 @@ CREATE TABLE health_snapshots (
   neuron_count      INTEGER,
   edge_count        INTEGER
 );
-CREATE INDEX idx_health_ts ON health_snapshots(build_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_health_ts ON health_snapshots(build_ts DESC);
 """
 
 
@@ -117,21 +117,31 @@ def ensure_narrative_schema(conn: sqlite3.Connection) -> None:
 
 
 def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
-    """Execute all DDL statements to create the cerebrofy.db schema."""
-    conn.executescript(NODES_DDL)
-    conn.executescript(NODES_INDEX_DDL)
-    conn.executescript(EDGES_DDL)
-    conn.executescript(EDGES_INDEX_DDL)
-    conn.executescript(META_DDL)
-    conn.executescript(FILE_HASHES_DDL)
-    conn.executescript(HEALTH_SNAPSHOTS_DDL)
-    conn.executescript(NARRATIVE_EVENTS_DDL)
-    if embed_dim > 0:
-        vec_neurons_ddl = (
-            f"CREATE VIRTUAL TABLE vec_neurons USING vec0("
-            f"id TEXT PRIMARY KEY, embedding FLOAT[{embed_dim}])"
-        )
-        conn.execute(vec_neurons_ddl)
+    """Execute all DDL to create the cerebrofy.db schema.
+
+    Contract — **single transaction per creation**: every statement (tables,
+    indexes and the ``vec_neurons`` virtual table) runs inside one
+    ``BEGIN IMMEDIATE`` … ``COMMIT`` transaction. If any statement fails the
+    whole creation is rolled back, so a half-created schema is never left
+    behind. All statements use ``CREATE ... IF NOT EXISTS``, so calling this
+    repeatedly is idempotent.
+    """
+    vec_neurons_ddl = (
+        f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_neurons USING vec0("
+        f"id TEXT PRIMARY KEY, embedding FLOAT[{embed_dim}])"
+    )
+    conn.execute("BEGIN IMMEDIATE")
+    with conn:
+        _run_ddl(conn, NODES_DDL)
+        _run_ddl(conn, NODES_INDEX_DDL)
+        _run_ddl(conn, EDGES_DDL)
+        _run_ddl(conn, EDGES_INDEX_DDL)
+        _run_ddl(conn, META_DDL)
+        _run_ddl(conn, FILE_HASHES_DDL)
+        _run_ddl(conn, HEALTH_SNAPSHOTS_DDL)
+        _run_ddl(conn, NARRATIVE_EVENTS_DDL)
+        if embed_dim > 0:
+            conn.execute(vec_neurons_ddl)
 
 
 def create_session_schema(conn: sqlite3.Connection) -> None:
@@ -140,10 +150,15 @@ def create_session_schema(conn: sqlite3.Connection) -> None:
     Applied to sessions.db on every open (fresh-create and upgrade paths are
     the same code path, mirroring create_memory_schema for memories.db).
 
+    Like :func:`create_schema`, the whole creation runs in one
+    ``BEGIN IMMEDIATE`` transaction so a failure rolls everything back rather
+    than leaving a partial sessions schema; ``IF NOT EXISTS`` makes repeated
+    calls idempotent.
+
     TODO(integration-25): sessions.id will be foreign-key-referenced by the
     active agent registry (multi-agent coordination) once that lands.
     """
-    conn.executescript("""
+    script = """
         CREATE TABLE IF NOT EXISTS sessions (
             id                   TEXT PRIMARY KEY,
             started_at           INTEGER NOT NULL,
@@ -168,17 +183,23 @@ def create_session_schema(conn: sqlite3.Connection) -> None:
             result_summary TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id, id);
-    """)
-    conn.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS vec_sessions "
-        "USING vec0(rowid integer primary key, embedding float[384])"
-    )
-    conn.commit()
+        """
+    conn.execute("BEGIN IMMEDIATE")
+    with conn:
+        _run_ddl(conn, script)
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS vec_sessions "
+            "USING vec0(rowid integer primary key, embedding float[384])"
+        )
 
 
 def create_memory_schema(conn: sqlite3.Connection) -> None:
-    """Create memories, vec_memories, and memory_edges tables (idempotent)."""
-    conn.executescript("""
+    """Create memories, vec_memories, and memory_edges tables (idempotent).
+
+    Single ``BEGIN IMMEDIATE`` transaction — see :func:`create_schema` for the
+    atomicity/idempotency contract.
+    """
+    script = """
         CREATE TABLE IF NOT EXISTS memories (
             id          TEXT PRIMARY KEY,
             neuron_id   TEXT,
@@ -203,9 +224,29 @@ def create_memory_schema(conn: sqlite3.Connection) -> None:
             author          TEXT,
             PRIMARY KEY (from_memory_id, to_memory_id, rel_type)
         );
-    """)
-    conn.execute(
-        "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories "
-        "USING vec0(rowid integer primary key, embedding float[384])"
-    )
-    conn.commit()
+        """
+    conn.execute("BEGIN IMMEDIATE")
+    with conn:
+        _run_ddl(conn, script)
+        conn.execute(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories "
+            "USING vec0(rowid integer primary key, embedding float[384])"
+        )
+
+
+def _run_ddl(conn: sqlite3.Connection, script: str) -> None:
+    """Execute each statement of *script* within the surrounding transaction.
+
+    ``conn.executescript`` is deliberately **not** used: it issues an implicit
+    ``COMMIT`` first, which would break the single-transaction atomicity that
+    the ``create_*_schema`` wrappers establish. Splitting on ``;`` and calling
+    ``conn.execute`` per statement keeps every DDL inside the caller's
+    ``BEGIN IMMEDIATE`` … ``COMMIT`` (rolled back by ``with conn`` on error).
+
+    The DDL constants here never embed ``;`` inside string literals, so a plain
+    split is safe.
+    """
+    for stmt in script.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            conn.execute(stmt)

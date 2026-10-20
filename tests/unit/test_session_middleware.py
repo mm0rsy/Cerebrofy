@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 from cerebrofy.db.schema import create_schema
-from cerebrofy.session import middleware as middleware_mod
+from cerebrofy.session.connections import IndexHandle, SessionsHandle
 from cerebrofy.session.middleware import (
     SessionMiddleware,
+    _config_cache_key,
     find_repo_root,
-    record_tool_call,
-    reset_default_middleware,
     summarize_result,
 )
 from cerebrofy.session.recorder import (
@@ -157,6 +157,58 @@ def test_is_recording_false_when_loader_raises(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Config loader injection + cache fingerprint (m10)
+# ---------------------------------------------------------------------------
+
+def test_config_loader_injection_uses_injected_loader(tmp_path: Path) -> None:
+    """Injected config_loader is used instead of the default load_config."""
+    root = _make_repo(tmp_path, record_sessions=False)  # file says False
+    captured: list[Path] = []
+
+    class FakeConfig:
+        record_sessions = True
+
+    def fake_loader(path: Path) -> Any:
+        captured.append(path)
+        return FakeConfig()
+
+    mw = SessionMiddleware(root, config_loader=fake_loader)
+    assert mw.is_recording() is True  # fake overrides file's False
+    assert captured == [root / ".cerebrofy" / "config.yaml"]
+    # Cached — loader not called again.
+    assert mw.is_recording() is True
+    assert captured == [root / ".cerebrofy" / "config.yaml"]
+    mw.close()
+
+
+def test_config_cache_key_changes_with_mtime_ns_and_size(tmp_path: Path) -> None:
+    """m10: cache key uses (st_mtime_ns, st_size), not float st_mtime."""
+    config_path = (_make_repo(tmp_path, record_sessions=True)
+                   / ".cerebrofy" / "config.yaml")
+
+    stat = config_path.stat()
+    key1 = _config_cache_key(config_path)
+    assert key1 == (stat.st_mtime_ns, stat.st_size)
+
+    # Same file → same key.
+    assert _config_cache_key(config_path) == key1
+
+    # Touch mtime (ns changes, size stays the same) → key changes.
+    os.utime(config_path, (stat.st_atime + 10, stat.st_mtime + 10))
+    key2 = _config_cache_key(config_path)
+    assert key2 != key1
+    assert key2[0] != key1[0]  # mtime_ns changed
+    assert key2[1] == key1[1]  # size unchanged
+
+    # Modify file content (size changes) → key changes again.
+    config_path.write_bytes(config_path.read_bytes() + b"\n# extra\n")
+    key3 = _config_cache_key(config_path)
+    assert key3 != key2
+    assert key3[1] != key2[1]  # size changed
+
+
+
+# ---------------------------------------------------------------------------
 # SessionMiddleware.record
 # ---------------------------------------------------------------------------
 
@@ -224,7 +276,7 @@ def test_record_never_raises_when_storage_unavailable(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, record_sessions=True)
     mw = SessionMiddleware(root)
     with patch(
-        "cerebrofy.session.middleware.open_sessions_db",
+        "cerebrofy.session.recorder.open_sessions_db",
         side_effect=RuntimeError("disk gone"),
     ):
         assert mw.current_session() is None
@@ -271,49 +323,305 @@ def test_index_reopens_after_rewrite(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Module-level hook
+# Connection handles (SessionsHandle / IndexHandle)
 # ---------------------------------------------------------------------------
 
-def test_record_tool_call_module_hook_end_to_end(tmp_path: Path) -> None:
+def test_sessions_handle_reuses_cached_connection(tmp_path: Path) -> None:
+    """Same root → connection cached and reused."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    handle = SessionsHandle(root)
+    conn1 = handle.get()
+    assert conn1 is not None
+    conn2 = handle.get()
+    assert conn2 is conn1  # cached
+    handle.close()
+
+
+def test_sessions_handle_reopens_after_close(tmp_path: Path) -> None:
+    """After close(), get() opens a fresh connection."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    handle = SessionsHandle(root)
+    conn1 = handle.get()
+    assert conn1 is not None
+    handle.close()
+    conn2 = handle.get()
+    assert conn2 is not None
+    assert conn2 is not conn1  # new connection after close
+    handle.close()
+
+
+def test_sessions_handle_different_roots_create_different_conns(tmp_path: Path) -> None:
+    """Different root → different connection objects."""
+    root1 = _make_repo(tmp_path / "repo1", record_sessions=True)
+    root2 = _make_repo(tmp_path / "repo2", record_sessions=True)
+    handle1 = SessionsHandle(root1)
+    handle2 = SessionsHandle(root2)
+    conn1 = handle1.get()
+    conn2 = handle2.get()
+    assert conn1 is not None
+    assert conn2 is not None
+    assert conn1 is not conn2
+    handle1.close()
+    handle2.close()
+
+
+def test_index_handle_reuses_cached_connection(tmp_path: Path) -> None:
+    """Same root + unchanged file → connection cached and reused."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    handle = IndexHandle(root)
+    conn1 = handle.get()
+    assert conn1 is not None
+    conn2 = handle.get()
+    assert conn2 is conn1  # cached
+    handle.close()
+
+
+def test_index_handle_reopens_after_file_change(tmp_path: Path) -> None:
+    """File modification detected via fingerprint → connection reopened."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    handle = IndexHandle(root)
+    conn1 = handle.get()
+    assert conn1 is not None
+
+    db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    db_path.write_bytes(db_path.read_bytes() + b"\n-- rewritten\n")
+    stat = db_path.stat()
+    os.utime(db_path, (stat.st_atime + 10, stat.st_mtime + 10))
+
+    conn2 = handle.get()
+    assert conn2 is not None
+    assert conn2 is not conn1  # fingerprint changed → reopened
+    handle.close()
+
+
+def test_index_handle_returns_none_without_index_file(tmp_path: Path) -> None:
+    """No index file → get() returns None."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    handle = IndexHandle(root)
+    assert handle.get() is None
+    handle.close()
+
+
+# ---------------------------------------------------------------------------
+# Per-request middleware (no global singleton)
+# ---------------------------------------------------------------------------
+
+def test_middleware_records_session_event_end_to_end(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, record_sessions=True)
     session_id = _start(root)
-    reset_default_middleware()
+    mw = SessionMiddleware(root)
     try:
-        record_tool_call(root, tool="search_code", arguments={"query": "hub"})
-        record_tool_call(
-            root, tool="search_code", arguments={"query": "hub2"},
-            result=[SimpleNamespace(text="ok")],
-        )
-        cached = middleware_mod._default_middleware
-        assert cached is not None  # hook created and cached a middleware
-        assert cached.root == root
-
-        reset_default_middleware()
-        assert middleware_mod._default_middleware is None
-        assert _count_events(root, session_id) == 2
+        mw.record("search_code", {"query": "hub"})
+        mw.record("search_code", {"query": "hub2"}, [SimpleNamespace(text="ok")])
     finally:
-        reset_default_middleware()
+        mw.close()
+    assert _count_events(root, session_id) == 2
 
 
-def test_record_tool_call_noop_outside_repo(tmp_path: Path) -> None:
+def test_middleware_record_noop_outside_repo(tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
-    reset_default_middleware()
+    mw = SessionMiddleware(plain)
     try:
-        record_tool_call(plain, tool="search_code", arguments={"query": "x"})
-        assert middleware_mod._default_middleware is None
+        mw.record("search_code", {"query": "x"})
+        assert mw.current_session() is None
     finally:
-        reset_default_middleware()
+        mw.close()
 
 
-def test_record_tool_call_finds_root_from_subdir(tmp_path: Path) -> None:
+def test_middleware_finds_root_from_subdir(tmp_path: Path) -> None:
     root = _make_repo(tmp_path, record_sessions=True)
     subdir = root / "src" / "pkg"
     subdir.mkdir(parents=True)
     session_id = _start(root)
-    reset_default_middleware()
+    mw = SessionMiddleware(find_repo_root(subdir))
     try:
-        record_tool_call(subdir, tool="get_neuron", arguments={"name": "hub"})
-        assert _count_events(root, session_id) == 1
+        mw.record("get_neuron", {"name": "hub"})
     finally:
-        reset_default_middleware()
+        mw.close()
+    assert _count_events(root, session_id) == 1
+
+
+# ---------------------------------------------------------------------------
+# Config loader injection × end-to-end recording with custom caps
+# ---------------------------------------------------------------------------
+
+def test_record_with_fake_config_and_small_caps(tmp_path: Path) -> None:
+    """End-to-end: a fake config with small caps is applied during recording.
+
+    With ``max_tracked_neurons=1`` the second neuron reference is not tracked —
+    proving the config's session caps flow through ``record_event``.
+    """
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    session_id = _start(root)
+
+    class FakeSessionConfig:
+        max_tracked_neurons = 1
+        max_refs_per_event = 1
+
+    class FakeConfig:
+        record_sessions = True
+        session = FakeSessionConfig()
+
+    mw = SessionMiddleware(root, config_loader=lambda _p: FakeConfig())
+    mw.record("cerebrofy_impact", {"target": "hub"})
+    mw.record("cerebrofy_impact", {"target": "caller"})  # capped → not tracked
+    mw.close()
+
+    events = _events(root, session_id)
+    assert len(events) == 2  # both events recorded
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        session = get_session(conn, session_id)
+    finally:
+        conn.close()
+    assert session is not None
+    assert session.neurons_touched == ("a.py::hub",)  # capped at 1
+    assert session.blast_radius_before == 1
+
+
+def test_recording_caps_from_real_config_file(tmp_path: Path) -> None:
+    """T1: ``session`` caps in config.yaml flow through the middleware record path."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    cfg = root / ".cerebrofy" / "config.yaml"
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8")
+        + "session:\n  max_tracked_neurons: 1\n  max_refs_per_event: 1\n",
+        encoding="utf-8",
+    )
+    _make_index(root)
+    session_id = _start(root)
+
+    mw = SessionMiddleware(root)
+    mw.record("cerebrofy_impact", {"target": "hub"})
+    mw.record("cerebrofy_impact", {"target": "caller"})  # capped → not tracked
+    mw.close()
+
+    assert _count_events(root, session_id) == 2  # both events recorded
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        session = get_session(conn, session_id)
+    finally:
+        conn.close()
+    assert session is not None
+    assert session.neurons_touched == ("a.py::hub",)  # capped at 1
+    assert session.blast_radius_before == 1
+
+
+# ---------------------------------------------------------------------------
+# Cross-repo isolation + concurrency (a5 / V3)
+# ---------------------------------------------------------------------------
+
+def test_middleware_roots_are_isolated(tmp_path: Path) -> None:
+    """a5: two repos never share session/index state through one process."""
+    root_a = _make_repo(tmp_path / "a", record_sessions=True)
+    root_b = _make_repo(tmp_path / "b", record_sessions=True)
+    _make_index(root_a)
+    _make_index(root_b)
+    session_a = _start(root_a, task="A")
+    session_b = _start(root_b, task="B")
+
+    mw_a = SessionMiddleware(root_a)
+    mw_b = SessionMiddleware(root_b)
+    mw_a.record("cerebrofy_impact", {"target": "hub"})
+
+    assert _count_events(root_a, session_a) == 1
+    assert _count_events(root_b, session_b) == 0
+    assert mw_a._sessions_handle.get() is not mw_b._sessions_handle.get()
+    mw_a.close()
+    mw_b.close()
+
+
+def test_concurrent_record_calls_are_thread_safe(tmp_path: Path) -> None:
+    """V3: parallel ``middleware.record`` calls are serialized by the session lock."""
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    session_id = _start(root)
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        mw = SessionMiddleware(
+            root,
+            sessions_conn_factory=lambda: conn,
+            index_conn_factory=lambda: None,
+        )
+        n_threads, per_thread = 6, 10
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(n_threads)
+
+        def worker(i: int) -> None:
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(per_thread):
+                    mw.record("cerebrofy_impact", {"target": "hub"})
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert not errors, errors
+        assert count_events(conn, session_id) == n_threads * per_thread
+    finally:
+        conn.close()
+
+
+def test_current_session_read_is_safe_during_concurrent_recording(tmp_path: Path) -> None:
+    """Reading the shared sessions.db connection must not race the write path.
+
+    Regression: ``current_session()`` used to read outside ``_sessions_lock``.
+    On Python 3.12 a read interleaving an in-flight write could observe no row
+    (or a torn row and raise ``TypeError``), and ``record()`` swallows that —
+    silently dropping session events under concurrent tool calls.
+    """
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    session_id = _start(root)
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        mw = SessionMiddleware(
+            root,
+            sessions_conn_factory=lambda: conn,
+            index_conn_factory=lambda: None,
+        )
+        rounds = 40
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def writer() -> None:
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(rounds):
+                    mw.record("cerebrofy_impact", {"target": "hub"})
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        def reader() -> None:
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(rounds):
+                    session = mw.current_session()
+                    assert session is not None
+                    assert session.id == session_id
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert not errors, errors
+        assert count_events(conn, session_id) == rounds
+    finally:
+        conn.close()

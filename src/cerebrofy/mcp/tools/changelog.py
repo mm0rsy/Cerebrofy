@@ -7,19 +7,20 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from cerebrofy.mcp.errors import mcp_error as _err
+from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
+
 
 def _find_root(cwd: Path) -> Path:
-    current = cwd if cwd.is_dir() else cwd.parent
-    for candidate in [current, *current.parents]:
-        if (candidate / ".cerebrofy" / "config.yaml").exists():
-            return candidate
-    raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
+    """Resolve the repo root from *cwd* (delegates to the shared helper).
 
-
-def _err(message: str) -> list[Any]:
-    from mcp.types import TextContent
-
-    return [TextContent(type="text", text=message)]
+    Honors an explicit ``--root``/``CEREBROFY_ROOT`` binding before walking up
+    so a manipulated CWD cannot redirect the tool at another project.
+    """
+    root = _find_repo_root_impl(cwd)
+    if root is None:
+        raise FileNotFoundError("No Cerebrofy config found. Run 'cerebrofy init' first.")
+    return root
 
 
 def handle_changelog(arguments: dict[str, Any]) -> list[Any]:

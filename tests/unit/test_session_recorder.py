@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 import pytest
 
 from cerebrofy.db.schema import create_schema
 from cerebrofy.session.recorder import (
+    MAX_REFS_PER_EVENT,
     MAX_TRACKED_NEURONS,
     SESSION_NOT_FOUND,
     VALID_OUTCOMES,
     SessionNotFoundError,
+    SessionRecord,
     active_session,
+    build_session_memory,
     count_events,
     end_session,
     get_session,
@@ -30,6 +34,7 @@ from cerebrofy.session.recorder import (
     start_session,
     truncate_args,
     truncate_summary,
+    write_memory_if_possible,
     write_session_summary_memory,
 )
 
@@ -172,6 +177,76 @@ def test_truncate_args_caps_item_count() -> None:
     assert len(truncate_args(args)) == 20
 
 
+def test_truncate_args_redacts_nested_sensitive_keys() -> None:
+    args = {
+        "query": "safe",
+        "config": {
+            "api_key": "sk-leaked",
+            "nested": {"access_token": "tok-leaked", "keep": "ok"},
+        },
+        "data": [{"password": "p"}, {"name": "a"}],
+    }
+    out = truncate_args(args)
+    assert out["config"]["api_key"] == "[REDACTED]"
+    assert out["config"]["nested"]["access_token"] == "[REDACTED]"
+    assert out["config"]["nested"]["keep"] == "ok"
+    assert out["data"][0]["password"] == "[REDACTED]"
+    assert out["data"][1]["name"] == "a"
+    assert out["query"] == "safe"
+
+
+def test_truncate_args_redacts_pattern_keys_case_insensitive() -> None:
+    args = {
+        "API-Key": "x",
+        "Authorization": "y",
+        "user_password": "z",
+        "client_secret": "w",
+        "Refresh-Token": "r",
+    }
+    out = truncate_args(args)
+    assert out["API-Key"] == "[REDACTED]"
+    assert out["Authorization"] == "[REDACTED]"
+    assert out["user_password"] == "[REDACTED]"
+    assert out["client_secret"] == "[REDACTED]"
+    assert out["Refresh-Token"] == "[REDACTED]"
+
+
+def test_truncate_args_redacts_sensitive_key_with_non_string_value() -> None:
+    # A sensitive key's value is fully redacted regardless of its type,
+    # not merely length-truncated like a regular string value.
+    out = truncate_args({"api_key": {"secret": "n"}}, max_value_chars=10)
+    assert out["api_key"] == "[REDACTED]"
+
+
+def test_truncate_args_does_not_redact_non_sensitive_keys() -> None:
+    out = truncate_args({"username": "bob", "author": "jane", "query": "q"})
+    assert out == {"username": "bob", "author": "jane", "query": "q"}
+
+
+def test_truncate_args_redacts_beyond_nesting_cap_instead_of_passing_raw() -> None:
+    # A secret nested deeper than the recursion cap must never be persisted raw.
+    payload: dict[str, object] = {}
+    cursor = payload
+    for _ in range(15):
+        child: dict[str, object] = {}
+        cursor["child"] = child
+        cursor = child
+    cursor["api_key"] = "sk-deep-secret"
+
+    out = truncate_args(payload)
+
+    def _flatten(value: object) -> str:
+        if isinstance(value, dict):
+            return " ".join(f"{k}={_flatten(v)}" for k, v in value.items())
+        if isinstance(value, (list, tuple)):
+            return " ".join(_flatten(v) for v in value)
+        return str(value)
+
+    rendered = _flatten(out)
+    assert "sk-deep-secret" not in rendered
+    assert "[MAX_DEPTH]" in rendered
+
+
 def test_truncate_summary_none_and_blank() -> None:
     assert truncate_summary(None) is None
     assert truncate_summary("   \n  ") is None
@@ -204,10 +279,25 @@ def test_end_session_missing_session_raises(sessions_conn: sqlite3.Connection) -
     with pytest.raises(SessionNotFoundError) as excinfo:
         end_session(sessions_conn, "sess_missing")
     assert SESSION_NOT_FOUND in str(excinfo.value)
+    # m12: the dedicated exception carries the machine-readable code too.
+    assert excinfo.value.code == SESSION_NOT_FOUND
 
 
 def test_valid_outcomes_constant() -> None:
-    assert VALID_OUTCOMES == {"success", "partial", "failed", "unknown"}
+    # n5: VALID_OUTCOMES is an ordered tuple (severity ladder), not a frozenset.
+    assert VALID_OUTCOMES == ("success", "partial", "failed", "unknown")
+    assert isinstance(VALID_OUTCOMES, tuple)
+    # Membership + the sorted()/join() path used by end_session's error message.
+    assert "success" in VALID_OUTCOMES and "bogus" not in VALID_OUTCOMES
+    assert ", ".join(sorted(VALID_OUTCOMES))
+
+
+def test_record_event_default_caps_match_session_config() -> None:
+    """m4: module constants (and record_event defaults) come from SessionConfig."""
+    from cerebrofy.config.loader import SessionConfig
+
+    assert MAX_TRACKED_NEURONS == SessionConfig().max_tracked_neurons == 50
+    assert MAX_REFS_PER_EVENT == SessionConfig().max_refs_per_event == 3
 
 
 # ---------------------------------------------------------------------------
@@ -287,10 +377,14 @@ def test_record_event_without_index_conn_skips_metrics(
 def test_tracking_is_capped_at_max_tracked_neurons(
     tmp_path: Path, sessions_conn: sqlite3.Connection
 ) -> None:
+    # The tracked-neuron cap is an implementation constant (50); the test
+    # asserts the *capping behaviour* against a literal rather than importing
+    # the private ``MAX_TRACKED_NEURONS`` constant.
+    cap = 50
     cerebrofy_dir = _cerebrofy_dir(tmp_path / "index")
     index_conn = sqlite3.connect(cerebrofy_dir / "db" / "cerebrofy.db")
     create_schema(index_conn, embed_dim=0)
-    for i in range(MAX_TRACKED_NEURONS + 10):
+    for i in range(cap + 10):
         index_conn.execute(
             "INSERT INTO nodes VALUES (?,?,'many.py','function',1,1,NULL,NULL,NULL)",
             (f"many.py::fn{i}", f"fn{i}"),
@@ -298,13 +392,48 @@ def test_tracking_is_capped_at_max_tracked_neurons(
     index_conn.commit()
 
     session = start_session(sessions_conn, task="T", now=1000)
-    for i in range(MAX_TRACKED_NEURONS + 10):
+    for i in range(cap + 10):
         record_event(sessions_conn, session.id, tool="get_neuron",
                      args={"name": f"fn{i}"}, ts=1000 + i, index_conn=index_conn)
     session = get_session(sessions_conn, session.id)
     assert session is not None
-    assert len(session.neurons_touched) == MAX_TRACKED_NEURONS
+    assert len(session.neurons_touched) == cap
+    assert len(session.neurons_touched) < cap + 10  # capped, not unbounded
     index_conn.close()
+
+
+def test_record_event_configurable_caps(
+    sessions_conn: sqlite3.Connection, index_conn: sqlite3.Connection
+) -> None:
+    """m4: max_tracked_neurons / max_refs_per_event cap tracking + ref resolution."""
+    session = start_session(sessions_conn, task="T", now=1000)
+    # Record one event per neuron; cap the tracked set at 2 so the third neuron
+    # is dropped (the cap is an early return, not a post-hoc filter).
+    for i, name in enumerate(("hub", "caller", "caller2")):
+        record_event(
+            sessions_conn, session.id,
+            tool="get_neuron", args={"name": name},
+            ts=1001 + i, index_conn=index_conn,
+            max_tracked_neurons=2, max_refs_per_event=1,
+        )
+    session = get_session(sessions_conn, session.id)
+    assert session is not None
+    assert session.neurons_touched == ("a.py::hub", "a.py::caller")
+    assert len(session.neurons_touched) == 2  # capped at the smaller limit
+    assert session.blast_radius_before == 4   # hub(3) + caller(1)
+
+    # max_refs_per_event caps per-event resolution: a single event whose args
+    # resolve to 3 neurons (via the ``path`` key) resolves only the first.
+    sess2 = start_session(sessions_conn, task="T2", now=2000)
+    record_event(
+        sessions_conn, sess2.id, tool="cerebrofy_impact",
+        args={"path": "a.py"}, ts=2001, index_conn=index_conn,
+        max_tracked_neurons=50, max_refs_per_event=1,
+    )
+    sess2 = get_session(sessions_conn, sess2.id)
+    assert sess2 is not None
+    assert sess2.neurons_touched == ("a.py::hub",)
+    assert sess2.blast_radius_before == 3
 
 
 def test_end_session_recomputes_after_metric(
@@ -419,6 +548,31 @@ def test_corrupt_event_args_json_decodes_to_empty(sessions_conn: sqlite3.Connect
     )
     sessions_conn.commit()
     assert list_events(sessions_conn, session.id)[0].args == {}
+
+
+def test_corrupt_session_json_logs_warning_and_does_not_crash(
+    sessions_conn: sqlite3.Connection, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Corrupted session JSON must warn (module logger) and stay non-fatal."""
+    import logging
+
+    session = start_session(sessions_conn, task="T", now=1000)
+    sessions_conn.execute(
+        "INSERT INTO session_events(session_id, ts, tool, args, result_summary) "
+        "VALUES (?, 1, 'x', '{bad', NULL)",
+        (session.id,),
+    )
+    sessions_conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="cerebrofy.session.recorder"):
+        record = get_session(sessions_conn, session.id)
+        events = list_events(sessions_conn, session.id)
+
+    assert record is not None
+    assert record.neurons_touched == ()
+    assert events[0].args == {}
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("corrupt" in r.getMessage().lower() for r in warnings)
 
 
 def test_json_args_survive_roundtrip(sessions_conn: sqlite3.Connection) -> None:
@@ -554,6 +708,166 @@ def test_write_session_summary_memory_swallows_embedder_failure(
 
 
 # ---------------------------------------------------------------------------
+# write_session_summary_memory split: pure builder + thin impure writer
+# ---------------------------------------------------------------------------
+
+
+def _closed_session() -> SessionRecord:
+    return SessionRecord(
+        id="sess_abc",
+        task="Refactor parser",
+        agent="claude",
+        started_at=1000,
+        ended_at=1060,
+        outcome="success",
+        outcome_notes="done",
+        neurons_touched=("a.py::hub", "a.py::caller"),
+        blast_radius_before=3,
+        blast_radius_after=4,
+        event_count=5,
+    )
+
+
+def test_build_session_memory_constructs_pure_memory() -> None:
+    """Pure part: builds a #05 decision Memory with no IO / no mocks."""
+    from unittest.mock import patch
+
+    from cerebrofy.memory.store import Memory
+
+    session = _closed_session()
+    # No real embedder/db should be touched by the pure builder.
+    with patch("cerebrofy.memory.store.open_memories_db") as db_mock, patch(
+        "cerebrofy.memory.embedder.embed_memory"
+    ) as emb_mock:
+        mem = build_session_memory(session)
+
+    db_mock.assert_not_called()
+    emb_mock.assert_not_called()
+    assert isinstance(mem, Memory)
+    assert mem.type == "decision"
+    assert mem.title == "Refactor parser"
+    assert mem.author == "agent:session-recorder"
+    assert mem.neuron_id is None and mem.lobe is None
+    assert mem.decay_score == 1.0
+    assert mem.status == "active"
+    assert mem.created_ts == 1060  # derived from ended_at, not time.time()
+    assert "session" in mem.tags
+    assert "outcome:success" in mem.tags
+    assert "agent=claude" in mem.body
+    assert "outcome=success" in mem.body
+    assert "duration=60s" in mem.body
+    assert "events=5" in mem.body
+    assert "neurons_touched=2" in mem.body
+    assert "blast_radius_before=3 -> after=4" in mem.body
+    assert "notes: done" in mem.body
+
+
+def test_build_session_memory_omits_blast_and_notes_when_unset() -> None:
+    session = SessionRecord(
+        id="sess_x", task="T", agent=None, started_at=0, ended_at=10,
+        outcome="unknown", outcome_notes=None, neurons_touched=(),
+        blast_radius_before=None, blast_radius_after=None, event_count=0,
+    )
+    mem = build_session_memory(session)
+    assert mem.title == "T"
+    assert "blast_radius" not in mem.body
+    assert "agent=unknown" in mem.body
+    assert "outcome=unknown" in mem.body
+    assert "notes:" not in mem.body
+    assert "outcome:unknown" in mem.tags
+
+
+def test_write_memory_if_possible_swallows_and_logs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Impure part: store failure is non-fatal and logged."""
+    import logging
+    from unittest.mock import patch
+
+    from cerebrofy.memory.embedder import embed_memory
+
+    mem = build_session_memory(_closed_session())
+    with patch(
+        "cerebrofy.memory.store.open_memories_db", side_effect=RuntimeError("db down")
+    ):
+        with caplog.at_level(logging.WARNING, logger="cerebrofy.session.recorder"):
+            result = write_memory_if_possible(_cerebrofy_dir(tmp_path), mem, embed_memory)
+    assert result is False
+    assert "failed to write session summary memory" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# #11 -> #05 embedder injection (n14)
+# ---------------------------------------------------------------------------
+
+
+def test_write_session_summary_memory_uses_injected_embedder_no_model_init(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """n14: an injected embedder is used; the real fastembed-backed embed_memory
+    is never imported or called, so no model/network initialization occurs."""
+    from unittest.mock import patch
+
+    from cerebrofy.memory.store import list_memories, open_memories_db
+
+    session = start_session(sessions_conn, task="Inject me", agent="bob", now=1000)
+    closed = end_session(sessions_conn, session.id, outcome="success", now=1060)
+
+    captured: list[tuple[str, str]] = []
+
+    def fake_embed(title: str, body: str) -> list[float]:
+        captured.append((title, body))
+        return [0.0] * 384
+
+    with patch("cerebrofy.memory.embedder.embed_memory") as real_embed:
+        wrote = write_session_summary_memory(
+            _cerebrofy_dir(tmp_path), closed, embed_memory_fn=fake_embed
+        )
+    assert wrote is True
+    real_embed.assert_not_called()  # real (fastembed-backed) embedder untouched
+    assert len(captured) == 1
+    title, body = captured[0]
+    assert title == "Inject me"
+    assert "agent=bob" in body
+    assert "outcome=success" in body
+
+    mconn = open_memories_db(_cerebrofy_dir(tmp_path))
+    try:
+        mems = list_memories(mconn, type_filter="decision")
+    finally:
+        mconn.close()
+    assert len(mems) == 1
+    assert mems[0].title == "Inject me"
+
+
+def test_end_session_injects_embedder_no_model_init(
+    sessions_conn: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """n14: end_session forwards an injected embedder to the memory writer."""
+    from unittest.mock import patch
+
+    session = start_session(sessions_conn, task="End me", agent="carol", now=1000)
+    captured: list[tuple[str, str]] = []
+
+    def fake_embed(title: str, body: str) -> list[float]:
+        captured.append((title, body))
+        return [0.0] * 384
+
+    with patch("cerebrofy.memory.embedder.embed_memory") as real_embed:
+        updated = end_session(
+            sessions_conn, session.id,
+            outcome="success", now=1060,
+            cerebrofy_dir=_cerebrofy_dir(tmp_path),
+            embed_memory_fn=fake_embed,
+        )
+    assert updated.outcome == "success"
+    assert not updated.is_active
+    real_embed.assert_not_called()
+    assert captured and captured[0][0] == "End me"
+    assert "agent=carol" in captured[0][1]
+
+
+# ---------------------------------------------------------------------------
 # Migration 005 (sessions.sql) verification: fresh-create + idempotent upgrade
 # ---------------------------------------------------------------------------
 
@@ -581,3 +895,89 @@ def test_migration_005_sessions_sql_creates_outcome_columns(tmp_path: Path) -> N
     # Upgrade path: re-applying the file must be idempotent (CREATE ... IF NOT EXISTS).
     conn.executescript(sql_path.read_text(encoding="utf-8"))
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Concurrency (WAL + multiple connections)
+# ---------------------------------------------------------------------------
+
+def test_concurrent_session_start_assigns_unique_ids(tmp_path: Path) -> None:
+    """a1: parallel starters (own connections, WAL) all persist unique ids."""
+    cerebrofy_dir = _cerebrofy_dir(tmp_path)
+    open_sessions_db(cerebrofy_dir).close()  # create the schema up front
+
+    n = 8
+    ids: list[str] = []
+    errors: list[BaseException] = []
+    lock = threading.Lock()
+    barrier = threading.Barrier(n)
+
+    def worker(i: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            conn = open_sessions_db(cerebrofy_dir)
+            try:
+                session = start_session(conn, task=f"T{i}", now=1000 + i)
+            finally:
+                conn.close()
+            with lock:
+                ids.append(session.id)
+        except BaseException as exc:  # pragma: no cover - failure path
+            with lock:
+                errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not errors, errors
+    assert len(ids) == n
+    assert len(set(ids)) == n
+
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        persisted = {s.id for s in list_sessions(conn)}
+    finally:
+        conn.close()
+    assert set(ids) <= persisted
+
+
+def test_concurrent_recording_across_connections_persists_all_events(tmp_path: Path) -> None:
+    """a4/V3: concurrent record_event writers (own connections, WAL) lose nothing."""
+    cerebrofy_dir = _cerebrofy_dir(tmp_path)
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        session_id = start_session(conn, task="T").id
+    finally:
+        conn.close()
+
+    n_threads, per_thread = 6, 20
+    errors: list[BaseException] = []
+    barrier = threading.Barrier(n_threads)
+
+    def worker(i: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            conn = open_sessions_db(cerebrofy_dir)
+            try:
+                for j in range(per_thread):
+                    record_event(conn, session_id, tool=f"tool_{i}_{j}")
+            finally:
+                conn.close()
+        except BaseException as exc:  # pragma: no cover - failure path
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not errors, errors
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        assert count_events(conn, session_id) == n_threads * per_thread
+    finally:
+        conn.close()

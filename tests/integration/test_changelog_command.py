@@ -214,7 +214,7 @@ def test_mcp_changelog_returns_spec_schema(repo: Path, monkeypatch: pytest.Monke
     monkeypatch.chdir(repo)
     result = handle_changelog({"since": "v1.0.0", "audience": "pm", "format": "github"})
     data = json.loads(result[0].text)
-    assert set(data) == {"since", "until", "entries", "breaking_changes", "health_delta", "full_text"}
+    assert set(data) == {"since", "until", "entries", "breaking_changes", "health_delta", "full_text", "note"}
     assert data["since"] == "v1.0.0"
     assert isinstance(data["entries"], list)
     assert isinstance(data["breaking_changes"], list)
@@ -224,3 +224,25 @@ def test_mcp_changelog_returns_spec_schema(repo: Path, monkeypatch: pytest.Monke
         assert set(data["entries"][0]) == {
             "type", "title", "description", "neurons", "blast_radius", "audience_text"
         }
+
+
+@pytest.mark.parametrize("audience", ["developer", "pm", "user"])
+@pytest.mark.parametrize("fmt", ["markdown", "github", "slack"])
+def test_mcp_changelog_audience_format_matrix(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, audience: str, fmt: str
+) -> None:
+    """V2/T3: every audience × format combination returns formatted full_text."""
+    pytest.importorskip("mcp")
+    from cerebrofy.mcp.tools.changelog import handle_changelog
+
+    monkeypatch.chdir(repo)
+    result = handle_changelog({"since": "v1.0.0", "audience": audience, "format": fmt})
+    data = json.loads(result[0].text)
+    full_text = data["full_text"]
+    assert full_text.strip()
+    markers = {
+        "markdown": "## Changelog",
+        "github": "What's Changed",
+        "slack": "*📦 Release",
+    }
+    assert markers[fmt] in full_text

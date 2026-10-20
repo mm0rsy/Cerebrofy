@@ -43,3 +43,5 @@ docs/competitive-landscape-2026-06.md
 
 .opencode/*
 node_modules/*
+
+.slim/*

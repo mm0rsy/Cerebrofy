@@ -9,21 +9,12 @@ explicit handoff (``--execute``) to an AI agent that verifies each step with
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 import rich_click as click
 
 from cerebrofy.planning.planner import NO_INDEX, PlanError, build_refactor_plan
 from cerebrofy.search.hybrid import embed_query
-
-
-def _find_repo_root() -> Path | None:
-    """Walk up from CWD searching for a .cerebrofy directory."""
-    cwd = Path.cwd()
-    for candidate in [cwd, *cwd.parents]:
-        if (candidate / ".cerebrofy").is_dir():
-            return candidate
-    return None
+from cerebrofy.utils.paths import InvalidRepoRootError, require_repo_root
 
 
 @click.command("plan")
@@ -53,20 +44,29 @@ def cerebrofy_plan(description: str, execute: bool, output: str) -> None:
     """
     from cerebrofy.config.loader import load_config
     from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
+    from cerebrofy.db.connection import open_db_readonly
 
-    root = _find_repo_root()
-    if root is None:
+    # Repo-root resolution is delegated to the shared pure finder
+    # ``require_repo_root``; failure (missing project or a bad CEREBROFY_ROOT)
+    # is handled here in the CLI layer with the existing user-facing message
+    # and exit code, so command output and exit codes are unchanged.
+    try:
+        root = require_repo_root()
+    except FileNotFoundError:
         click.echo(
             "Cerebrofy: [NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init && cerebrofy build' first."
         )
+        sys.exit(1)
+    except InvalidRepoRootError as exc:
+        click.echo(f"Cerebrofy: {exc}", err=True)
         sys.exit(1)
 
     config_path = root / ".cerebrofy" / "config.yaml"
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     if not db_path.exists():
         click.echo(
-            f"Cerebrofy: [{NO_INDEX}] Index not found at {db_path}. "
+            f"Cerebrofy: [{NO_INDEX}] Index not found. "
             "Run 'cerebrofy build' first."
         )
         sys.exit(1)
@@ -78,10 +78,11 @@ def cerebrofy_plan(description: str, execute: bool, output: str) -> None:
         click.echo(f"Cerebrofy: {err}")
         sys.exit(1)
 
+    conn = open_db_readonly(db_path)
     try:
         plan = build_refactor_plan(
             description=description,
-            db_path=db_path,
+            conn=conn,
             embedding=embedding,
             repo_root=root,
             config_path=config_path,
@@ -90,6 +91,8 @@ def cerebrofy_plan(description: str, execute: bool, output: str) -> None:
     except PlanError as err:
         click.echo(f"Cerebrofy: [{err.code}] {err.message}")
         sys.exit(1)
+    finally:
+        conn.close()
 
     if output == "json":
         click.echo(plan_to_json(plan))

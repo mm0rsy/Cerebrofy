@@ -158,6 +158,18 @@ def test_render_html_is_self_contained() -> None:
     assert "<style>" in html_doc
 
 
+def test_render_html_contains_default_css_constant() -> None:
+    """n2: the extracted DEFAULT_HTML_CSS module constant is embedded verbatim."""
+    from cerebrofy.session.reporter import DEFAULT_HTML_CSS
+
+    html_doc = render_html(_session(), _events(), _diff())
+    assert DEFAULT_HTML_CSS in html_doc
+    # Spot-check two distinct rules that live in the constant.
+    assert "tr:nth-child(even)" in html_doc
+    assert ".card .value" in html_doc
+    assert "</style>" in html_doc
+
+
 def test_render_html_escapes_all_dynamic_content() -> None:
     hostile = '<script>alert("x")</script>'
     session = _session(

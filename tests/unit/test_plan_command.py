@@ -15,6 +15,7 @@ from cerebrofy.commands.plan import cerebrofy_plan
 from cerebrofy.db.schema import create_schema
 from cerebrofy.graph.edges import LOCAL_CALL
 from cerebrofy.planning.planner import CLUSTER_TOO_LARGE, PlanError
+from cerebrofy.utils.paths import reset_bound_root
 
 _EXACT = [1.0, 0.0, 0.0, 0.0]
 _NEAR = [0.9, 0.1, 0.0, 0.0]
@@ -373,3 +374,26 @@ def test_mcp_plan_is_importable_with_simple_namespace_result_shape() -> None:
     result = handle_plan({"description": ""})
     assert isinstance(result, list)
     assert hasattr(result[0], "type") and result[0].type == "text"
+
+
+# ---------------------------------------------------------------------------
+# m7 — require_repo_root failure paths in the CLI layer
+# ---------------------------------------------------------------------------
+
+
+def test_cli_invalid_cerebrofy_root_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An explicit CEREBROFY_ROOT that is not a Cerebrofy repo must fail
+    closed via InvalidRepoRootError -> exit 1 (require_repo_root path).
+
+    The existing test_cli_no_cerebrofy_dir_reports_no_index already covers the
+    implicit "root not found" (FileNotFoundError -> [NO_INDEX]) case; this one
+    covers the explicit-binding failure branch introduced by the refactor."""
+    reset_bound_root()
+    monkeypatch.setenv("CEREBROFY_ROOT", str(tmp_path / "does-not-exist"))
+    result = CliRunner().invoke(cerebrofy_plan, ["extract the auth helpers"])
+    assert result.exit_code == 1
+    assert "Cerebrofy:" in result.output
+    assert "CEREBROFY_ROOT" in result.output

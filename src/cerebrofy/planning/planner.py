@@ -26,30 +26,31 @@ from pathlib import Path
 
 from cerebrofy.analysis.blast_radius import BlastNeuron, compute_neuron_blast_radius
 from cerebrofy.analysis.impact import ImpactNeuron, compute_impact
+from cerebrofy.config.loader import PlanningConfig, _GENERIC_MODULE_WORDS
+from cerebrofy.context.optimizer import optimize_context
+from cerebrofy.errors import CLUSTER_TOO_LARGE, CLUSTER_TOO_SMALL
+from cerebrofy.errors import NO_INDEX as NO_INDEX  # re-exported for CLI/MCP callers
+from cerebrofy.intent.loader import load_intent
+from cerebrofy.memory.search import recall_memories
+from cerebrofy.memory.store import open_memories_db
 from cerebrofy.planning.extractor import (
     DEFAULT_TOP_K,
-    MAX_CLUSTER_SIZE,
-    MIN_CLUSTER_SIZE,
     ClusterNeuron,
     ClusterSizeError,
+    NeuronCluster,
     find_extraction_cluster,
 )
 from cerebrofy.planning.sequence import MigrationStep, build_migration_steps
-from cerebrofy.search.hybrid import _open_ro
 
-# Error codes (spec — shared by the CLI and MCP surfaces).
-NO_INDEX = "NO_INDEX"
-CLUSTER_TOO_SMALL = "CLUSTER_TOO_SMALL"
-CLUSTER_TOO_LARGE = "CLUSTER_TOO_LARGE"
+# Error codes (spec — shared by the CLI and MCP surfaces) are defined once in
+# :mod:`cerebrofy.errors` and re-exported here for callers that import them
+# from this module (back-compat).
 
 _RISK_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2}
 
 # Words that describe the shape of an extraction rather than its new name.
-_GENERIC_MODULE_WORDS = frozenset({
-    "service", "services", "module", "modules", "package", "packages",
-    "library", "libraries", "directory", "folder", "layer", "code", "logic",
-    "it", "everything", "separate", "own", "new",
-})
+# Single source of truth lives in cerebrofy.config.loader (imported above);
+# derive_module_name() defaults generic_words to this set when None.
 
 _NAMED_MODULE_RE = re.compile(
     r"\binto\s+(?:its\s+own\s+|a\s+|an\s+|the\s+)?(?:new\s+)?`?([a-z][a-z0-9_.-]*)`?"
@@ -97,6 +98,26 @@ class RefactorPlan:
     handoff_summary: str | None = None
 
 
+@dataclass(frozen=True)
+class PlanContext:
+    """Shared inputs for the refactor-planning pipeline.
+
+    Bundled once in :func:`build_refactor_plan` and handed to each pipeline
+    step so individual steps receive only the data they need rather than a
+    long positional argument list. The connection lifecycle stays with the
+    caller; ``build_refactor_plan`` never closes the injected connection.
+    """
+
+    repo_root: Path
+    conn: sqlite3.Connection
+    description: str
+    embedding: list[float]
+    config: PlanningConfig
+    top_k: int
+    config_path: Path
+    dry_run: bool
+
+
 # ---------------------------------------------------------------------------
 # Module naming (deterministic, language-neutral)
 # ---------------------------------------------------------------------------
@@ -126,19 +147,31 @@ def _graph_derived_module(cluster: list[ClusterNeuron]) -> str:
     return "extracted"
 
 
-def derive_module_name(description: str, cluster: list[ClusterNeuron]) -> str:
+def derive_module_name(
+    description: str,
+    cluster: list[ClusterNeuron],
+    *,
+    generic_words: frozenset[str] | None = None,
+) -> str:
     """Derive the proposed new module name from the description or graph.
 
     Examples: "extract the payment logic into a payments service" → ``payments``;
     "move database code into a db/ module" → ``db``. When the description names
     no target, the dominant parent directory inside the cluster is used.
+
+    *generic_words* overrides the default filter set for tokens that describe
+    the extraction shape rather than a concrete name. When ``None`` (the
+    default) the module-level ``_GENERIC_MODULE_WORDS`` from
+    ``cerebrofy.config.loader`` is used — no literal is duplicated.
     """
+    if generic_words is None:
+        generic_words = _GENERIC_MODULE_WORDS
     for pattern in (_NAMED_MODULE_RE, _INTO_TOKEN_RE):
         match = pattern.search(description)
         if match is None:
             continue
         candidate = _sanitize_module(match.group(1))
-        if candidate and candidate not in _GENERIC_MODULE_WORDS:
+        if candidate and candidate not in generic_words:
             return candidate
     fallback = _sanitize_module(_graph_derived_module(cluster))
     return fallback or "extracted"
@@ -165,7 +198,7 @@ def map_cluster_files(
 
 
 # ---------------------------------------------------------------------------
-# Completed-feature integrations (each degrades to a no-op when data is absent)
+# Completed-feature integrations (each degrades gracefully when data is absent)
 # ---------------------------------------------------------------------------
 
 def _blast_radius_label(
@@ -276,9 +309,6 @@ def _memory_context(
     if not (cerebrofy_dir / "db" / "memories.db").exists():
         return []
     try:
-        from cerebrofy.memory.search import recall_memories
-        from cerebrofy.memory.store import open_memories_db
-
         conn = open_memories_db(cerebrofy_dir)
         try:
             results = recall_memories(conn, embedding, limit=5)
@@ -296,8 +326,6 @@ def _avoid_pattern_warnings(
 ) -> list[str]:
     """#23 intent.yaml: warn when the extraction touches an avoided pattern."""
     try:
-        from cerebrofy.intent.loader import load_intent
-
         intent = load_intent(repo_root / ".cerebrofy")
     except Exception:
         return []
@@ -326,8 +354,6 @@ def _execution_handoff(
     # TODO(integration-11): record the approved execution as a session.
     # TODO(integration-17): after execution, review it against this plan.
     try:
-        from cerebrofy.context.optimizer import optimize_context
-
         context_plan = optimize_context(
             task=description,
             db_path=db_path,
@@ -344,15 +370,170 @@ def _execution_handoff(
 
 
 # ---------------------------------------------------------------------------
+# Pipeline steps (each independently testable; orchestrated by
+# build_refactor_plan). Steps receive only the PlanContext plus the data
+# produced by the immediately preceding step(s) — never the whole pipeline.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PlanContextResult:
+    """Output of ``_collect_context_step``: #05 memory + #23 intent signals."""
+
+    memory_context: list[str]
+    avoid_pattern_warnings: list[str]
+
+
+def _extract_cluster_step(ctx: PlanContext) -> NeuronCluster:
+    """Phase #12/#01: extract the cohesive neuron cluster with config-bound checks.
+
+    Translates ``ClusterSizeError`` into a ``PlanError`` carrying the spec error
+    code (``CLUSTER_TOO_SMALL`` / ``CLUSTER_TOO_LARGE``). The actual size bounds
+    from *ctx.config* flow through to the error message via ClusterSizeError.
+    """
+    try:
+        return find_extraction_cluster(
+            ctx.conn,
+            ctx.embedding,
+            top_k=ctx.top_k,
+            min_size=ctx.config.min_cluster_size,
+            max_size=ctx.config.max_cluster_size,
+        )
+    except ClusterSizeError as exc:
+        if exc.size < exc.low:
+            raise PlanError(
+                CLUSTER_TOO_SMALL,
+                f"Only {exc.size} neuron(s) matched the description — refine the query.",
+            ) from exc
+        raise PlanError(
+            CLUSTER_TOO_LARGE,
+            f"{exc.size} neurons matched — more than the {exc.high} supported; "
+            "scope the description more narrowly.",
+        ) from exc
+
+
+def _name_module_step(ctx: PlanContext, cluster: NeuronCluster) -> str:
+    """Derive the new module name from the description, honoring config words."""
+    return derive_module_name(
+        ctx.description,
+        cluster.neurons,
+        generic_words=ctx.config.generic_module_words,
+    )
+
+
+def _map_files_step(
+    ctx: PlanContext,
+    cluster: NeuronCluster,
+    module: str,
+) -> dict[str, str]:
+    """Map every cluster source file to its target path in the new module."""
+    return map_cluster_files(cluster.neurons, module)
+
+
+def _sequence_step(
+    ctx: PlanContext,
+    cluster: NeuronCluster,
+    module: str,
+    file_map: dict[str, str],
+) -> list[MigrationStep]:
+    """Build the dependency-safe, reverse-topo-ordered migration steps."""
+    return build_migration_steps(
+        cluster=cluster.neurons,
+        callers=cluster.external_callers,
+        runtime_boundary_callers=cluster.runtime_boundary_callers,
+        conn=ctx.conn,
+        new_module=module,
+        file_map=file_map,
+    )
+
+
+def _annotate_impact_step(
+    ctx: PlanContext,
+    steps: list[MigrationStep],
+) -> tuple[list[MigrationStep], list[str]]:
+    """Attach #07 impact predictions to steps; return warnings for memory."""
+    return annotate_steps_with_impact(steps, ctx.conn, ctx.repo_root)
+
+
+def _blast_label_step(
+    ctx: PlanContext,
+    cluster: NeuronCluster,
+    steps: list[MigrationStep],
+) -> str:
+    """#01: plan-level blast-radius risk label across the moved neurons."""
+    # ``steps`` is part of the blast integration's scope (per-step containment
+    # check, Idea #12); the current implementation surfaces the plan-level label.
+    return _blast_radius_label(ctx.conn, cluster.neurons)
+
+
+def _collect_context_step(
+    ctx: PlanContext,
+    cluster: NeuronCluster,
+    module: str,
+    impact_warnings: list[str],
+) -> PlanContextResult:
+    """Gather #05 memory context + impact warnings + #23 intent avoid patterns."""
+    memory_context = _memory_context(ctx.repo_root, ctx.embedding)
+    memory_context.extend(f"warning: {title}" for title in impact_warnings)
+    memory_context = list(dict.fromkeys(memory_context))
+    avoid_warnings = _avoid_pattern_warnings(
+        ctx.repo_root, cluster.neurons, module
+    )
+    return PlanContextResult(
+        memory_context=memory_context,
+        avoid_pattern_warnings=avoid_warnings,
+    )
+
+
+def _estimate_step(
+    cluster: NeuronCluster,
+    file_map: dict[str, str],
+) -> tuple[float, int]:
+    """Estimate effort (#spec formula) and count affected files.
+
+    Pure function of cluster/caller/file data — no DB or filesystem access.
+    """
+    files_affected = len(
+        {n.file for n in cluster.neurons if n.file}
+        | set(file_map.values())
+        | {c.file for c in cluster.external_callers if c.file}
+    )
+    estimated_hours = round(
+        0.5
+        + 0.1 * len(cluster.neurons)
+        + 0.05 * len(cluster.external_callers)
+        + 0.25 * len(file_map),
+        1,
+    )
+    return estimated_hours, files_affected
+
+
+def _handoff_step(ctx: PlanContext) -> str | None:
+    """Prepare the #02 optimized context-window handoff (gated by dry_run).
+
+    Delegates to ``_execution_handoff`` so tests can monkeypatch that seam;
+    returns None for dry runs (no optimizer invocation).
+    """
+    if ctx.dry_run:
+        return None
+    return _execution_handoff(
+        ctx.description,
+        ctx.repo_root / ".cerebrofy" / "db" / "cerebrofy.db",
+        ctx.config_path,
+        ctx.repo_root,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def build_refactor_plan(
     *,
     description: str,
-    db_path: Path,
+    conn: sqlite3.Connection,
     embedding: list[float],
     repo_root: Path,
+    config: PlanningConfig | None = None,
     config_path: Path | None = None,
     top_k: int = DEFAULT_TOP_K,
     dry_run: bool = True,
@@ -362,79 +543,44 @@ def build_refactor_plan(
     The query *embedding* is pre-computed by the entry point so this function
     stays independent of the embedding backend. ``dry_run=False`` only adds an
     execution-handoff summary — no files are ever written by the planner.
+
+    The *conn* parameter must be a pre-opened read-only connection to the
+    cerebrofy.db index. Connection lifecycle is managed by the caller.
+
+    *config* injects planning parameters (cluster size bounds, generic module
+    words); it defaults to :class:`~cerebrofy.config.loader.PlanningConfig` so
+    callers that don't supply one get the spec's 2..200 range.
     """
-    db_path = Path(db_path)
     repo_root = Path(repo_root)
     config_path = config_path or (repo_root / ".cerebrofy" / "config.yaml")
-    if not db_path.exists():
-        raise PlanError(
-            NO_INDEX,
-            f"Index not found at {db_path}. Run 'cerebrofy build' first.",
-        )
+    plan_config = config if config is not None else PlanningConfig()
 
-    conn = _open_ro(db_path)
-    try:
-        try:
-            cluster_result = find_extraction_cluster(conn, embedding, top_k=top_k)
-        except ClusterSizeError as exc:
-            if exc.size < MIN_CLUSTER_SIZE:
-                raise PlanError(
-                    CLUSTER_TOO_SMALL,
-                    f"Only {exc.size} neuron(s) matched the description — "
-                    "refine the query.",
-                ) from exc
-            raise PlanError(
-                CLUSTER_TOO_LARGE,
-                f"{exc.size} neurons matched — more than the {MAX_CLUSTER_SIZE} "
-                "supported; scope the description more narrowly.",
-            ) from exc
-
-        cluster = cluster_result.neurons
-        callers = cluster_result.external_callers
-        runtime_boundary = cluster_result.runtime_boundary_callers
-
-        new_module = derive_module_name(description, cluster)
-        file_map = map_cluster_files(cluster, new_module)
-        steps = build_migration_steps(
-            cluster=cluster,
-            callers=callers,
-            runtime_boundary_callers=runtime_boundary,
-            conn=conn,
-            new_module=new_module,
-            file_map=file_map,
-        )
-        steps, impact_warnings = annotate_steps_with_impact(steps, conn, repo_root)
-
-        # #01: confirm each step's scope is contained before including the plan.
-        blast_label = _blast_radius_label(conn, cluster)
-    finally:
-        conn.close()
-
-    memory_context = _memory_context(repo_root, embedding)
-    memory_context.extend(f"warning: {title}" for title in impact_warnings)
-    memory_context = list(dict.fromkeys(memory_context))
-    avoid_warnings = _avoid_pattern_warnings(repo_root, cluster, new_module)
-
-    files_affected = len(
-        {n.file for n in cluster if n.file}
-        | set(file_map.values())
-        | {c.file for c in callers if c.file}
+    ctx = PlanContext(
+        repo_root=repo_root,
+        conn=conn,
+        description=description,
+        embedding=embedding,
+        config=plan_config,
+        top_k=top_k,
+        config_path=config_path,
+        dry_run=dry_run,
     )
-    estimated_hours = round(
-        0.5 + 0.1 * len(cluster) + 0.05 * len(callers) + 0.25 * len(file_map),
-        1,
-    )
-    handoff = (
-        _execution_handoff(description, db_path, config_path, repo_root)
-        if not dry_run
-        else None
-    )
+
+    cluster = _extract_cluster_step(ctx)
+    new_module = _name_module_step(ctx, cluster)
+    file_map = _map_files_step(ctx, cluster, new_module)
+    steps = _sequence_step(ctx, cluster, new_module, file_map)
+    steps, impact_warnings = _annotate_impact_step(ctx, steps)
+    blast_label = _blast_label_step(ctx, cluster, steps)
+    context = _collect_context_step(ctx, cluster, new_module, impact_warnings)
+    estimated_hours, files_affected = _estimate_step(cluster, file_map)
+    handoff = _handoff_step(ctx)
 
     return RefactorPlan(
         description=description.strip(),
-        cluster=cluster,
-        seeds=cluster_result.seeds,
-        callers_to_update=callers,
+        cluster=cluster.neurons,
+        seeds=cluster.seeds,
+        callers_to_update=cluster.external_callers,
         new_module=new_module,
         proposed_files=sorted(set(file_map.values())),
         file_map=file_map,
@@ -442,8 +588,8 @@ def build_refactor_plan(
         estimated_hours=estimated_hours,
         files_affected=files_affected,
         blast_radius_label=blast_label,
-        memory_context=memory_context,
-        avoid_pattern_warnings=avoid_warnings,
-        runtime_boundary_callers=runtime_boundary,
+        memory_context=context.memory_context,
+        avoid_pattern_warnings=context.avoid_pattern_warnings,
+        runtime_boundary_callers=cluster.runtime_boundary_callers,
         handoff_summary=handoff,
     )
