@@ -112,8 +112,12 @@ class SessionMiddleware:
             root,
             conn_factory=index_conn_factory,
         )
-        # Lock for thread-safe session-db updates (race condition fix)
-        self._sessions_lock = threading.Lock()
+        # Serializes *all* access to the cached sessions.db connection.
+        # check_same_thread=False only lifts sqlite3's own thread check; it does
+        # not make concurrent reads/writes on one connection safe.  Readers that
+        # open, read, or write must run under this lock.  It is re-entrant so
+        # ``record()`` can hold it across ``current_session()``.
+        self._sessions_lock = threading.RLock()
 
     @property
     def root(self) -> Path:
@@ -193,13 +197,14 @@ class SessionMiddleware:
         """Return the active session, or None when not recording / no session."""
         if not self.is_recording():
             return None
-        conn = self._connect()
-        if conn is None:
-            return None
-        try:
-            return active_session(conn)
-        except sqlite3.Error:
-            return None
+        with self._sessions_lock:
+            conn = self._connect()
+            if conn is None:
+                return None
+            try:
+                return active_session(conn)
+            except sqlite3.Error:
+                return None
 
     def _recording_caps(self) -> tuple[int, int]:
         """Return ``(max_tracked_neurons, max_refs_per_event)`` from config.
@@ -224,15 +229,19 @@ class SessionMiddleware:
         try:
             if tool in _SKIP_TOOLS:
                 return
-            session = self.current_session()
-            if session is None:
-                return
-            conn = self._connect()
-            if conn is None:
-                return
             max_tracked_neurons, max_refs_per_event = self._recording_caps()
-            # Use lock for thread-safe session-db updates (race condition fix)
+            # Hold the lock across the active-session read *and* the write: the
+            # cached sessions.db connection is shared across worker threads, and
+            # a read that interleaves with another thread's in-flight write can
+            # see no row or a partially updated one.  ``current_session()``
+            # re-enters the lock, which is why it is an RLock.
             with self._sessions_lock:
+                session = self.current_session()
+                if session is None:
+                    return
+                conn = self._connect()
+                if conn is None:
+                    return
                 record_event(
                     conn,
                     session.id,

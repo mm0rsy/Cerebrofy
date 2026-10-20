@@ -572,3 +572,56 @@ def test_concurrent_record_calls_are_thread_safe(tmp_path: Path) -> None:
         assert count_events(conn, session_id) == n_threads * per_thread
     finally:
         conn.close()
+
+
+def test_current_session_read_is_safe_during_concurrent_recording(tmp_path: Path) -> None:
+    """Reading the shared sessions.db connection must not race the write path.
+
+    Regression: ``current_session()`` used to read outside ``_sessions_lock``.
+    On Python 3.12 a read interleaving an in-flight write could observe no row
+    (or a torn row and raise ``TypeError``), and ``record()`` swallows that —
+    silently dropping session events under concurrent tool calls.
+    """
+    root = _make_repo(tmp_path, record_sessions=True)
+    _make_index(root)
+    session_id = _start(root)
+
+    conn = open_sessions_db(root / ".cerebrofy")
+    try:
+        mw = SessionMiddleware(
+            root,
+            sessions_conn_factory=lambda: conn,
+            index_conn_factory=lambda: None,
+        )
+        rounds = 40
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def writer() -> None:
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(rounds):
+                    mw.record("cerebrofy_impact", {"target": "hub"})
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        def reader() -> None:
+            try:
+                barrier.wait(timeout=10)
+                for _ in range(rounds):
+                    session = mw.current_session()
+                    assert session is not None
+                    assert session.id == session_id
+            except BaseException as exc:  # pragma: no cover - failure path
+                errors.append(exc)
+
+        threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert not errors, errors
+        assert count_events(conn, session_id) == rounds
+    finally:
+        conn.close()
