@@ -160,6 +160,29 @@ session:
 
 ---
 
+### `governance`
+
+**Type**: `dict`
+**Default**: `{strategy: git-blame, auto_sync_codeowners: false, fallback_owner: "@tech-leads", activity_days: 90}`
+
+Controls lobe ownership and CODEOWNERS generation (Idea #18). `strategy` is
+`git-blame`, `explicit` (`.cerebrofy/team.yaml`), or `hybrid` (blame weighted by
+commits in the last `activity_days`). `fallback_owner` is used for lobes with no
+commit history. Set `auto_sync_codeowners: true` to regenerate `CODEOWNERS`
+after the health snapshot in `cerebrofy build`.
+
+```yaml
+governance:
+  strategy: git-blame
+  auto_sync_codeowners: false
+  fallback_owner: "@tech-leads"
+  activity_days: 90
+```
+
+See [governance.md](governance.md).
+
+---
+
 ## Ignore Files
 
 Cerebrofy reads two ignore files (gitignore syntax):

@@ -550,6 +550,7 @@ def _run_rule_wizard(root: Path) -> None:
         RulesConfig(
             rules=tuple([*kept, rule]),
             slack_webhook=existing.slack_webhook if existing else None,
+            governance=existing.governance if existing else None,
         ),
         rules_path(root),
     )

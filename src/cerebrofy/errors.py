@@ -33,8 +33,15 @@ ROOT_OUTSIDE_BOUNDARY = "ROOT_OUTSIDE_BOUNDARY"
 INTEGRITY_ERROR = "INTEGRITY_ERROR"
 CLUSTER_TOO_SMALL = "CLUSTER_TOO_SMALL"
 CLUSTER_TOO_LARGE = "CLUSTER_TOO_LARGE"
-NO_DIFF_PROVIDED = "NO_DIFF_PROVIDED"
+NO_GIT_HISTORY = "NO_GIT_HISTORY"
 GH_NOT_AUTHENTICATED = "GH_NOT_AUTHENTICATED"
+NO_GOVERNANCE_RULES = "NO_GOVERNANCE_RULES"
+GOVERNANCE_ERROR = "GOVERNANCE_ERROR"
+PACKAGE_NOT_USED = "PACKAGE_NOT_USED"
+MANIFEST_NOT_FOUND = "MANIFEST_NOT_FOUND"
+INVALID_MANIFEST = "INVALID_MANIFEST"
+VERSION_NOT_FOUND = "VERSION_NOT_FOUND"
+NO_DIFF_PROVIDED = "NO_DIFF_PROVIDED"
 
 
 class CerebrofyError(Exception):
@@ -111,3 +118,27 @@ class IntegrityError(CerebrofyError):
     """A database integrity check (``PRAGMA integrity_check``) reported failure."""
 
     code: str = INTEGRITY_ERROR
+
+
+class GovernanceError(CerebrofyError):
+    """Generic governance/ownership failure."""
+
+    code: str = GOVERNANCE_ERROR
+
+
+class NoGitHistoryError(GovernanceError):
+    """Ownership was requested from a repository with no commit history."""
+
+    code: str = NO_GIT_HISTORY
+
+
+class GitHubNotAuthenticatedError(GovernanceError):
+    """GitHub PR metadata was requested but ``gh`` is unavailable/unauthenticated."""
+
+    code: str = GH_NOT_AUTHENTICATED
+
+
+class NoGovernanceRulesError(GovernanceError):
+    """No ``governance.rules`` block exists in .cerebrofy/arch-rules.yaml."""
+
+    code: str = NO_GOVERNANCE_RULES

@@ -29,6 +29,7 @@ from pydantic import AnyUrl
 
 from cerebrofy.mcp.tool_specs import SPEC_BY_NAME, TOOL_SPECS
 from cerebrofy.mcp.tools.changelog import handle_changelog as _handle_changelog
+from cerebrofy.mcp.tools.governance import handle_governance as _handle_governance
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
 from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
@@ -37,6 +38,7 @@ from cerebrofy.mcp.tools.session import handle_session_show as _handle_session_s
 from cerebrofy.mcp.tools.session import handle_session_start as _handle_session_start
 from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
 from cerebrofy.mcp.tools.review import handle_review as _handle_review
+from cerebrofy.mcp.tools.upgrade import handle_upgrade as _handle_upgrade
 from cerebrofy.utils.paths import (
     InvalidRepoRootError,
     find_repo_root,
@@ -1397,12 +1399,14 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_silo": _handle_silo,
     "_handle_coverage_gap": _handle_coverage_gap,
     "_handle_vuln": _handle_vuln,
+    "_handle_upgrade": _handle_upgrade,
     "_handle_arch_check": _handle_arch_check,
     "_handle_session_start": _handle_session_start,
     "_handle_session_end": _handle_session_end,
     "_handle_session_show": _handle_session_show,
     "_handle_plan": _handle_plan,
     "_handle_changelog": _handle_changelog,
+    "_handle_governance": _handle_governance,
     "_handle_review": _handle_review,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]

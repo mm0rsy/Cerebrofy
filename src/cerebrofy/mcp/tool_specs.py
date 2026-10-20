@@ -359,6 +359,51 @@ _VULN_SCHEMA: dict[str, Any] = {
     "required": ["package"],
 }
 
+_UPGRADE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "package": {
+            "type": "string",
+            "description": "Package name to plan the upgrade for (e.g. 'pydantic', 'requests').",
+        },
+        "from_version": {
+            "type": "string",
+            "description": "Current pinned version (e.g. '1.10.0').",
+        },
+        "to_version": {
+            "type": "string",
+            "description": "Target version (e.g. '2.0.0').",
+        },
+        "breaking_only": {
+            "type": "boolean",
+            "description": "Only report breaking API changes (default: true).",
+            "default": True,
+        },
+        "auto_fix": {
+            "type": "boolean",
+            "description": "Apply mechanical auto-fixes using AST transforms (default: false).",
+            "default": False,
+        },
+        "step": {
+            "type": "array",
+            "items": {"type": "integer"},
+            "description": "Which steps to auto-fix (e.g. [1, 2]); only used when auto_fix=true.",
+        },
+        "validate": {
+            "type": "boolean",
+            "description": "Validate that no old API patterns remain (post-upgrade).",
+            "default": False,
+        },
+        "format": {
+            "type": "string",
+            "description": "Output format (default: markdown).",
+            "enum": ["markdown", "json"],
+            "default": "markdown",
+        },
+    },
+    "required": ["package"],
+}
+
 _ARCH_CHECK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -480,6 +525,37 @@ _CHANGELOG_SCHEMA: dict[str, Any] = {
         },
     },
     "required": ["since"],
+}
+
+_GOVERNANCE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "action": {
+            "type": "string",
+            "description": (
+                "Action to perform: 'generate-codeowners', 'suggest-reviewers', "
+                "or 'check-rules'"
+            ),
+            "enum": ["generate-codeowners", "suggest-reviewers", "check-rules"],
+        },
+        "pr": {
+            "type": "integer",
+            "description": (
+                "GitHub PR number — used by suggest-reviewers and check-rules"
+            ),
+        },
+        "lobe": {
+            "type": "string",
+            "description": "Restrict output to a specific lobe",
+        },
+        "format": {
+            "type": "string",
+            "description": "Output format: 'markdown' or 'json'",
+            "enum": ["markdown", "json"],
+            "default": "markdown",
+        },
+    },
+    "required": ["action"],
 }
 
 _REVIEW_SCHEMA: dict[str, Any] = {
@@ -784,6 +860,20 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         inject=True,
     ),
     ToolSpec(
+        name="cerebrofy_upgrade",
+        description=(
+            "Plan a dependency upgrade from a curated breaking-change manifest: "
+            "find every indexed neuron that uses the changing API, score migration "
+            "effort, order the steps, and optionally apply precise AST auto-fixes. "
+            "Run with validate=true after upgrading to confirm no old patterns remain. "
+            "Offline — use --manifest/--diff on the CLI for custom API diffs. "
+            "Error codes: NO_INDEX, PACKAGE_NOT_USED, MANIFEST_NOT_FOUND, VERSION_NOT_FOUND."
+        ),
+        input_schema=_UPGRADE_SCHEMA,
+        handler_name="_handle_upgrade",
+        inject=False,
+    ),
+    ToolSpec(
         name="cerebrofy_arch_check",
         description=(
             "Check .cerebrofy/arch-rules.yaml architecture drift rules against the "
@@ -860,6 +950,22 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         ),
         input_schema=_CHANGELOG_SCHEMA,
         handler_name="_handle_changelog",
+        inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_governance",
+        description=(
+            "Lobe ownership and review governance. Generates a GitHub CODEOWNERS "
+            "file from git blame + call-graph topology ('generate-codeowners'), "
+            "suggests primary/secondary/backup reviewers for a PR "
+            "('suggest-reviewers'), and evaluates reporting-only governance rules "
+            "from governance.rules in .cerebrofy/arch-rules.yaml ('check-rules'). "
+            "Use this before merging or when deciding who must review a change. "
+            "Returns NO_INDEX / NO_GIT_HISTORY / GH_NOT_AUTHENTICATED / "
+            "NO_GOVERNANCE_RULES guidance when prerequisites are missing."
+        ),
+        input_schema=_GOVERNANCE_SCHEMA,
+        handler_name="_handle_governance",
         inject=True,
     ),
     ToolSpec(

@@ -60,6 +60,16 @@ class ChangelogConfig:
 
 
 @dataclass(frozen=True)
+class GovernanceConfig:
+    """Lobe ownership and CODEOWNERS generation knobs (Idea #18)."""
+
+    strategy: str = "git-blame"
+    auto_sync_codeowners: bool = False
+    fallback_owner: str = "@tech-leads"
+    activity_days: int = 90
+
+
+@dataclass(frozen=True)
 class DatabaseConfig:
     """SQLite index runtime knobs.
 
@@ -86,6 +96,7 @@ class CerebrоfyConfig:
     planning: PlanningConfig = field(default_factory=PlanningConfig)
     changelog: ChangelogConfig = field(default_factory=ChangelogConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    governance: GovernanceConfig = field(default_factory=GovernanceConfig)
     record_sessions: bool = False
 
 
@@ -129,6 +140,12 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
         "lobes": lobes,
         "tracked_extensions": DEFAULT_TRACKED_EXTENSIONS,
         "embedding_model": "local",
+        "governance": {
+            "strategy": "git-blame",
+            "auto_sync_codeowners": False,
+            "fallback_owner": "@tech-leads",
+            "activity_days": 90,
+        },
         "record_sessions": False,
     }
 
@@ -264,6 +281,50 @@ def _parse_database(raw: object) -> DatabaseConfig:
     return DatabaseConfig(integrity_check=integrity)
 
 
+_ALLOWED_OWNERSHIP_STRATEGIES: frozenset[str] = frozenset(
+    {"git-blame", "explicit", "hybrid"}
+)
+
+
+def _parse_governance(raw: object) -> GovernanceConfig:
+    """Parse and validate the optional ``governance:`` mapping."""
+    if raw is None:
+        return GovernanceConfig()
+    raw = _require_mapping(raw, "governance")
+    default = GovernanceConfig()
+
+    strategy = raw.get("strategy", default.strategy)
+    if not isinstance(strategy, str) or strategy not in _ALLOWED_OWNERSHIP_STRATEGIES:
+        raise ConfigError(
+            "config.yaml: governance.strategy must be one of "
+            f"git-blame/explicit/hybrid, got {strategy!r}"
+        )
+
+    auto_sync = raw.get("auto_sync_codeowners", default.auto_sync_codeowners)
+    if not isinstance(auto_sync, bool):
+        raise ConfigError(
+            "config.yaml: governance.auto_sync_codeowners must be a boolean, "
+            f"got {auto_sync!r}"
+        )
+
+    fallback_owner = raw.get("fallback_owner", default.fallback_owner)
+    if not isinstance(fallback_owner, str) or not fallback_owner.strip():
+        raise ConfigError(
+            "config.yaml: governance.fallback_owner must be a non-empty string"
+        )
+
+    return GovernanceConfig(
+        strategy=strategy,
+        auto_sync_codeowners=auto_sync,
+        fallback_owner=fallback_owner.strip(),
+        activity_days=_int_field(
+            raw.get("activity_days", default.activity_days),
+            "governance",
+            "activity_days",
+        ),
+    )
+
+
 def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig:
     """Load and parse config.yaml into a CerebrоfyConfig. Raises FileNotFoundError if missing.
 
@@ -300,6 +361,7 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
     planning_cfg = _parse_planning(data.get("planning"))
     changelog_cfg = _parse_changelog(data.get("changelog"))
     database_cfg = _parse_database(data.get("database"))
+    governance_cfg = _parse_governance(data.get("governance"))
 
     config = CerebrоfyConfig(
         lobes=data["lobes"],
@@ -310,6 +372,7 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         planning=planning_cfg,
         changelog=changelog_cfg,
         database=database_cfg,
+        governance=governance_cfg,
         record_sessions=bool(data.get("record_sessions", False)),
     )
     if queries_dir is not None:
