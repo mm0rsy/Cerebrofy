@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **28 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **29 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -100,6 +100,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_coverage_gap` | Test coverage gap predictor: ranks uncovered neurons by blast radius × change velocity |
 | `cerebrofy_list_resources` | Discover every MCP resource URI (static resources + URI templates), optionally filtered by type |
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories |
+| `cerebrofy_governance` | Lobe ownership and review governance: generate CODEOWNERS, suggest reviewers for a PR/diff, check reporting-only governance rules |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -822,6 +823,38 @@ cerebrofy_vuln(package="requests")
 → cerebrofy_vuln(package="requests")  # verify no remaining critical exposure
 → Upgrade requests in pyproject.toml
 ```
+
+---
+
+### `cerebrofy_governance`
+
+Lobe ownership and review governance over the live index. Three actions:
+
+- `generate-codeowners` — build a GitHub CODEOWNERS file from git blame, `.cerebrofy/team.yaml`, and cross-lobe call edges.
+- `suggest-reviewers` — rank primary, secondary, and backup reviewers for a change set (GitHub PR or local diff).
+- `check-rules` — evaluate the reporting-only `governance.rules` block in `.cerebrofy/arch-rules.yaml`.
+
+**Input schema:**
+
+```json
+{
+  "action": "suggest-reviewers",
+  "pr": 42,
+  "lobe": "auth",
+  "format": "markdown"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | ✅ | `generate-codeowners` · `suggest-reviewers` · `check-rules` |
+| `pr` | integer | — | GitHub PR number — used by `suggest-reviewers` and `check-rules` (requires an authenticated `gh`) |
+| `lobe` | string | — | Restrict output to a specific lobe |
+| `format` | string | — | `markdown` (default) or `json` |
+
+**Output:** for `generate-codeowners`, the CODEOWNERS file content (plain text, or `{"codeowners_content": "..."}` in JSON); for `suggest-reviewers`, a reviewer table (or `{"reviewers": [...]}`); for `check-rules`, a PASS/WARN/FAIL summary with per-rule reasons (or the full result object in JSON).
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NO_GIT_HISTORY]` when ownership is requested from a repository with no commits; `[CONFIG_ERROR]` when `.cerebrofy/config.yaml` or `.cerebrofy/team.yaml` is malformed; `[GH_NOT_AUTHENTICATED]` when `gh` is unavailable; `[NO_GOVERNANCE_RULES]` when no `governance.rules` block is configured.
 
 ---
 
