@@ -112,12 +112,6 @@ src/cerebrofy/
 │   ├── pipeline.py               ← diff/PR resolution + seven graph checks
 │   └── github_poster.py          ← opt-in PR comment posting
 │
-├── planning/                     ← Refactor Planner (Idea #12)
-│   ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
-│   ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
-│   ├── formatter.py              ← Markdown + JSON plan output
-│   └── planner.py                ← pipeline orchestration + feature integrations
-│
 ├── skills/
 │   ├── installer.py              ← install_skills() + install_instructions()
 │   └── templates/                ← Bundled SKILL.md + slash-command templates per AI client
@@ -529,7 +523,7 @@ flowchart TD
     G --> H[format_changelog: markdown/github/slack]
     H --> I[ChangelogReport]
     F --> J{is breaking?}
-    J -->|yes| K[breaking_changes[]]
+    J -->|yes| K[breaking_changes]
     J -->|no| L[regular entries]
     K --> I
     L --> I
