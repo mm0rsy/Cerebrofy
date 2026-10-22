@@ -24,6 +24,14 @@ from cerebrofy.commands.session import session_group
 from cerebrofy.commands.update import cerebrofy_update
 from cerebrofy.commands.upgrade import cerebrofy_upgrade
 from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
+from cerebrofy.commands.coordination import (
+    claim_command,
+    conflicts_command,
+    coordination_group,
+    release_command,
+    resolve_command,
+    who_command,
+)
 from cerebrofy.commands.silo import cerebrofy_silo
 from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
@@ -75,6 +83,14 @@ main.add_command(cerebrofy_update)
 main.add_command(cerebrofy_upgrade)
 main.add_command(cerebrofy_validate)
 main.add_command(cerebrofy_vuln)
+
+# Multi-agent coordination (Idea #25) — top-level commands plus an alias group.
+main.add_command(who_command)
+main.add_command(claim_command)
+main.add_command(release_command)
+main.add_command(conflicts_command)
+main.add_command(resolve_command)
+main.add_command(coordination_group)
 
 # Hidden/internal commands (not shown in --help)
 cerebrofy_mcp.hidden = True

@@ -4,7 +4,7 @@ These tests pin the contract that the ``TOOL_SPECS`` registry in
 :mod:`cerebrofy.mcp.tool_specs` and the ``_HANDLERS``/``dispatch_tool`` wiring in
 :mod:`cerebrofy.mcp.server` implement:
 
-* the 31-tool catalog, in the exact advertised order;
+* the 36-tool catalog, in the exact advertised order;
 * the inject/no-inject split;
 * every spec resolves to a real ``_handle_*`` handler;
 * ``dispatch_tool`` returns the documented ``Unknown tool:`` error for unknown
@@ -58,6 +58,11 @@ EXPECTED_ORDER: list[str] = [
     "cerebrofy_changelog",
     "cerebrofy_governance",
     "cerebrofy_review",
+    "cerebrofy_claim",
+    "cerebrofy_release",
+    "cerebrofy_who",
+    "cerebrofy_conflicts",
+    "cerebrofy_resolve",
 ]
 
 # Data-reading tools that receive epistemic + intent enrichment at dispatch time.
@@ -77,6 +82,8 @@ INJECT_TRUE: set[str] = {
     "cerebrofy_changelog",
     "cerebrofy_governance",
     "cerebrofy_review",
+    "cerebrofy_who",
+    "cerebrofy_conflicts",
 }
 
 # Self-contained / side-effecting tools: results are returned verbatim.
@@ -97,6 +104,9 @@ INJECT_FALSE: set[str] = {
     "cerebrofy_session_start",
     "cerebrofy_session_end",
     "cerebrofy_session_show",
+    "cerebrofy_claim",
+    "cerebrofy_release",
+    "cerebrofy_resolve",
 }
 
 
@@ -105,27 +115,27 @@ INJECT_FALSE: set[str] = {
 # ---------------------------------------------------------------------------
 
 
-def test_tool_specs_count_is_31() -> None:
-    assert len(TOOL_SPECS) == 31
+def test_tool_specs_count_is_36() -> None:
+    assert len(TOOL_SPECS) == 36
 
 
 def test_tool_specs_order_matches_catalog() -> None:
     assert [s.name for s in TOOL_SPECS] == EXPECTED_ORDER
 
 
-def test_spec_by_name_has_31_unique_entries() -> None:
-    assert len(SPEC_BY_NAME) == 31
+def test_spec_by_name_has_36_unique_entries() -> None:
+    assert len(SPEC_BY_NAME) == 36
     assert set(SPEC_BY_NAME) == set(EXPECTED_ORDER)
 
 
 def test_no_duplicate_names_raised_at_build() -> None:
-    """Re-constructing the lookup from TOOL_SPECS must yield exactly 31 keys
+    """Re-constructing the lookup from TOOL_SPECS must yield exactly 36 keys
     (a duplicate would have raised ValueError at import time)."""
     rebuilt: dict[str, ToolSpec] = {}
     for s in TOOL_SPECS:
         assert s.name not in rebuilt
         rebuilt[s.name] = s
-    assert len(rebuilt) == 31
+    assert len(rebuilt) == 36
 
 
 @pytest.mark.parametrize("spec", TOOL_SPECS)
@@ -152,8 +162,23 @@ def test_inject_flag_partition(spec: ToolSpec) -> None:
 def test_inject_sets_partition_the_catalog() -> None:
     assert INJECT_TRUE | INJECT_FALSE == set(EXPECTED_ORDER)
     assert INJECT_TRUE.isdisjoint(INJECT_FALSE)
-    assert len(INJECT_TRUE) == 15
-    assert len(INJECT_FALSE) == 16
+    assert len(INJECT_TRUE) == 17
+    assert len(INJECT_FALSE) == 19
+
+
+def test_coordination_read_tools_are_inject_true() -> None:
+    """``who``/``conflicts`` read data, so they get epistemic/intent enrichment."""
+    for name in ("cerebrofy_who", "cerebrofy_conflicts"):
+        assert SPEC_BY_NAME[name].inject is True
+
+
+@pytest.mark.parametrize(
+    "tool_name", ["search_code", "get_neuron", "cerebrofy_remember"]
+)
+def test_agent_aware_tools_accept_agent_id(tool_name: str) -> None:
+    agent_schema = SPEC_BY_NAME[tool_name].input_schema["properties"]["agent_id"]
+    assert agent_schema["type"] == "string"
+    assert "agent" in agent_schema["description"].lower()
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +191,7 @@ def test_all_handlers_resolve_in_server() -> None:
     pytest.importorskip("mcp")
     from cerebrofy.mcp import server as server_mod
 
-    assert len(server_mod._HANDLERS) == 31
+    assert len(server_mod._HANDLERS) == 36
     for spec in TOOL_SPECS:
         handler = server_mod._HANDLERS.get(spec.handler_name)
         assert handler is not None, f"missing handler {spec.handler_name} for {spec.name}"

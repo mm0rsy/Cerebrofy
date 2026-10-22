@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **31 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **36 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -103,6 +103,11 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories |
 | `cerebrofy_governance` | Lobe ownership and review governance: generate CODEOWNERS, suggest reviewers for a PR/diff, check reporting-only governance rules |
 | `cerebrofy_review` | Graph-aware AI review copilot: reviews a local diff or GitHub PR with blast radius, memories, arch rules, coverage gaps, coupling, and suggested reviewers; posting is opt-in |
+| `cerebrofy_claim` | Claim neuron ids or file targets before editing; skips and reports neurons already held by another active agent |
+| `cerebrofy_release` | Release specific claims, or every claim held by an agent |
+| `cerebrofy_who` | List active agents, their intents, claimed neurons, and overlapping claims |
+| `cerebrofy_conflicts` | Report overlapping claims and contradicting memories (`keyword_opposition`) |
+| `cerebrofy_resolve` | Resolve a pair of contradicting memories with a deterministic strategy |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -122,11 +127,15 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 {
   "query": "OAuth2 token validation",
   "top_k": 10,
-  "lobe": "auth"
+  "lobe": "auth",
+  "agent_id": "claude-sess-001"
 }
 ```
 
 `lobe` is optional — omit to search all modules. `top_k` defaults to 10, max 50.
+`agent_id` is optional: when supplied (or inherited from `CEREBROFY_AGENT_ID`), it
+refreshes that agent's coordination heartbeat and excludes its own claims from
+conflict notices.
 
 **How it works:** Embeds the query using the same model as the index (BAAI/bge-small-en-v1.5, offline), runs a KNN cosine-similarity search over `vec_neurons`, then expands the results via depth-2 BFS through the call graph (skipping `RUNTIME_BOUNDARY` edges). Returns ranked neurons sorted by similarity.
 
@@ -163,8 +172,12 @@ Fetch full details for a specific neuron by name or by file path + optional line
 **Input schema (by file):**
 
 ```json
-{ "file": "src/auth/validator.py", "line": 42 }
+{ "file": "src/auth/validator.py", "line": 42, "agent_id": "claude-sess-001" }
 ```
+
+`agent_id` is optional on either form. It refreshes the caller's coordination
+heartbeat (falling back to `CEREBROFY_AGENT_ID`) and keeps the caller's own claims
+out of conflict notices.
 
 **Output:** JSON array of up to 5 matching neurons with `id`, `name`, `type`, `file`, `line_start`, `line_end`, `signature`, `docstring`.
 
@@ -387,11 +400,15 @@ Write a structured memory attached to a neuron or lobe. Call this after any impo
   "type": "warning",
   "neuron": "auth/tokens.py::validate_token",
   "tags": ["security", "jwt"],
-  "author": "claude-sonnet-4-6"
+  "author": "claude-sonnet-4-6",
+  "agent_id": "claude-sess-001"
 }
 ```
 
 Valid types: `decision`, `warning`, `context`, `pattern`, `agent_action`.
+`agent_id` is optional and refreshes the caller's coordination heartbeat (falling
+back to `CEREBROFY_AGENT_ID`); it also keeps the caller's own claims out of the
+conflict notices attached to the response.
 
 **Output:** `{"id": "<uuid>", "neuron_id": "<resolved-id>|null", "created_ts": 1234567890}`
 
@@ -938,6 +955,150 @@ markdown summary (or the full report object in JSON).
 **Error codes:** `[NO_INDEX]` when no index exists; `[NO_DIFF_PROVIDED]` when
 neither `diff` nor `pr` is supplied; `[GH_NOT_AUTHENTICATED]` when `gh` is
 unavailable or unauthenticated.
+
+---
+
+### `cerebrofy_claim`
+
+Claim one or more neurons (or file targets) before editing them. Claims are
+advisory; the tool reports conflicts instead of blocking other agents. See
+[docs/coordination.md](coordination.md) for the full protocol.
+
+**Input schema:**
+
+```json
+{
+  "neurons": ["auth/tokens.py::validate_token"],
+  "intent": "Adding strict mode parameter",
+  "agent_id": "claude-sess-001",
+  "agent_type": "claude",
+  "ttl_minutes": 60,
+  "session_id": "sess_abc123"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | ✅ | Stable identifier for the acting agent |
+| `neurons` | array of strings | ✅ | Neuron ids or `file::name` targets to claim |
+| `intent` | string | ✅ | What the agent is about to do, shown to peers |
+| `agent_type` | string | — | `claude` (default), `cursor`, `devin`, `human`, `ci` |
+| `ttl_minutes` | integer | — | Claim lifetime `1..1440` (default: 60) |
+| `session_id` | string | — | Optional Idea #11 session id to associate with the claim |
+
+**Output:** `claimed` (ids claimed by this call), `conflicts` (skipped ids with
+`existing_claimant`, `claimant_intent`, and `claimant_active_minutes`), and
+`claim_id`.
+
+```json
+{
+  "claimed": ["auth/tokens.py::validate_token"],
+  "conflicts": [],
+  "claim_id": "claim_1729400000_claude-sess-001"
+}
+```
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NEURON_ALREADY_CLAIMED]`
+when every requested neuron is already held by another active agent (the conflict
+list is still returned where available); `[CEREBROFY_ERROR]` for unexpected
+registry failures.
+
+---
+
+### `cerebrofy_release`
+
+Release specific claims, or every claim held by an agent when `neurons` is
+omitted.
+
+**Input schema:**
+
+```json
+{ "agent_id": "claude-sess-001", "neurons": ["auth/tokens.py::validate_token"] }
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `agent_id` | string | ✅ | Agent whose claims should be released |
+| `neurons` | array of strings | — | Neuron ids to release; omit to release every claim |
+
+**Output:** `agent_id`, `released`, `released_count`, and `released_all`.
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NO_ACTIVE_AGENT]` when the
+agent id has no active registration; `[CLAIM_EXPIRED]` when the claim TTL already
+elapsed; `[CEREBROFY_ERROR]` for unexpected failures.
+
+---
+
+### `cerebrofy_who`
+
+List every active agent, its claims, and neurons claimed by more than one agent.
+This is a **read-only** call: it never creates `cerebrofy.db`.
+
+**Input schema:** none (`{}`).
+
+**Output:** `active_agents` (each with `agent_id`, `agent_type`, `intent`,
+`claimed_neurons`, `active_minutes`, `session_id`), `conflicts`, and
+`total_active`.
+
+**Error codes:** `[NO_INDEX]` when no index exists.
+
+---
+
+### `cerebrofy_conflicts`
+
+Report overlapping claims and contradicting memories. Memory contradictions are
+detected with the Phase-1 keyword-opposition heuristic and carry
+`type: "keyword_opposition"`. This is a **read-only** call.
+
+**Input schema:**
+
+```json
+{ "neuron": "auth/tokens.py::validate_token" }
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `neuron` | string | — | Limit memory-conflict detection to one neuron |
+
+**Output:** `overlapping_claims` (each `{neuron, agents}`), `memory_conflicts`
+(each with `neuron`, `memory_a`, `memory_b`, `type`, `matched_pattern`, and
+`resolution_options`), and the canonical `resolution_options` list.
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[CEREBROFY_ERROR]` for
+unexpected failures.
+
+---
+
+### `cerebrofy_resolve`
+
+Resolve a pair of contradicting memories with one deterministic strategy.
+
+**Input schema:**
+
+```json
+{
+  "memory_a": "mem_001",
+  "memory_b": "mem_002",
+  "strategy": "keep_newest",
+  "neuron": "auth/tokens.py::validate_token"
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `memory_a` | string | ✅ | First memory id in the conflict |
+| `memory_b` | string | ✅ | Second memory id in the conflict |
+| `strategy` | string | ✅ | `keep_newest`, `keep_by_author`, `human_review`, or `merge` |
+| `author` | string | — | Author to prefer for `keep_by_author` |
+| `merged_body` | string | — | Body for the merged memory (required by `merge`) |
+| `neuron` | string | — | Neuron the conflicting memories belong to |
+
+`human_review` is advisory and mutates nothing (`requires_review: true`). The
+result is **surface-neutral**: it reports `winner` / `loser`, or `superseded` plus
+`merged_memory` for a merge, without assuming `memory_a` is the keeper.
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[CEREBROFY_ERROR]` for an
+unknown memory id or strategy, or a missing `author` / `merged_body`.
 
 ---
 

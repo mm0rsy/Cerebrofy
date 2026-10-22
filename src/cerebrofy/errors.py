@@ -42,6 +42,10 @@ MANIFEST_NOT_FOUND = "MANIFEST_NOT_FOUND"
 INVALID_MANIFEST = "INVALID_MANIFEST"
 VERSION_NOT_FOUND = "VERSION_NOT_FOUND"
 NO_DIFF_PROVIDED = "NO_DIFF_PROVIDED"
+# Multi-agent coordination (Idea #25)
+NEURON_ALREADY_CLAIMED = "NEURON_ALREADY_CLAIMED"
+CLAIM_EXPIRED = "CLAIM_EXPIRED"
+NO_ACTIVE_AGENT = "NO_ACTIVE_AGENT"
 
 
 class CerebrofyError(Exception):
@@ -100,6 +104,18 @@ class NeuronNotFoundError(CerebrofyError):
     """A neuron lookup by id/name/file:line failed."""
 
     code: str = NEURON_NOT_FOUND
+
+
+class ClaimExpiredError(CerebrofyError):
+    """An agent's coordination claim TTL elapsed — re-claim required."""
+
+    code: str = CLAIM_EXPIRED
+
+
+class NoActiveAgentError(CerebrofyError):
+    """A coordination operation referenced an agent with no active claims."""
+
+    code: str = NO_ACTIVE_AGENT
 
 
 class InvalidRepoRootError(CerebrofyError):
