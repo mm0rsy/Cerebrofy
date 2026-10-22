@@ -320,7 +320,6 @@ def apply_fixes(
     all_results: list[FixResult] = []
     # Map file -> (original_source, list of (step_number, edits, target_lines))
     file_modifications: dict[Path, tuple[str, list[tuple[int, list[tuple[int, int, str]], set[int]]]]] = {}
-    all_results: list[FixResult] = []
 
     for step_number in selected:
         plan_step = step_by_number[step_number]
