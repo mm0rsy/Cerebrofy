@@ -37,6 +37,22 @@ def open_db_readonly(db_path: Path, *, integrity_check: str = "warn") -> sqlite3
     return conn
 
 
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """Switch the database to WAL, tolerating a concurrent opener doing the same.
+
+    ``PRAGMA journal_mode=WAL`` needs a brief exclusive lock. Several processes
+    opening a brand-new database at once collide here, and sqlite reports
+    ``database is locked`` rather than waiting. If another connection already
+    switched it, the database is in the desired mode and there is nothing to do.
+    """
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        row = conn.execute("PRAGMA journal_mode").fetchone()
+        if not row or str(row[0]).lower() != "wal":
+            raise
+
+
 def open_db(db_path: Path) -> sqlite3.Connection:
     """Open cerebrofy.db, load the sqlite-vec extension, and enable WAL mode.
 
@@ -49,7 +65,7 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     """
     conn = sqlite3.connect(str(db_path), timeout=30.0)
     load_sqlite_vec(conn)
-    conn.execute("PRAGMA journal_mode=WAL")
+    _enable_wal(conn)
     return conn
 
 

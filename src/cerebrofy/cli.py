@@ -1,5 +1,7 @@
 """Cerebrofy CLI entry point."""
 
+import sys
+
 import rich_click as click
 
 from cerebrofy import __version__
@@ -54,10 +56,30 @@ click.rich_click.HEADER_TEXT = (
 )
 
 
+def _force_utf8_output() -> None:
+    """Make stdout/stderr able to render the glyphs the CLI prints.
+
+    Legacy Windows consoles use a codepage (cp1252) that cannot encode the
+    banner, box-drawing characters or emoji in reports, and the command dies
+    with UnicodeEncodeError. Reconfigure to UTF-8 and degrade unencodable
+    characters instead of raising.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if not hasattr(stream, "reconfigure"):
+            continue
+        encoding = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
+        if encoding == "utf8":
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):  # pragma: no cover - non-file streams
+            pass
+
+
 @click.group()
 @click.version_option(version=__version__, prog_name="cerebrofy")
 def main() -> None:
-    pass
+    _force_utf8_output()
 
 
 # Public commands (shown in --help)
