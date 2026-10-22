@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
     branches: [master]
 
@@ -10,6 +8,9 @@ on:
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+# Note: Runs on PRs only. Push to master runs semantic-release only (see semantic-release.yml).
+# This keeps master clean — lint/test/smoke must pass on the PR before merge.
 
 jobs:
   # ───────────────────────────────────────────────────────────────────────────
@@ -87,6 +88,39 @@ jobs:
         run: uv run pytest tests/integration/test_mcp_command.py -v --tb=short --no-cov
 
   # ───────────────────────────────────────────────────────────────────────────
+  # Package — prove the wheel/sdist builds and ships every non-Python asset.
+  # This is the only check the release pipeline used to do exclusively, which
+  # meant a broken package was discovered after merge. Run it on the PR.
+  # ───────────────────────────────────────────────────────────────────────────
+  package:
+    name: Package build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
+      - name: Build wheel and sdist
+        run: uv build
+
+      - name: Verify wheel contents
+        run: uv run python .github/scripts/verify_wheel.py
+
+      - name: Install the wheel and smoke the entry point
+        run: |
+          uv pip install --force-reinstall --no-deps dist/*.whl
+          # --no-sync keeps the wheel install; a plain `uv run` would reinstall
+          # the editable project and hide a broken wheel.
+          uv run --no-sync cerebrofy --version
+          uv run --no-sync cerebrofy --help
+
+  # ───────────────────────────────────────────────────────────────────────────
   # CLI gates — run key commands end-to-end on a fresh repo
   # ───────────────────────────────────────────────────────────────────────────
   cli-gates:
@@ -115,26 +149,7 @@ jobs:
       - name: Init + build index
         run: |
           uv run cerebrofy init --no-mcp
-          uv run python -c "
-from pathlib import Path
-from unittest.mock import patch
-from cerebrofy.cli import main
-from cerebrofy.embedder.base import Embedder
-from click.testing import CliRunner
-
-class _FakeEmbedder(Embedder):
-    @property
-    def dim(self) -> int:
-        return 768
-    def embed(self, texts):
-        return [[0.0] * 768 for _ in texts]
-
-runner = CliRunner()
-with patch('cerebrofy.commands.build.get_embedder', return_value=_FakeEmbedder()):
-    result = runner.invoke(main, ['build'])
-    assert result.exit_code == 0, result.output
-"
-          echo "Init + build complete"
+          uv run python .github/scripts/ci_build_index.py
 
       - name: Validate command
         run: uv run cerebrofy validate
@@ -149,7 +164,7 @@ with patch('cerebrofy.commands.build.get_embedder', return_value=_FakeEmbedder()
         id: coverage-gap
 
       - name: Vuln command
-        run: uv run cerebrofy vuln
+        run: uv run cerebrofy vuln --package requests
         id: vuln
 
       - name: Arch check command

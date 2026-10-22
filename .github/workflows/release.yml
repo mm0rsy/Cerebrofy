@@ -1,6 +1,14 @@
 name: Release
 
 # Triggers on semantic version tags pushed to master: v1.2.3
+#
+# Nothing here re-runs lint or the test suite. Those are PR gates (ci.yml,
+# smoke.yml) and must be green before the merge that produced this tag.
+# The only new commit the tests never saw is semantic-release's own version
+# bump, which is mechanical — so this pipeline builds the artifact and
+# verifies the artifact itself, which is the one thing the PR cannot prove
+# about the tagged tree.
+
 on:
   push:
     tags:
@@ -13,37 +21,10 @@ concurrency:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  # Gate: tests must pass before we publish anything
-  # ─────────────────────────────────────────────────────────────────────────
-  test:
-    name: Test gate
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Install dependencies
-        run: uv sync --group dev --extra mcp
-
-      - name: Lint
-        run: uv run ruff check src/ tests/
-
-      - name: Unit & integration tests
-        run: uv run pytest tests/unit/ tests/integration/ -v --tb=short --no-cov
-
-      - name: Tests with combined coverage
-        run: uv run pytest tests/unit/ tests/integration/ --tb=short --cov=src/cerebrofy --cov-report=term-missing
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Build: wheel + sdist from the tagged commit
+  # Build: wheel + sdist from the tagged commit, then verify the artifact
   # ─────────────────────────────────────────────────────────────────────────
   build:
     name: Build distribution
-    needs: test
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +34,25 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
+      - name: Install dev dependencies
+        run: uv sync --group dev
+
       - name: Build wheel and sdist
         run: uv build
+
+      - name: Verify wheel contents
+        run: uv run python .github/scripts/verify_wheel.py
+
+      - name: Install the wheel and smoke the entry point
+        run: |
+          uv pip install --force-reinstall --no-deps dist/*.whl
+          # --no-sync keeps the wheel install; a plain `uv run` would reinstall
+          # the editable project and hide a broken wheel.
+          uv run --no-sync cerebrofy --version
+          uv run --no-sync cerebrofy --help
+
+      - name: Verify the tag matches the packaged version
+        run: uv run python .github/scripts/verify_tag_version.py
 
       - name: Verify dist/ contents
         run: ls -lh dist/

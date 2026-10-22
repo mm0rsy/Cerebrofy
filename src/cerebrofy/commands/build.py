@@ -292,6 +292,10 @@ def cerebrofy_build() -> None:
     config: CerebrоfyConfig = load_config(config_path)
     ignore_rules = IgnoreRuleSet.from_directory(root)
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+    # A cloned repo ships .cerebrofy/config.yaml but the db/ directory is
+    # gitignored, and `init` returns early when .cerebrofy/ already exists.
+    # Create the directory here so a fresh clone can build without --force.
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = get_tmp_path(db_path)
     lock_path = db_path.parent / "cerebrofy.build.lock"
 
