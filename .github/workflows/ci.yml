@@ -210,7 +210,7 @@ jobs:
         id: coverage-gap
 
       - name: Vuln command
-        run: uv run cerebrofy vuln
+        run: uv run cerebrofy vuln --package requests
         id: vuln
 
       - name: Arch check command
