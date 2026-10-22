@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -37,20 +38,30 @@ def open_db_readonly(db_path: Path, *, integrity_check: str = "warn") -> sqlite3
     return conn
 
 
-def _enable_wal(conn: sqlite3.Connection) -> None:
-    """Switch the database to WAL, tolerating a concurrent opener doing the same.
+def _enable_wal(conn: sqlite3.Connection, attempts: int = 20) -> None:
+    """Switch the database to WAL, tolerating concurrent openers doing the same.
 
     ``PRAGMA journal_mode=WAL`` needs a brief exclusive lock. Several processes
     opening a brand-new database at once collide here, and sqlite reports
-    ``database is locked`` rather than waiting. If another connection already
-    switched it, the database is in the desired mode and there is nothing to do.
+    ``database is locked`` without waiting — even a plain read of
+    ``PRAGMA journal_mode`` can fail mid-switch. So retry with a short backoff
+    and accept the mode already being ``wal`` (someone else switched it).
     """
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-    except sqlite3.OperationalError:
-        row = conn.execute("PRAGMA journal_mode").fetchone()
-        if not row or str(row[0]).lower() != "wal":
-            raise
+    delay = 0.05
+    for _ in range(attempts):
+        try:
+            row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+            if row and str(row[0]).lower() == "wal":
+                return
+        except sqlite3.OperationalError:
+            pass
+        time.sleep(delay)
+        delay = min(delay * 2, 0.5)
+
+    row = conn.execute("PRAGMA journal_mode").fetchone()
+    if row and str(row[0]).lower() == "wal":
+        return
+    raise sqlite3.OperationalError("could not enable WAL mode: database stayed locked")
 
 
 def open_db(db_path: Path) -> sqlite3.Connection:
