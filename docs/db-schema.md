@@ -4,7 +4,8 @@ This document describes the **transaction model** for `cerebrofy.db`
 (`.cerebrofy/db/cerebrofy.db`). The schema itself — tables, indexes, virtual
 tables, and DDL — lives in `src/cerebrofy/db/schema.py` and is created by
 `create_schema()`. This file does **not** redefine the schema; it documents the
-write-serialization contract that all writers must follow.
+write-serialization contract that all writers must follow and the shape of the
+coordination registry (`active_agents`).
 
 ## Connections
 
@@ -21,6 +22,43 @@ write-serialization contract that all writers must follow.
   guard in the Python `sqlite3` driver; it does NOT make writes safe.** Every
   multi-statement writer on a shared connection must still go through
   `write_transaction`.
+
+## Coordination registry (`active_agents`)
+
+Multi-agent coordination (Idea #25) stores its registry in `cerebrofy.db` as the
+`active_agents` table. The DDL lives in `db/schema.py::ACTIVE_AGENTS_DDL` and is
+also applied by `migrations/007_coordination.sql`; the registry is created
+idempotently by `coordination/registry.py`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `agent_id` | TEXT | Primary key. Unique agent instance. |
+| `agent_type` | TEXT | NOT NULL. `claude`, `cursor`, `devin`, `human`, `ci`. |
+| `session_id` | TEXT | Nullable Idea #11 session id. **Not a foreign key yet** — adding the constraint is an Idea #11 TODO. |
+| `intent` | TEXT | Natural-language description of the planned work. |
+| `claimed_neurons` | TEXT | NOT NULL JSON array, default `'[]'`. |
+| `started_ts` | INTEGER | NOT NULL unix timestamp when the agent registered. |
+| `last_heartbeat` | INTEGER | NOT NULL unix timestamp of the last heartbeat. |
+| `status` | TEXT | `active` (default) or `completed`. |
+| `ttl_minutes` | INTEGER | NOT NULL, default `60`, valid range `1..1440`. |
+| `expires_ts` | INTEGER | Nullable TTL deadline; refreshed by a heartbeat. |
+| `created_ts` | INTEGER | NOT NULL row creation timestamp. |
+
+Indexes: `idx_active_agents_status` (`status`) and
+`idx_active_agents_heartbeat` (`last_heartbeat`). There is no index on
+`claimed_neurons`.
+
+**Read/write split.** `cerebrofy_who`, `cerebrofy_conflicts`, and the optional
+MCP conflict/heartbeat hooks open the registry **read-only** and never create
+`cerebrofy.db`; a missing index yields `NO_INDEX` (or no notice) instead of a new
+database. Only explicit `claim` / `release` / `heartbeat` mutations write, and
+every one of them goes through `write_transaction` (`BEGIN IMMEDIATE`) in
+`coordination/registry.py`.
+
+**Ephemeral by design.** `active_agents` lives in `cerebrofy.db`, which
+`cerebrofy build` recreates atomically. A full rebuild discards every claim and
+registration, so agents must re-claim afterwards. Durable knowledge remains in
+`memories.db`, which is not rebuilt.
 
 ## Write serialization contract
 

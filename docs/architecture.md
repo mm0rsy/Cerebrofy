@@ -66,16 +66,22 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   ├── server.py                 ← MCPServer: tool + resource dispatch (31 tools)
+│   ├── server.py                 ← MCPServer: tool + resource dispatch (36 tools)
 │   ├── tools/upgrade.py          ← cerebrofy_upgrade handler: plan / auto-fix / validate
 │   ├── tools/governance.py       ← cerebrofy_governance handler: CODEOWNERS / reviewers / rules
-│   └── tools/review.py           ← cerebrofy_review handler: diff/PR review
+│   ├── tools/review.py           ← cerebrofy_review handler: diff/PR review
+│   └── tools/coordination.py     ← cerebrofy_claim / release / who / conflicts / resolve handlers
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
 │   ├── replay.py                 ← build_session_diff() — graph delta + risk verdict
 │   ├── reporter.py               ← render_markdown() + render_html() replay renderers
 │   └── middleware.py             ← SessionMiddleware: thin recorder wired into the MCP dispatcher
+├── coordination/                 ← (Idea #25) Multi-Agent Coordination
+│   ├── registry.py               ← active_agents storage: claims, heartbeats, stale cleanup
+│   ├── conflict_detector.py      ← claim collisions, lobe awareness, keyword-opposition memories
+│   ├── resolver.py               ← keep_newest / keep_by_author / human_review / merge
+│   └── constants.py              ← TTL bounds, heartbeat interval, resolution strategies
 ├── planning/                     ← Refactor Planner (Idea #12)
     ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
     ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
@@ -209,6 +215,22 @@ CREATE TABLE meta (
 CREATE TABLE file_hashes (
   file  TEXT PRIMARY KEY,
   hash  TEXT NOT NULL             -- SHA-256 of file content at last build/update
+);
+
+-- Multi-agent coordination registry (Idea #25). Ephemeral: the table lives in
+-- cerebrofy.db and is discarded when `cerebrofy build` recreates the database.
+CREATE TABLE active_agents (
+  agent_id        TEXT PRIMARY KEY,
+  agent_type      TEXT NOT NULL,
+  session_id      TEXT,                          -- not an FK yet (Idea #11 TODO)
+  intent          TEXT,
+  claimed_neurons TEXT NOT NULL DEFAULT '[]',   -- JSON array of neuron ids
+  started_ts      INTEGER NOT NULL,
+  last_heartbeat  INTEGER NOT NULL,
+  status          TEXT DEFAULT 'active',         -- 'active' | 'completed'
+  ttl_minutes     INTEGER NOT NULL DEFAULT 60,   -- 1..1440
+  expires_ts      INTEGER,                       -- TTL deadline (refreshed by heartbeat)
+  created_ts      INTEGER NOT NULL
 );
 
 -- sqlite-vec virtual table for KNN search (384-dim for BAAI/bge-small-en-v1.5)
@@ -453,6 +475,67 @@ The `SessionMiddleware.record()` path is bounded for latency: one indexed `INSER
 ### Database layout
 
 `cerebrofy.db` (schema version 1, rebuilt by `cerebrofy build`) and `sessions.db` / `memories.db` are peer local databases under `.cerebrofy/db/`. Session recording reads `cerebrofy.db` in read-only mode (`?mode=ro`) for blast-radius lookups and writes only to `sessions.db`.
+
+---
+
+## Multi-Agent Coordination (Idea #25)
+
+Coordination lets several agents — and humans — share one codebase without
+silently undoing each other's work. It is a local, advisory protocol: Cerebrofy
+reports claim collisions and contradicting memories, but never blocks an edit.
+
+- `coordination/registry.py` — persistent `active_agents` rows in
+  `.cerebrofy/db/cerebrofy.db`. `claim_neurons`, `release_neurons`, `release_all`,
+  `heartbeat`, and `cleanup_stale_agents` are the only writers.
+- `coordination/conflict_detector.py` — claim collisions, same-lobe awareness,
+  and the Phase-1 keyword-opposition heuristic for memories (`keyword_opposition`).
+- `coordination/resolver.py` — `keep_newest`, `keep_by_author`, `human_review`,
+  and `merge` against `memories.db`; mutations are atomic and surface-neutral
+  (`winner` / `loser` / `superseded`).
+- `mcp/tools/coordination.py` — `cerebrofy_claim`, `cerebrofy_release`,
+  `cerebrofy_who`, `cerebrofy_conflicts`, `cerebrofy_resolve`.
+- `commands/coordination.py` — the matching `cerebrofy who|claim|release|conflicts|resolve`
+  commands plus the `cerebrofy coordination` alias group.
+
+### Heartbeats, TTL, and stale claims
+
+Any MCP tool call that identifies an agent is a heartbeat: `search_code`,
+`get_neuron`, and `cerebrofy_remember` accept an optional `agent_id`, and the
+dispatcher also falls back to `CEREBROFY_AGENT_ID`. A heartbeat refreshes
+`last_heartbeat` and pushes `expires_ts` forward by the claim's TTL.
+
+- Heartbeat interval: **5 minutes**.
+- Stale threshold: **2× the interval (10 minutes) or the TTL**, whichever comes
+  first. Stale rows are marked `completed` and their claims are cleared.
+- TTL: default **60 minutes**, configurable per claim in `1..1440` minutes
+  (`ttl_minutes` / `--ttl-minutes`).
+
+### `active_agents` storage
+
+The table has 11 columns: `agent_id`, `agent_type`, `session_id`, `intent`,
+`claimed_neurons`, `started_ts`, `last_heartbeat`, `status`, `ttl_minutes`,
+`expires_ts`, `created_ts`. `status` is only `active` or `completed`.
+`session_id` records the Idea #11 session id supplied with a
+claim but is **not a foreign key**; adding that constraint is an Idea #11 TODO.
+The full per-column contract lives in [docs/coordination.md](coordination.md) and
+[docs/db-schema.md](db-schema.md).
+
+### Read-only reads
+
+`cerebrofy_who`, `cerebrofy_conflicts`, and the heartbeat/conflict hooks open the
+registry **read-only** and never create `cerebrofy.db`; if the index is absent
+they return `NO_INDEX` (or silently skip the optional notice) instead of creating
+state. Only explicit claim/release/heartbeat calls mutate `active_agents`, and all
+of those go through `write_transaction`.
+
+### Ephemeral on rebuild
+
+Coordination state is deliberately **ephemeral**: it lives in `cerebrofy.db`,
+which `cerebrofy build` recreates atomically. A full rebuild therefore discards
+every claim and registration — re-claim after rebuilding. Durable knowledge
+belongs in `memories.db`.
+
+---
 
 ## Semantic Changelog (#14)
 

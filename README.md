@@ -191,7 +191,7 @@ your workflow:
 > cerebrofy build  # builds your local index from scratch
 > ```
 
-Once the index is built, AI assistants with MCP configured can call all 31 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
+Once the index is built, AI assistants with MCP configured can call all 36 tools and read MCP resources directly — see [MCP Tools](#mcp-tools) and [MCP Resources](#mcp-resources).
 
 ---
 
@@ -392,7 +392,7 @@ Start the MCP stdio server. Used by AI tools (Claude Desktop, Cursor, VS Code, e
 cerebrofy mcp    # requires: uv tool install "cerebrofy[mcp]"
 ```
 
-Exposes 31 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
+Exposes 36 fully operational tools plus URI-addressable MCP resources. See [docs/mcp-integration.md](docs/mcp-integration.md) for full setup.
 
 ---
 
@@ -715,8 +715,9 @@ When configured via `cerebrofy init`, AI assistants can call these tools directl
 | `cerebrofy_changelog` | Generate a semantic changelog for a git range — classified from the call graph, drift records, and memories, never from commit messages. |
 | `cerebrofy_governance` | Lobe ownership + review governance: generate CODEOWNERS content from blame + graph topology, suggest primary/secondary/backup reviewers, and evaluate reporting-only `governance.rules` from arch-rules.yaml. |
 | `cerebrofy_review` | Graph-aware AI review copilot: reviews a local diff or GitHub PR with blast radius, warning memories, architecture rules, coverage gaps, missing caller updates, cross-lobe coupling, and suggested reviewers. Posting is opt-in via `post_comments`. |
+| `cerebrofy_claim` / `cerebrofy_release` / `cerebrofy_who` / `cerebrofy_conflicts` / `cerebrofy_resolve` | Multi-agent coordination: claim neurons before editing, see active peers, and resolve contradicting memories. See [docs/coordination.md](docs/coordination.md). |
 
-All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists.
+All data-reading tools automatically include an `"epistemic"` field with the current confidence score, and an `"intent_context"` field if `.cerebrofy/intent.yaml` exists. `search_code`, `get_neuron`, and `cerebrofy_remember` also accept an optional `agent_id` that refreshes that agent's coordination heartbeat and excludes its own claims from conflict notices.
 
 Full tool reference: [docs/mcp-integration.md](docs/mcp-integration.md)
 
@@ -842,7 +843,7 @@ The lobe `.md` and map files are committed to git (not gitignored). They form th
 
 ## MCP Integration
 
-Cerebrofy ships an MCP stdio server with 31 fully operational tools and URI-addressable resources (read + subscribe).
+Cerebrofy ships an MCP stdio server with 36 fully operational tools and URI-addressable resources (read + subscribe).
 
 ```bash
 # Install with MCP support
