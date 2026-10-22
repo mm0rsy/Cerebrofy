@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from cerebrofy.coordination.constants import RESOLUTION_OPTIONS
+from cerebrofy.coordination.metrics import get_metrics, get_persistent_metrics
 from cerebrofy.db.connection import open_db, write_transaction
 from cerebrofy.db.schema import create_memory_schema
 from cerebrofy.memory import embedder
@@ -64,6 +65,7 @@ class ConflictResolver:
         cerebrofy_dir: str | Path,
         *,
         memories_db_path: str | Path | None = None,
+        metrics: bool = True,
     ) -> None:
         self.cerebrofy_dir = Path(cerebrofy_dir)
         self.memories_db_path = (
@@ -71,6 +73,8 @@ class ConflictResolver:
             if memories_db_path is not None
             else self.cerebrofy_dir / "db" / "memories.db"
         )
+        self._metrics = get_metrics() if metrics else None
+        self._persistent_metrics = get_persistent_metrics(cerebrofy_dir) if metrics else None
 
     # ------------------------------------------------------------------
     # Public API
@@ -119,7 +123,7 @@ class ConflictResolver:
                 }
 
             if resolved_strategy is ResolutionStrategy.MERGE:
-                return self._resolve_merge(
+                result = self._resolve_merge(
                     conn,
                     memory_a,
                     memory_b,
@@ -127,27 +131,40 @@ class ConflictResolver:
                     author=author,
                     merged_body=merged_body,
                 )
-
-            if resolved_strategy is ResolutionStrategy.KEEP_BY_AUTHOR:
-                winner, loser = self._pick_by_author(memory_a, memory_b, author)
             else:
-                winner, loser = self._pick_newest(memory_a, memory_b)
+                if resolved_strategy is ResolutionStrategy.KEEP_BY_AUTHOR:
+                    winner, loser = self._pick_by_author(memory_a, memory_b, author)
+                else:
+                    winner, loser = self._pick_newest(memory_a, memory_b)
 
-            with write_transaction(conn):
-                conn.execute(
-                    "UPDATE memories SET status = 'stale' WHERE id = ?",
-                    (loser.id,),
+                with write_transaction(conn):
+                    conn.execute(
+                        "UPDATE memories SET status = 'stale' WHERE id = ?",
+                        (loser.id,),
+                    )
+
+                result = {
+                    "resolved": True,
+                    "requires_review": False,
+                    "strategy": resolved_strategy.value,
+                    "winner": winner.id,
+                    "loser": loser.id,
+                    "memory_a": _memory_payload(memory_a),
+                    "memory_b": _memory_payload(memory_b),
+                }
+
+            # Record metrics for successful resolutions
+            if self._metrics and result.get("resolved"):
+                self._metrics.inc_resolution(resolved_strategy.value)
+            if self._persistent_metrics and result.get("resolved"):
+                superseded = result.get("superseded", [result.get("loser")])
+                self._persistent_metrics.record_resolution(
+                    resolved_strategy.value,
+                    result["winner"],
+                    superseded,
                 )
 
-            return {
-                "resolved": True,
-                "requires_review": False,
-                "strategy": resolved_strategy.value,
-                "winner": winner.id,
-                "loser": loser.id,
-                "memory_a": _memory_payload(memory_a),
-                "memory_b": _memory_payload(memory_b),
-            }
+            return result
         finally:
             conn.close()
 

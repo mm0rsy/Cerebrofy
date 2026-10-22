@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from cerebrofy.coordination.constants import HEARTBEAT_INTERVAL_SECONDS
+from cerebrofy.coordination.metrics import get_metrics, get_persistent_metrics
 from cerebrofy.db.connection import open_db, open_db_readonly, write_transaction
 from cerebrofy.db.schema import ACTIVE_AGENTS_DDL
 from cerebrofy.errors import NEURON_ALREADY_CLAIMED, ClaimExpiredError, NoActiveAgentError
@@ -74,11 +75,19 @@ class ActiveAgentRegistry:
         *,
         readonly: bool = False,
         heartbeat_interval: int = HEARTBEAT_INTERVAL_SECONDS,
+        metrics: bool = True,
     ) -> None:
         self.db_path = Path(db_path)
         self.readonly = readonly
         self.heartbeat_interval = heartbeat_interval
         self._lock = threading.RLock()
+        self._metrics = get_metrics() if metrics else None
+        self._persistent_metrics = None
+        if metrics and not readonly:
+            try:
+                self._persistent_metrics = get_persistent_metrics(self.db_path.parent.parent)
+            except Exception:
+                pass  # Fail silently if metrics can't be initialized
 
         if readonly:
             # Read-only handles must never create or mutate the index.
@@ -379,6 +388,17 @@ class ActiveAgentRegistry:
                         ),
                     )
 
+            if self._metrics:
+                self._metrics.inc_claims_made(len(claimed))
+                if conflicts:
+                    self._metrics.inc_claim_conflicts(len(conflicts))
+                if self._persistent_metrics:
+                    self._persistent_metrics.record_claim(len(claimed), agent_id)
+                    for conflict in conflicts:
+                        self._persistent_metrics.record_claim_conflict(
+                            conflict["neuron"], agent_id, conflict["existing_claimant"]
+                        )
+
             return {"claimed": claimed, "conflicts": conflicts, "claim_id": claim_id}
 
     def release_neurons(self, agent_id: str, neurons: list[str]) -> dict[str, Any]:
@@ -419,6 +439,11 @@ class ActiveAgentRegistry:
                         (now, agent_id),
                     )
 
+            if self._metrics:
+                self._metrics.inc_claims_released(len(released))
+                if self._persistent_metrics:
+                    self._persistent_metrics.record_release(len(released), agent_id)
+
             return {"released": released}
 
     def release_all(self, agent_id: str) -> dict[str, Any]:
@@ -436,6 +461,11 @@ class ActiveAgentRegistry:
                     "status = 'completed', last_heartbeat = ? WHERE agent_id = ?",
                     (now, agent_id),
                 )
+
+            if self._metrics:
+                self._metrics.inc_claims_released(len(released))
+                if self._persistent_metrics:
+                    self._persistent_metrics.record_release(len(released), agent_id)
 
             return {"released": released}
 
@@ -604,7 +634,13 @@ class ActiveAgentRegistry:
                     agent["status"] = "completed"
                     agent["claimed_neurons"] = []
                     cleaned.append(agent)
-                return cleaned
+
+            if cleaned and self._metrics:
+                self._metrics.inc_stale_cleaned(len(cleaned))
+                if self._persistent_metrics:
+                    self._persistent_metrics.record_stale_cleanup(len(cleaned))
+
+            return cleaned
 
 
 def _parse_neurons(raw: object) -> list[str]:

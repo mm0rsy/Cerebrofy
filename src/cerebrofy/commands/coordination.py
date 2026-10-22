@@ -33,6 +33,7 @@ from cerebrofy.coordination.constants import (
     DEFAULT_TTL_MINUTES,
     MAX_TTL_MINUTES,
 )
+from cerebrofy.coordination.metrics import get_metrics, get_persistent_metrics
 from cerebrofy.coordination.neurons import expand_neurons
 from cerebrofy.coordination.registry import ActiveAgentRegistry
 from cerebrofy.coordination.resolver import ConflictResolver
@@ -458,6 +459,98 @@ def resolve_command(
 
 
 # ---------------------------------------------------------------------------
+# cerebrofy coordination metrics
+# ---------------------------------------------------------------------------
+
+
+@click.command("metrics")
+@click.option(
+    "--since",
+    default=None,
+    help="Show metrics since timestamp (unix epoch).",
+)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def metrics_command(since: str | None, fmt: str) -> None:
+    """Show coordination metrics and observability data."""
+    root = _resolve_root()
+
+    # In-memory metrics
+    mem_metrics = get_metrics()
+    mem_snapshot = mem_metrics.snapshot()
+
+    # Persistent metrics
+    persistent = get_persistent_metrics(root / ".cerebrofy")
+    since_ts = int(since) if since else None
+    persistent_summary = persistent.get_summary(since_ts)
+
+    payload = {
+        "in_memory": mem_snapshot,
+        "persistent": persistent_summary,
+    }
+
+    if fmt == "json":
+        click.echo(json.dumps(payload, indent=2))
+        return
+
+    # Text output
+    console.print("[bold]Coordination Metrics[/bold]")
+    console.print()
+
+    console.print("[cyan]In-Memory (this process)[/cyan]")
+    table = Table(box=box.SIMPLE_HEAVY, show_header=True, padding=(0, 1))
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", justify="right")
+    for key, value in mem_snapshot.items():
+        if key != "resolutions":
+            table.add_row(key.replace("_", " ").title(), str(value))
+    console.print(table)
+
+    if mem_snapshot["resolutions"]:
+        console.print()
+        table2 = Table(box=box.SIMPLE_HEAVY, show_header=True, padding=(0, 1))
+        table2.add_column("Strategy", style="magenta")
+        table2.add_column("Count", justify="right")
+        for strategy, count in mem_snapshot["resolutions"].items():
+            table2.add_row(strategy, str(count))
+        console.print(table2)
+
+    console.print()
+    console.print("[cyan]Persistent (cross-process)[/cyan]")
+    table3 = Table(box=box.SIMPLE_HEAVY, show_header=True, padding=(0, 1))
+    table3.add_column("Event Type", style="green")
+    table3.add_column("Count", justify="right")
+    for etype, count in persistent_summary["by_type"].items():
+        table3.add_row(etype, str(count))
+    console.print(table3)
+
+    if persistent_summary["by_strategy"]:
+        console.print()
+        table4 = Table(box=box.SIMPLE_HEAVY, show_header=True, padding=(0, 1))
+        table4.add_column("Strategy", style="magenta")
+        table4.add_column("Count", justify="right")
+        for strategy, count in persistent_summary["by_strategy"].items():
+            table4.add_row(strategy, str(count))
+        console.print(table4)
+
+    if persistent_summary["recent"]:
+        console.print()
+        console.print("[dim]Recent events (last 100):[/dim]")
+        for event in persistent_summary["recent"][:20]:
+            detail = event["details"] or ""
+            subtype = f" [{event['event_subtype']}]" if event['event_subtype'] else ""
+            console.print(
+                f"  {event['created_ts']} | {event['event_type']}{subtype} | {detail}"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Alias group: cerebrofy coordination <subcommand>
 # ---------------------------------------------------------------------------
 
@@ -473,6 +566,7 @@ for _command in (
     release_command,
     conflicts_command,
     resolve_command,
+    metrics_command,
 ):
     coordination_group.add_command(_command)
 
@@ -481,6 +575,7 @@ __all__ = [
     "claim_command",
     "conflicts_command",
     "coordination_group",
+    "metrics_command",
     "release_command",
     "resolve_command",
     "who_command",

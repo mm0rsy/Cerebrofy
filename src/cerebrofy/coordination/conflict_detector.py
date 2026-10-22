@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from cerebrofy.coordination.constants import RESOLUTION_OPTIONS
+from cerebrofy.coordination.metrics import get_metrics, get_persistent_metrics
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle only for type checking
     from cerebrofy.coordination.registry import ActiveAgentRegistry
@@ -79,12 +80,22 @@ class ConflictDetector:
         self,
         registry: ActiveAgentRegistry | None = None,
         memories_db_path: str | Path | None = None,
+        metrics: bool = True,
     ) -> None:
         self.registry = registry
         self.memories_db_path = (
             Path(memories_db_path) if memories_db_path is not None else None
         )
         self.patterns = CONTRADICTION_PATTERNS
+        self._metrics = get_metrics() if metrics else None
+        self._persistent_metrics = None
+        if metrics:
+            try:
+                base_dir = self._resolve_memories_path()
+                if base_dir and base_dir.parent.parent.exists():
+                    self._persistent_metrics = get_persistent_metrics(base_dir.parent.parent)
+            except Exception:
+                pass  # Fail silently if metrics can't be initialized
 
     # ------------------------------------------------------------------
     # Claim conflicts
@@ -187,6 +198,14 @@ class ConflictDetector:
                         "matched_pattern": matched,
                         "resolution_options": list(RESOLUTION_OPTIONS),
                     }
+                )
+
+        if contradictions and self._metrics:
+            self._metrics.inc_memory_conflicts(len(contradictions))
+        if contradictions and self._persistent_metrics:
+            for c in contradictions:
+                self._persistent_metrics.record_memory_conflict(
+                    c["neuron"], c["memory_a"]["id"], c["memory_b"]["id"]
                 )
 
         return contradictions
