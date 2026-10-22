@@ -1186,7 +1186,6 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handler_name="_handle_insights",
         inject=True,
     ),
-)>>>>>> 807d514 (feat(insight): wire Insight Daemon into CLI, MCP, and build/update hooks)
 )
 
 # Name -> ToolSpec lookup. Fails loudly on duplicate names so a copy/paste
