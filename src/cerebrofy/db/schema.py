@@ -88,6 +88,31 @@ CREATE INDEX IF NOT EXISTS idx_narrative_ts ON narrative_events(ts DESC);
 """
 
 
+#: Active-agent registry for multi-agent coordination (Idea #25).
+#:
+#: Coordination state is intentionally ephemeral: it lives in cerebrofy.db,
+#: which is recreated by an index rebuild.  Durable knowledge belongs in
+#: memories.db.  ``ttl_minutes``/``expires_ts`` back claim expiry; ``created_ts``
+#: is kept for diagnostics and migration parity with 007_coordination.sql.
+ACTIVE_AGENTS_DDL = """
+CREATE TABLE IF NOT EXISTS active_agents (
+  agent_id        TEXT PRIMARY KEY,
+  agent_type      TEXT NOT NULL,
+  session_id      TEXT,
+  intent          TEXT,
+  claimed_neurons TEXT NOT NULL DEFAULT '[]',
+  started_ts      INTEGER NOT NULL,
+  last_heartbeat  INTEGER NOT NULL,
+  status          TEXT DEFAULT 'active',
+  ttl_minutes     INTEGER NOT NULL DEFAULT 60,
+  expires_ts      INTEGER,
+  created_ts      INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_active_agents_status ON active_agents(status);
+CREATE INDEX IF NOT EXISTS idx_active_agents_heartbeat ON active_agents(last_heartbeat);
+"""
+
+
 def ensure_health_schema(conn: sqlite3.Connection) -> None:
     """Create health_snapshots table if it doesn't exist (idempotent, handles old DBs)."""
     conn.executescript(
@@ -140,6 +165,7 @@ def create_schema(conn: sqlite3.Connection, embed_dim: int) -> None:
         _run_ddl(conn, FILE_HASHES_DDL)
         _run_ddl(conn, HEALTH_SNAPSHOTS_DDL)
         _run_ddl(conn, NARRATIVE_EVENTS_DDL)
+        _run_ddl(conn, ACTIVE_AGENTS_DDL)
         if embed_dim > 0:
             conn.execute(vec_neurons_ddl)
 

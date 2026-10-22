@@ -1,40 +1,33 @@
-"""Cerebrofy Multi-Agent Coordination — Core Modules
+"""Cerebrofy Multi-Agent Coordination — core package (Idea #25).
 
-This package implements the Multi-Agent Coordination Protocol for Cerebrofy.
+Public surface:
 
-Core components:
-- registry.py: ActiveAgentRegistry for tracking agents and their claims
-- conflict_detector.py: ConflictDetector for detecting claim conflicts and memory contradictions  
-- resolver.py: ConflictResolver for resolving conflicting memories
+* :class:`~cerebrofy.coordination.registry.ActiveAgentRegistry` — persistent
+  claim registry backed by ``.cerebrofy/db/cerebrofy.db``.
+* :class:`~cerebrofy.coordination.conflict_detector.ConflictDetector` — claim
+  collisions, overlapping claims, lobe awareness and memory contradictions.
+* :class:`~cerebrofy.coordination.resolver.ConflictResolver` — keep_newest,
+  keep_by_author, human_review and merge strategies for memory conflicts.
 
-Integration points:
-- Database: Uses the existing Cerebrofy database schema (migrations/007_coordination.sql)
-- MCP tools: Provides tools for agent coordination (cerebrofy_claim, cerebrofy_release, cerebrofy_who, cerebrofy_conflicts, cerebrofy_resolve)
-- CLI commands: Provides commands for agent coordination (cerebrofy who, claim, release, conflicts, resolve)
-- Memory system: Integrates with existing memory layer to detect contradictions
-- Session system: Leverages Idea #11 (Live Agent Session Recorder) for session tracking
-
-This is Phase 1 of Wave C: Multi-Agent Coordination Protocol.
+Coordination state (claims) is ephemeral: rebuilding the index recreates
+``cerebrofy.db``.  Memory conflicts are resolved in ``memories.db`` and persist.
 """
 
-from .registry import ActiveAgentRegistry
-from .conflict_detector import ConflictDetector, MemoryContradictionDetector
-from .resolver import (
-    ConflictResolver,
-    ResolutionStrategy,
-    AgentSessionTracker,
-    CoordinationOrchestrator,
+from cerebrofy.coordination.conflict_detector import (
+    CONTRADICTION_PATTERNS,
+    RESOLUTION_OPTIONS,
+    ConflictDetector,
 )
+from cerebrofy.coordination.registry import ActiveAgentRegistry
+from cerebrofy.coordination.resolver import ConflictResolver, ResolutionStrategy
 
 __all__ = [
-    'ActiveAgentRegistry',
-    'ConflictDetector', 
-    'MemoryContradictionDetector',
-    'ConflictResolver',
-    'ResolutionStrategy',
-    'AgentSessionTracker',
-    'CoordinationOrchestrator'
+    "CONTRADICTION_PATTERNS",
+    "RESOLUTION_OPTIONS",
+    "ActiveAgentRegistry",
+    "ConflictDetector",
+    "ConflictResolver",
+    "ResolutionStrategy",
 ]
 
-# Module version
-__version__ = '1.0.0'
+__version__ = "1.0.0"
