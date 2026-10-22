@@ -24,6 +24,7 @@ from cerebrofy.commands.session import session_group
 from cerebrofy.commands.update import cerebrofy_update
 from cerebrofy.commands.upgrade import cerebrofy_upgrade
 from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
+from cerebrofy.commands.coordination import coordination_group
 from cerebrofy.commands.silo import cerebrofy_silo
 from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
