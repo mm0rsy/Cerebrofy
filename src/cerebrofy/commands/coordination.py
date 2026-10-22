@@ -1,19 +1,27 @@
-"""cerebrofy coordination — multi-agent coordination CLI (Idea #25).
+"""Multi-agent coordination CLI (Idea #25).
 
-Lets several agents (and humans) work on one codebase without silently undoing
-each other: claim neurons before editing them, see who else is active, and
-resolve contradicting memories.
+Top-level commands (``cerebrofy who|claim|release|conflicts|resolve``) let
+several agents — and humans — work on one codebase without silently undoing each
+other.  A ``cerebrofy coordination`` group exposes the same subcommands as an
+alias.
 
-The registry lives in the local index database (`.cerebrofy/db/cerebrofy.db`),
-so claims are visible to every Cerebrofy process on this machine.
+Registry state lives in the local index database
+(``.cerebrofy/db/cerebrofy.db``), so claims are visible to every Cerebrofy
+process on this machine.  Rebuilding the index recreates that database, which
+means coordination state is ephemeral by design.
+
+Agent identity defaults to ``$CEREBROFY_AGENT_ID`` and falls back to
+``human-<username>``; pass ``--agent-id`` to override.
 """
 
 from __future__ import annotations
 
+import getpass
 import json
+import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import NoReturn
 
 import rich_click as click
 from rich import box
@@ -21,18 +29,29 @@ from rich.console import Console
 from rich.table import Table
 
 from cerebrofy.coordination.conflict_detector import ConflictDetector
+from cerebrofy.coordination.constants import (
+    DEFAULT_TTL_MINUTES,
+    MAX_TTL_MINUTES,
+)
+from cerebrofy.coordination.neurons import expand_neurons
 from cerebrofy.coordination.registry import ActiveAgentRegistry
-from cerebrofy.coordination.resolver import ConflictResolver, ResolutionStrategy
+from cerebrofy.coordination.resolver import ConflictResolver
 from cerebrofy.errors import (
+    CONFIG_ERROR,
     NEURON_ALREADY_CLAIMED,
-    NO_ACTIVE_AGENT,
+    CerebrofyError,
 )
 
 console = Console()
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
 def _resolve_root() -> Path:
-    """Resolve the repo root via the shared pure finder; exit the CLI on failure."""
+    """Resolve the repo root via the shared finder; exit the CLI on failure."""
     from cerebrofy.utils.paths import InvalidRepoRootError, require_repo_root
 
     try:
@@ -49,22 +68,38 @@ def _index_path(root: Path) -> Path:
     return root / ".cerebrofy" / "db" / "cerebrofy.db"
 
 
+def _memories_path(root: Path) -> Path:
+    return root / ".cerebrofy" / "db" / "memories.db"
+
+
 def _open_registry(root: Path) -> ActiveAgentRegistry:
-    """Open the registry against the local index, exiting cleanly when absent."""
+    """Open the registry against the local index, exiting when it is absent."""
     db_path = _index_path(root)
     if not db_path.exists():
         click.echo(
             "Error: Index not found. Run 'cerebrofy build' first.", err=True
         )
         sys.exit(1)
-    return ActiveAgentRegistry(str(db_path))
+    return ActiveAgentRegistry(db_path)
 
 
 def _agent_id(explicit: str | None) -> str:
-    """Resolve the acting agent id, falling back to the environment."""
+    """Resolve the acting agent id: flag > env > ``human-<username>``."""
     if explicit:
         return explicit
-    return click.get_current_context().find_root().params.get("agent_id") or "local-agent"
+    from_env = os.environ.get("CEREBROFY_AGENT_ID")
+    if from_env:
+        return from_env
+    try:
+        user = getpass.getuser()
+    except (KeyError, OSError):  # pragma: no cover - exotic environments
+        user = "unknown"
+    return f"human-{user}"
+
+
+def _fail(code: str, message: str) -> NoReturn:
+    click.echo(f"Error: [{code}] {message}", err=True)
+    sys.exit(1)
 
 
 def _format_neurons(neurons: list[str], limit: int = 3) -> str:
@@ -78,46 +113,48 @@ def _format_neurons(neurons: list[str], limit: int = 3) -> str:
 
 
 # ---------------------------------------------------------------------------
-# cerebrofy coordination group
+# cerebrofy who
 # ---------------------------------------------------------------------------
 
-@click.group("coordination")
-def coordination_group() -> None:
-    """Coordinate concurrent agents: claim neurons, see peers, resolve conflicts."""
 
-
-# ---------------------------------------------------------------------------
-# cerebrofy coordination who
-# ---------------------------------------------------------------------------
-
-@coordination_group.command("who")
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
-              default="text", show_default=True, help="Output format.")
-def coordination_who(fmt: str) -> None:
-    """Show all active agents and the neurons they have claimed."""
+@click.command("who")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def who_command(fmt: str) -> None:
+    """Show all active agents, their claims, and overlapping claims."""
     root = _resolve_root()
     registry = _open_registry(root)
     try:
         agents = registry.get_active_agents()
+        overlapping = registry.detect_overlapping_claims()
     finally:
         registry.close()
 
-    now = int(__import__("time").time())
-    rows = []
-    for agent_id, data in agents.items():
-        rows.append(
-            {
-                "agent_id": agent_id,
-                "agent_type": data["agent_type"],
-                "intent": data["intent"] or "",
-                "claimed_neurons": data["claimed_neurons"],
-                "active_minutes": (now - data["started_ts"]) // 60,
-                "session_id": data["session_id"],
-            }
-        )
+    rows = [
+        {
+            "agent_id": agent_id,
+            "agent_type": data["agent_type"],
+            "intent": data["intent"],
+            "claimed_neurons": data["claimed_neurons"],
+            "active_minutes": data["active_minutes"],
+            "session_id": data["session_id"],
+        }
+        for agent_id, data in agents.items()
+    ]
+    payload = {
+        "active_agents": rows,
+        "conflicts": overlapping,
+        "total_active": len(rows),
+    }
 
     if fmt == "json":
-        click.echo(json.dumps({"active_agents": rows, "total_active": len(rows)}, indent=2))
+        click.echo(json.dumps(payload, indent=2))
         return
 
     if not rows:
@@ -131,10 +168,11 @@ def coordination_who(fmt: str) -> None:
     table.add_column("Claims", style="green")
     table.add_column("Active", justify="right")
     for row in rows:
+        intent = row["intent"]
         table.add_row(
             row["agent_id"],
             row["agent_type"],
-            row["intent"][:48] + ("…" if len(row["intent"]) > 48 else ""),
+            intent[:48] + ("…" if len(intent) > 48 else ""),
             _format_neurons(row["claimed_neurons"]),
             f"{row['active_minutes']}m",
         )
@@ -143,80 +181,130 @@ def coordination_who(fmt: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# cerebrofy coordination claim / release
+# cerebrofy claim
 # ---------------------------------------------------------------------------
 
-@coordination_group.command("claim")
+
+@click.command("claim")
 @click.argument("neurons", nargs=-1, required=True)
-@click.option("--intent", required=True,
-              help="What you are about to do (shown to other agents).")
-@click.option("--agent-id", default=None, help="Acting agent id (default: local-agent).")
-@click.option("--ttl-minutes", default=60, show_default=True,
-              help="Claim lifetime before auto-release.")
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
-              default="text", show_default=True, help="Output format.")
-def coordination_claim(
+@click.option(
+    "--intent",
+    default=None,
+    help="What you are about to do (shown to other agents).",
+)
+@click.option("--agent-id", default=None, help="Acting agent id.")
+@click.option(
+    "--agent-type",
+    default=None,
+    help="Agent type (claude/cursor/devin/human/ci).",
+)
+@click.option(
+    "--ttl-minutes",
+    default=DEFAULT_TTL_MINUTES,
+    show_default=True,
+    type=click.IntRange(1, MAX_TTL_MINUTES),
+    help="Claim lifetime before auto-release.",
+)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def claim_command(
     neurons: tuple[str, ...],
-    intent: str,
+    intent: str | None,
     agent_id: str | None,
+    agent_type: str | None,
     ttl_minutes: int,
     fmt: str,
 ) -> None:
-    """Claim NEURONS (ids or file paths) for the acting agent."""
+    """Claim NEURONS (file paths or specific ``file::neuron`` ids)."""
     root = _resolve_root()
+    acting_agent = _agent_id(agent_id)
+    expanded = expand_neurons(root, list(neurons))
+    effective_intent = intent or f"claiming {len(expanded)} neuron(s)"
+
     registry = _open_registry(root)
     try:
         result = registry.claim_neurons(
-            _agent_id(agent_id), list(neurons), intent, ttl_minutes=ttl_minutes
+            acting_agent,
+            expanded,
+            effective_intent,
+            agent_type=agent_type,
+            ttl_minutes=ttl_minutes,
         )
     finally:
         registry.close()
 
     if fmt == "json":
         click.echo(json.dumps(result, indent=2))
+        if result.get("error") == NEURON_ALREADY_CLAIMED:
+            sys.exit(1)
         return
 
+    for conflict in result["conflicts"]:
+        console.print(
+            f"  • [bold]{conflict['neuron']}[/bold] — held by "
+            f"[cyan]{conflict['existing_claimant']}[/cyan] "
+            f"({conflict['claimant_intent']})"
+        )
+    if result.get("error") == NEURON_ALREADY_CLAIMED:
+        _fail(
+            NEURON_ALREADY_CLAIMED,
+            f"all requested neurons are already claimed by another active agent "
+            f"({acting_agent}).",
+        )
     if result["conflicts"]:
-        console.print(f"[yellow]Conflicts on {len(result['conflicts'])} neuron(s):[/yellow]")
-        for conflict in result["conflicts"]:
-            for other in conflict["claiming_agents"]:
-                console.print(
-                    f"  • [bold]{conflict['neuron']}[/bold] — held by "
-                    f"[cyan]{other['agent_id']}[/cyan] ({other['intent']})"
-                )
+        console.print(
+            f"[yellow]{len(result['conflicts'])} neuron(s) skipped due to conflicts.[/yellow]"
+        )
     console.print(f"[green]Claimed {len(result['claimed'])} neuron(s).[/green]")
 
 
-@coordination_group.command("release")
+# ---------------------------------------------------------------------------
+# cerebrofy release
+# ---------------------------------------------------------------------------
+
+
+@click.command("release")
 @click.argument("neurons", nargs=-1)
-@click.option("--agent-id", default=None, help="Acting agent id (default: local-agent).")
-@click.option("--all", "release_all", is_flag=True,
-              help="Release every claim held by the agent.")
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
-              default="text", show_default=True, help="Output format.")
-def coordination_release(
+@click.option("--agent-id", default=None, help="Acting agent id.")
+@click.option(
+    "--all",
+    "release_all_claims",
+    is_flag=True,
+    help="Release every claim held by the agent (the default with no NEURONS).",
+)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def release_command(
     neurons: tuple[str, ...],
     agent_id: str | None,
-    release_all: bool,
+    release_all_claims: bool,
     fmt: str,
 ) -> None:
-    """Release NEURONS claimed by the acting agent (all claims when --all)."""
+    """Release NEURONS, or every claim when NEURONS is omitted / --all is given."""
     root = _resolve_root()
     registry = _open_registry(root)
     try:
-        if release_all:
+        if release_all_claims or not neurons:
             result = registry.release_all(_agent_id(agent_id))
         else:
-            if not neurons:
-                click.echo("Error: give neuron ids to release, or pass --all.", err=True)
-                sys.exit(1)
-            result = registry.release_neurons(_agent_id(agent_id), list(neurons))
+            expanded = expand_neurons(root, list(neurons))
+            result = registry.release_neurons(_agent_id(agent_id), expanded)
+    except CerebrofyError as exc:
+        _fail(exc.code, str(exc))
     finally:
         registry.close()
-
-    if result.get("error") == NO_ACTIVE_AGENT:
-        click.echo(f"Error: [{NO_ACTIVE_AGENT}] no active agent with that id.", err=True)
-        sys.exit(1)
 
     if fmt == "json":
         click.echo(json.dumps(result, indent=2))
@@ -227,42 +315,49 @@ def coordination_release(
 
 
 # ---------------------------------------------------------------------------
-# cerebrofy coordination conflicts / resolve
+# cerebrofy conflicts
 # ---------------------------------------------------------------------------
 
-@coordination_group.command("conflicts")
+
+@click.command("conflicts")
 @click.option("--neuron", default=None, help="Limit the scan to one neuron.")
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
-              default="text", show_default=True, help="Output format.")
-def coordination_conflicts(neuron: str | None, fmt: str) -> None:
-    """Show claim collisions and contradicting memories needing resolution."""
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def conflicts_command(neuron: str | None, fmt: str) -> None:
+    """Show memory contradictions and overlapping neuron claims."""
     root = _resolve_root()
     registry = _open_registry(root)
     try:
-        detector = ConflictDetector(registry=registry)
-        conflicts = registry.detect_overlapping_claims()
-        memory_conflicts = registry.detect_memory_conflicts(neuron)
+        detector = ConflictDetector(registry, memories_db_path=_memories_path(root))
+        memory_conflicts = detector.detect_memory_conflicts(neuron)
+        overlapping = detector.detect_overlapping_claims()
     finally:
         registry.close()
 
     payload = {
-        "claim_conflicts": conflicts,
         "memory_conflicts": memory_conflicts,
+        "overlapping_claims": overlapping,
     }
 
     if fmt == "json":
         click.echo(json.dumps(payload, indent=2))
         return
 
-    if not conflicts and not memory_conflicts:
+    if not memory_conflicts and not overlapping:
         click.echo("No conflicts detected.")
         return
 
-    if conflicts:
+    if overlapping:
         table = Table(box=box.SIMPLE_HEAVY, show_header=True, padding=(0, 1))
         table.add_column("Neuron", style="cyan")
         table.add_column("Agents", style="magenta")
-        for conflict in conflicts:
+        for conflict in overlapping:
             table.add_row(conflict["neuron"], ", ".join(conflict["agents"]))
         console.print(table)
 
@@ -274,57 +369,119 @@ def coordination_conflicts(neuron: str | None, fmt: str) -> None:
         )
 
 
-@coordination_group.command("resolve")
+# ---------------------------------------------------------------------------
+# cerebrofy resolve
+# ---------------------------------------------------------------------------
+
+
+@click.command("resolve")
 @click.argument("memory_a")
 @click.argument("memory_b")
-@click.option("--keep", "strategy", default="newest",
-              type=click.Choice(["newest", "author", "review", "merge"]),
-              show_default=True, help="Resolution strategy.")
+@click.option(
+    "--keep",
+    "strategy_name",
+    type=click.Choice(["newest", "author", "human-review"]),
+    default="newest",
+    show_default=True,
+    help="Resolution strategy (default: keep newest).",
+)
+@click.option(
+    "--merge",
+    "do_merge",
+    is_flag=True,
+    help="Merge both memories into a new one (requires --body).",
+)
+@click.option("--body", default=None, help="Merged memory body (required with --merge).")
+@click.option("--author", default=None, help="Author to keep (required with --keep author).")
 @click.option("--neuron", default=None, help="Neuron the memories belong to.")
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]),
-              default="text", show_default=True, help="Output format.")
-def coordination_resolve(
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help="Output format.",
+)
+def resolve_command(
     memory_a: str,
     memory_b: str,
-    strategy: str,
+    strategy_name: str,
+    do_merge: bool,
+    body: str | None,
+    author: str | None,
     neuron: str | None,
     fmt: str,
 ) -> None:
     """Resolve the conflict between two memories."""
+    if do_merge and not body:
+        _fail(CONFIG_ERROR, "--body is required with --merge.")
+    if not do_merge and strategy_name == "author" and not author:
+        _fail(CONFIG_ERROR, "--author is required with '--keep author'.")
+
+    strategy = "merge" if do_merge else strategy_name
     root = _resolve_root()
-    registry = _open_registry(root)
+    resolver = ConflictResolver(root / ".cerebrofy", memories_db_path=_memories_path(root))
     try:
-        resolver = ConflictResolver(registry=registry)
-        mapping = {
-            "newest": ResolutionStrategy.KEEP_MOST_RECENT,
-            "author": ResolutionStrategy.KEEP_BY_AUTHOR,
-            "review": ResolutionStrategy.HUMAN_REVIEW,
-            "merge": ResolutionStrategy.MERGE,
-        }
         result = resolver.resolve_pair(
             memory_a,
             memory_b,
-            mapping[strategy],
+            strategy,
             neuron=neuron,
+            author=author,
+            merged_body=body,
         )
-    finally:
-        registry.close()
+    except ValueError as exc:
+        _fail(CONFIG_ERROR, str(exc))
 
     if fmt == "json":
         click.echo(json.dumps(result, indent=2))
         return
 
-    if result.get("error") == NEURON_ALREADY_CLAIMED:
-        click.echo(f"Error: [{NEURON_ALREADY_CLAIMED}] {result['message']}", err=True)
-        sys.exit(1)
+    if result.get("requires_review"):
+        console.print(
+            f"[yellow]Flagged for human review[/yellow]: "
+            f"{result['memory_a']['id']} vs {result['memory_b']['id']}"
+        )
+        console.print("[dim]No memories were modified.[/dim]")
+        return
 
-    console.print(f"[green]Resolved[/green] with strategy [bold]{strategy}[/bold].")
-    kept = result.get("resolved_memory")
-    if kept:
-        console.print(f"  kept: {kept.get('id')} — {kept.get('body', '')[:80]}")
-    merged = result.get("merged_memory")
-    if merged:
-        console.print(f"  merged: {merged.get('id')}")
+    if result.get("strategy") == "merge":
+        console.print(f"[green]Merged[/green] into {result['winner']}.")
+        console.print(
+            f"  superseded: {', '.join(result.get('superseded', []))}"
+        )
+        return
+
+    console.print(
+        f"[green]Kept[/green] {result['winner']}; marked {result['loser']} stale."
+    )
 
 
-__all__ = ["coordination_group"]
+# ---------------------------------------------------------------------------
+# Alias group: cerebrofy coordination <subcommand>
+# ---------------------------------------------------------------------------
+
+
+@click.group("coordination")
+def coordination_group() -> None:
+    """Coordinate concurrent agents (alias for the top-level commands)."""
+
+
+for _command in (
+    who_command,
+    claim_command,
+    release_command,
+    conflicts_command,
+    resolve_command,
+):
+    coordination_group.add_command(_command)
+
+
+__all__ = [
+    "claim_command",
+    "conflicts_command",
+    "coordination_group",
+    "release_command",
+    "resolve_command",
+    "who_command",
+]
