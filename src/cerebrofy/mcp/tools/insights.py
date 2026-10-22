@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from mcp.types import CallToolResult
+from typing import Any
 
 from cerebrofy.insight.daemon import run_daemon
 from cerebrofy.insight.notifier import format_insights_mcp
@@ -68,7 +65,7 @@ def _read_insights(
     return insights
 
 
-def handle_insights(arguments: dict[str, object]) -> "CallToolResult":
+def handle_insights(arguments: dict[str, object]) -> list[Any]:
     """Handle cerebrofy_insights MCP tool call."""
     from mcp.types import TextContent
 
