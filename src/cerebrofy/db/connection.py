@@ -41,8 +41,13 @@ def open_db(db_path: Path) -> sqlite3.Connection:
     """Open cerebrofy.db, load the sqlite-vec extension, and enable WAL mode.
 
     Does NOT perform a schema version check — that is the caller's responsibility.
+
+    *timeout* is raised well above sqlite's 5s default: several processes may
+    contend on ``BEGIN IMMEDIATE`` (concurrent agents, parallel test workers),
+    and the loser must wait for the winner instead of failing with
+    ``database is locked``.
     """
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=30.0)
     load_sqlite_vec(conn)
     conn.execute("PRAGMA journal_mode=WAL")
     return conn

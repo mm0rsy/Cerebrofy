@@ -41,30 +41,7 @@ jobs:
         run: uv build
 
       - name: Verify wheel contents
-        run: |
-          uv run python - <<'PY'
-          import glob
-          import sys
-          import zipfile
-
-          whl = glob.glob("dist/*.whl")[0]
-          names = zipfile.ZipFile(whl).namelist()
-
-          missing = [
-              part
-              for part in ("cerebrofy/__init__.py", "cerebrofy/cli.py")
-              if part not in names
-          ]
-          if not any("upgrade/manifests/" in name for name in names):
-              missing.append("cerebrofy/upgrade/manifests/*.yaml")
-          if not any(name.endswith("METADATA") for name in names):
-              missing.append("*.dist-info/METADATA")
-
-          if missing:
-              print(f"wheel {whl} is missing: {missing}", file=sys.stderr)
-              sys.exit(1)
-          print(f"{whl}: {len(names)} files, all required assets present")
-          PY
+        run: uv run python .github/scripts/verify_wheel.py
 
       - name: Install the wheel and smoke the entry point
         run: |
@@ -72,21 +49,10 @@ jobs:
           # --no-sync keeps the wheel install; a plain `uv run` would reinstall
           # the editable project and hide a broken wheel.
           uv run --no-sync cerebrofy --version
-          uv run --no-sync cerebrofy --help > /dev/null
+          uv run --no-sync cerebrofy --help
 
       - name: Verify the tag matches the packaged version
-        run: |
-          uv run python - <<'PY'
-          import os
-          import sys
-
-          from cerebrofy import __version__
-
-          tag = os.environ["GITHUB_REF_NAME"].lstrip("v")
-          if tag != __version__:
-              sys.exit(f"tag {tag} != packaged version {__version__}")
-          print(f"tag and packaged version agree: {tag}")
-          PY
+        run: uv run python .github/scripts/verify_tag_version.py
 
       - name: Verify dist/ contents
         run: ls -lh dist/

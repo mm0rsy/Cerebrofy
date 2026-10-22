@@ -110,30 +110,7 @@ jobs:
         run: uv build
 
       - name: Verify wheel contents
-        run: |
-          uv run python - <<'PY'
-          import glob
-          import sys
-          import zipfile
-
-          whl = glob.glob("dist/*.whl")[0]
-          names = zipfile.ZipFile(whl).namelist()
-
-          missing = [
-              part
-              for part in ("cerebrofy/__init__.py", "cerebrofy/cli.py")
-              if part not in names
-          ]
-          if not any("upgrade/manifests/" in name for name in names):
-              missing.append("cerebrofy/upgrade/manifests/*.yaml")
-          if not any(name.endswith("METADATA") for name in names):
-              missing.append("*.dist-info/METADATA")
-
-          if missing:
-              print(f"wheel {whl} is missing: {missing}", file=sys.stderr)
-              sys.exit(1)
-          print(f"{whl}: {len(names)} files, all required assets present")
-          PY
+        run: uv run python .github/scripts/verify_wheel.py
 
       - name: Install the wheel and smoke the entry point
         run: |
@@ -141,7 +118,7 @@ jobs:
           # --no-sync keeps the wheel install; a plain `uv run` would reinstall
           # the editable project and hide a broken wheel.
           uv run --no-sync cerebrofy --version
-          uv run --no-sync cerebrofy --help > /dev/null
+          uv run --no-sync cerebrofy --help
 
   # ───────────────────────────────────────────────────────────────────────────
   # CLI gates — run key commands end-to-end on a fresh repo
@@ -172,30 +149,7 @@ jobs:
       - name: Init + build index
         run: |
           uv run cerebrofy init --no-mcp
-          uv run python - <<'PY'
-          from unittest.mock import patch
-
-          from click.testing import CliRunner
-
-          from cerebrofy.cli import main
-          from cerebrofy.embedder.base import Embedder
-
-
-          class _FakeEmbedder(Embedder):
-              @property
-              def dim(self) -> int:
-                  return 768
-
-              def embed(self, texts):
-                  return [[0.0] * 768 for _ in texts]
-
-
-          runner = CliRunner()
-          with patch("cerebrofy.commands.build.get_embedder", return_value=_FakeEmbedder()):
-              result = runner.invoke(main, ["build"])
-              assert result.exit_code == 0, result.output
-          PY
-          echo "Init + build complete"
+          uv run python .github/scripts/ci_build_index.py
 
       - name: Validate command
         run: uv run cerebrofy validate
