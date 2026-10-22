@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from cerebrofy.db.connection import open_db, write_transaction
-from cerebrofy.db.schema import create_schema
 
 
 @dataclass
@@ -178,18 +177,20 @@ class PersistentMetrics:
         finally:
             conn.close()
 
-        summary = {
+        by_type: dict[str, int] = {}
+        by_strategy: dict[str, int] = {}
+        for row in rows:
+            by_type[row["event_type"]] = by_type.get(row["event_type"], 0) + row["count"]
+            if row["event_subtype"]:
+                subtype = row["event_subtype"]
+                by_strategy[subtype] = by_strategy.get(subtype, 0) + row["count"]
+
+        return {
             "total_events": len(rows),
-            "by_type": {},
-            "by_strategy": {},
+            "by_type": by_type,
+            "by_strategy": by_strategy,
             "recent": [dict(r) for r in rows[:100]],
         }
-        for row in rows:
-            etype = row["event_type"]
-            summary["by_type"][etype] = summary["by_type"].get(etype, 0) + row["count"]
-            if row["event_subtype"]:
-                summary["by_strategy"][row["event_subtype"]] = summary["by_strategy"].get(row["event_subtype"], 0) + row["count"]
-        return summary
 
 
 def get_persistent_metrics(cerebrofy_dir: str | Path) -> PersistentMetrics:

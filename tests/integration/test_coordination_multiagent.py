@@ -20,7 +20,6 @@ from cerebrofy.cli import main
 from cerebrofy.db.connection import open_db
 from cerebrofy.db.schema import create_schema
 from cerebrofy.memory.store import Memory, open_memories_db, write_memory
-from cerebrofy.mcp.tool_specs import SPEC_BY_NAME
 from cerebrofy.utils.paths import reset_bound_root, reset_root_boundary
 
 pytest.importorskip("mcp")
@@ -401,7 +400,6 @@ def test_resolve_keep_by_author_via_cli(repo: Path, monkeypatch: pytest.MonkeyPa
         "cerebrofy.memory.embedder.embed_memory",
         lambda title, body: ZERO_EMBEDDING,
     )
-    cerebrofy_dir = repo / ".cerebrofy"
     mem_a, mem_b = _write_memory_pair(repo)
     # mem_a author = agent-0, mem_b author = agent-1
 
@@ -415,7 +413,6 @@ def test_resolve_keep_by_author_via_cli(repo: Path, monkeypatch: pytest.MonkeyPa
 
 
 def test_resolve_human_review_via_cli(repo: Path) -> None:
-    cerebrofy_dir = repo / ".cerebrofy"
     mem_a, mem_b = _write_memory_pair(repo)
 
     payload = _payload(
@@ -432,7 +429,6 @@ def test_resolve_merge_via_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> N
         "cerebrofy.memory.embedder.embed_memory",
         lambda title, body: ZERO_EMBEDDING,
     )
-    cerebrofy_dir = repo / ".cerebrofy"
     mem_a, mem_b = _write_memory_pair(repo)
 
     payload = _payload(
@@ -503,12 +499,13 @@ def test_cross_lobe_awareness_notifications(repo: Path) -> None:
     who = _json_payload(_dispatch("cerebrofy_who", {}))
     assert who["total_active"] == 2
 
-    # Check awareness from agent-a's perspective
-    awareness = _json_payload(
-        _dispatch("cerebrofy_who", {"agent_id": "agent-a", "neuron": NEURON_AUTH})
-    )
-    # The who tool with neuron returns awareness info
-    # For now just verify no error
+    # cerebrofy_who does not take a neuron argument; cross-lobe awareness is
+    # exposed through the middleware instead.
+    from cerebrofy.mcp import middleware
+
+    awareness = middleware.check_conflicts(NEURON_AUTH, "agent-a")
+    assert awareness["has_lobe_activity"] is True
+    assert [a["agent_id"] for a in awareness["lobe_awareness"]] == ["agent-b"]
 
 
 def test_cross_lobe_awareness_different_lobes_no_notice(repo: Path) -> None:
@@ -692,7 +689,7 @@ def test_middleware_memory_conflict_notice(repo: Path) -> None:
 
 
 def test_coordination_group_alias_all_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cerebrofy_dir = _setup_repo(tmp_path, monkeypatch)
+    _setup_repo(tmp_path, monkeypatch)
 
     # who
     payload = _payload(_invoke(["coordination", "who", "--format", "json"]))
@@ -779,7 +776,6 @@ def test_release_nonexistent_agent_fails(repo: Path) -> None:
 def test_concurrent_mcp_calls_serialized_by_db(repo: Path) -> None:
     """Multiple concurrent tool calls don't corrupt the registry."""
     import threading
-    import time
 
     results: list[Any] = []
 
@@ -799,11 +795,7 @@ def test_concurrent_mcp_calls_serialized_by_db(repo: Path) -> None:
     for t in threads:
         t.join()
 
-    # Exactly one should succeed
-    successes = [r for r in results if "claimed" in _error_text(r[1]) or _json_payload(r[1]).get("claimed")]
-    # Actually _error_text throws on success, so check differently
-    successes = [r for r in results if r[1] and len(r[1]) == 1 and isinstance(r[1][0], TextContent)]
-    # Parse which succeeded
+    # Exactly one should succeed.
     success_count = 0
     for _, result in results:
         try:
