@@ -29,6 +29,11 @@ from pydantic import AnyUrl
 
 from cerebrofy.mcp.tool_specs import SPEC_BY_NAME, TOOL_SPECS
 from cerebrofy.mcp.tools.changelog import handle_changelog as _handle_changelog
+from cerebrofy.mcp.tools.coordination import handle_claim as _handle_claim
+from cerebrofy.mcp.tools.coordination import handle_conflicts as _handle_conflicts
+from cerebrofy.mcp.tools.coordination import handle_release as _handle_release
+from cerebrofy.mcp.tools.coordination import handle_resolve as _handle_resolve
+from cerebrofy.mcp.tools.coordination import handle_who as _handle_who
 from cerebrofy.mcp.tools.governance import handle_governance as _handle_governance
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
@@ -251,6 +256,35 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
 
 
+def _enrich_with_coordination(
+    result: list[Any],
+    neuron_id: str | None,
+    arguments: dict[str, Any],
+    memories: list[dict[str, Any]] | None = None,
+) -> list[Any]:
+    """Prepend multi-agent conflict notices to *result* (best-effort).
+
+    Additive only: any failure returns the original response untouched, so the
+    coordination layer can never break ``get_neuron`` / ``remember``. Enrichment
+    requires an explicit, non-empty ``agent_id`` — without one there is no
+    requesting agent to exclude from self-conflict checks, so the result is
+    returned unchanged.
+    """
+    if not neuron_id:
+        return result
+    agent = arguments.get("agent_id")
+    if not isinstance(agent, str) or not agent.strip():
+        return result
+    try:
+        from cerebrofy.mcp.middleware import enrich_response
+
+        return enrich_response(
+            result, neuron_id, agent.strip(), memories=memories
+        )
+    except Exception:
+        return result
+
+
 def _record_session_event(
     name: str, arguments: dict[str, Any], result: list[Any]
 ) -> None:
@@ -405,7 +439,15 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
         for result in neurons:
             result.setdefault("memories", [])
 
-    return [TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))]
+    content: list[Any] = [
+        TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))
+    ]
+    # Only a single resolved neuron has an unambiguous coordination target.
+    single_id = str(neurons[0]["id"]) if len(neurons) == 1 else None
+    memories = neurons[0].get("memories") if len(neurons) == 1 else None
+    return _enrich_with_coordination(
+        content, single_id, arguments, memories=memories
+    )
 
 
 def _handle_list_lobes(arguments: dict[str, Any]) -> list[Any]:
@@ -559,7 +601,12 @@ def _compute_epistemic(root: Path) -> "Any | None":
 
 
 def _with_epistemic(result: list[Any], root: Path) -> list[Any]:
-    """Post-process a tool result list by injecting epistemic state into each TextContent."""
+    """Append epistemic state to the final TextContent of a tool result.
+
+    Coordination notices are prepended, so the payload is the *last* content
+    item. Enriching every item would decorate the notice and corrupt it (a
+    plain-text notice would get a footer); only the payload is touched.
+    """
     from mcp.types import TextContent
 
     state = _compute_epistemic(root)
@@ -568,9 +615,16 @@ def _with_epistemic(result: list[Any], root: Path) -> list[Any]:
 
     from cerebrofy.epistemic.state import inject_epistemic
 
-    out = []
-    for item in result:
+    last_text_index = None
+    for index, item in enumerate(result):
         if isinstance(item, TextContent):
+            last_text_index = index
+    if last_text_index is None:
+        return result
+
+    out: list[Any] = []
+    for index, item in enumerate(result):
+        if index == last_text_index and isinstance(item, TextContent):
             out.append(TextContent(type="text", text=inject_epistemic(item.text, state)))
         else:
             out.append(item)
@@ -801,6 +855,9 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
 
         neuron_param = arguments.get("neuron")
         neuron_id: str | None = None
+        # Only an unambiguous, single resolved neuron is safe to enrich: a
+        # fuzzy name matching several neurons has no single coordination target.
+        enrich_neuron_id: str | None = None
         warning_msg: str | None = None
         if neuron_param:
             db_path = cerebrofy_dir / "db" / "cerebrofy.db"
@@ -823,6 +880,7 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
                     neuron_id = rows[0][0]
                 else:
                     neuron_id = rows[0][0]
+                    enrich_neuron_id = neuron_id
             except Exception:
                 warning_msg = "could not resolve neuron — memory stored without anchor"
 
@@ -852,7 +910,10 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
         if warning_msg:
             result["warning"] = warning_msg
         from mcp.types import TextContent
-        return [TextContent(type="text", text=_json.dumps(result, indent=2))]
+        content: list[Any] = [
+            TextContent(type="text", text=_json.dumps(result, indent=2))
+        ]
+        return _enrich_with_coordination(content, enrich_neuron_id, arguments)
     except Exception as exc:
         return _make_error_content(f"cerebrofy_remember failed: {exc}")
 
@@ -1408,6 +1469,11 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_changelog": _handle_changelog,
     "_handle_governance": _handle_governance,
     "_handle_review": _handle_review,
+    "_handle_claim": _handle_claim,
+    "_handle_release": _handle_release,
+    "_handle_who": _handle_who,
+    "_handle_conflicts": _handle_conflicts,
+    "_handle_resolve": _handle_resolve,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
 if _unwired:
@@ -1415,6 +1481,50 @@ if _unwired:
         "TOOL_SPECS references handler(s) not wired in _HANDLERS: " + ", ".join(_unwired)
     )
 del _unwired
+
+
+def _heartbeat_if_agent(arguments: dict[str, Any]) -> None:
+    """Best-effort coordination heartbeat for calls that name an agent.
+
+    The acting agent is resolved from the tool arguments first, then from the
+    ``CEREBROFY_AGENT_ID`` environment variable (so tools that do not carry an
+    ``agent_id`` still keep a claim alive). Runs before dispatch, never creates
+    ``cerebrofy.db`` (a missing index is a no-op), and never lets a coordination
+    failure break the tool call. The registry owns heartbeat throttling.
+    """
+    agent_id = arguments.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        env_agent = os.environ.get("CEREBROFY_AGENT_ID")
+        agent_id = env_agent if isinstance(env_agent, str) else None
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        return
+
+    try:
+        from cerebrofy.coordination.registry import ActiveAgentRegistry
+        from cerebrofy.errors import ClaimExpiredError, NoActiveAgentError
+
+        try:
+            root = require_repo_root(Path.cwd())
+        except FileNotFoundError:
+            return
+
+        db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
+        if not db_path.exists():
+            return
+
+        registry = ActiveAgentRegistry(str(db_path))
+        try:
+            registry.heartbeat(agent_id.strip())
+        finally:
+            registry.close()
+    except FileNotFoundError:
+        # Index disappeared between the check and the open — nothing to update.
+        return
+    except (ClaimExpiredError, NoActiveAgentError, OSError):
+        return
+    except Exception:
+        # sqlite errors / partially-implemented registries must not break tools
+        return
 
 
 async def dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
@@ -1439,6 +1549,9 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
     spec = SPEC_BY_NAME.get(name)
     if spec is None:
         return _make_error_content(f"Unknown tool: {name}")
+
+    # Any tool call that identifies an agent doubles as a claim heartbeat.
+    _heartbeat_if_agent(args)
 
     try:
         result = _HANDLERS[spec.handler_name](args)

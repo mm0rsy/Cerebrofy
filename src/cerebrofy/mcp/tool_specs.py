@@ -54,6 +54,12 @@ _SEARCH_SCHEMA: dict[str, Any] = {
             "maximum": 50,
         },
         "lobe": {"type": "string", "description": "Filter to a specific lobe/module (optional)"},
+        "agent_id": {
+            "type": "string",
+            "description": (
+                "Acting agent id; enables self-claim exclusion and heartbeat (optional)."
+            ),
+        },
     },
     "required": ["query"],
 }
@@ -64,6 +70,12 @@ _NEURON_SCHEMA: dict[str, Any] = {
         "name": {"type": "string", "description": "Exact function/class name"},
         "file": {"type": "string", "description": "Source file path (partial match)"},
         "line": {"type": "integer", "description": "Line number within the file (requires 'file')"},
+        "agent_id": {
+            "type": "string",
+            "description": (
+                "Acting agent id; enables self-claim exclusion and heartbeat (optional)."
+            ),
+        },
     },
 }
 
@@ -154,6 +166,12 @@ _REMEMBER_SCHEMA: dict[str, Any] = {
         "lobe": {"type": "string", "description": "Lobe name"},
         "tags": {"type": "array", "items": {"type": "string"}},
         "author": {"type": "string"},
+        "agent_id": {
+            "type": "string",
+            "description": (
+                "Acting agent id; enables self-claim exclusion and heartbeat (optional)."
+            ),
+        },
     },
     "required": ["title", "body", "type"],
 }
@@ -592,6 +610,109 @@ _REVIEW_SCHEMA: dict[str, Any] = {
     },
 }
 
+_CLAIM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "agent_id": {
+            "type": "string",
+            "description": "Stable identifier for the acting agent (e.g. 'claude-sess-001').",
+        },
+        "neurons": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Neuron ids or file paths to claim before editing. File paths "
+                "expand to every neuron indexed for that file."
+            ),
+        },
+        "intent": {
+            "type": "string",
+            "description": "What the agent is about to do — shown to other agents.",
+        },
+        "agent_type": {
+            "type": "string",
+            "description": "Agent kind (default: 'claude').",
+            "default": "claude",
+        },
+        "ttl_minutes": {
+            "type": "integer",
+            "description": "Claim lifetime in minutes (default: 60, max: 1440).",
+            "default": 60,
+            "minimum": 1,
+            "maximum": 1440,
+        },
+        "session_id": {
+            "type": "string",
+            "description": "Optional Idea #11 session id to associate with the claim.",
+        },
+    },
+    "required": ["agent_id", "neurons", "intent"],
+}
+
+_RELEASE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "agent_id": {
+            "type": "string",
+            "description": "Agent whose claims should be released.",
+        },
+        "neurons": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Neuron ids or file paths to release; omit to release every claim."
+            ),
+        },
+    },
+    "required": ["agent_id"],
+}
+
+_WHO_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {},
+    "required": [],
+}
+
+_CONFLICTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "neuron": {
+            "type": "string",
+            "description": "Limit memory-conflict detection to one neuron (optional).",
+        },
+    },
+    "required": [],
+}
+
+_RESOLVE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "memory_a": {"type": "string", "description": "First memory id in the conflict."},
+        "memory_b": {"type": "string", "description": "Second memory id in the conflict."},
+        "strategy": {
+            "type": "string",
+            "description": "Resolution strategy. 'human_review' never mutates memories.",
+            "enum": ["keep_newest", "keep_by_author", "human_review", "merge"],
+        },
+        "author": {
+            "type": "string",
+            "description": "Author to prefer for keep_by_author (optional).",
+        },
+        "merged_body": {
+            "type": "string",
+            "description": (
+                "Content for the resolved memory when strategy is 'merge' "
+                "(required for that strategy)."
+            ),
+        },
+        "neuron": {
+            "type": "string",
+            "description": "Neuron the conflicting memories belong to (optional).",
+        },
+    },
+    "required": ["memory_a", "memory_b", "strategy"],
+}
+
 
 # ---------------------------------------------------------------------------
 # The tool catalog
@@ -983,6 +1104,63 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         input_schema=_REVIEW_SCHEMA,
         handler_name="_handle_review",
         inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_claim",
+        description=(
+            "Claim neurons before editing them so concurrent agents do not "
+            "silently undo each other's work. Claims are local to this project, "
+            "expire after ttl_minutes (default 60, max 1440), and conflicting "
+            "neurons are skipped and reported with the existing claimant."
+        ),
+        input_schema=_CLAIM_SCHEMA,
+        handler_name="_handle_claim",
+        inject=False,
+    ),
+    ToolSpec(
+        name="cerebrofy_release",
+        description=(
+            "Release neurons claimed by this agent. Pass specific neuron ids or "
+            "omit 'neurons' to release every claim. Use this when finished with "
+            "a task so other agents can take over."
+        ),
+        input_schema=_RELEASE_SCHEMA,
+        handler_name="_handle_release",
+        inject=False,
+    ),
+    ToolSpec(
+        name="cerebrofy_who",
+        description=(
+            "List all active agents, what each one has claimed, how long they "
+            "have been active, and any overlapping claims. Call this before "
+            "starting work on shared code to see who else is editing it."
+        ),
+        input_schema=_WHO_SCHEMA,
+        handler_name="_handle_who",
+        inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_conflicts",
+        description=(
+            "Report overlapping neuron claims and contradicting memories. Pass "
+            "'neuron' to scope memory-contradiction detection to one neuron. "
+            "The response includes the available resolution strategies."
+        ),
+        input_schema=_CONFLICTS_SCHEMA,
+        handler_name="_handle_conflicts",
+        inject=True,
+    ),
+    ToolSpec(
+        name="cerebrofy_resolve",
+        description=(
+            "Resolve a pair of contradicting memories with a deterministic "
+            "strategy: keep_newest, keep_by_author, human_review, or merge. "
+            "human_review never mutates memories — it flags the conflict for a "
+            "human (requires_review=true)."
+        ),
+        input_schema=_RESOLVE_SCHEMA,
+        handler_name="_handle_resolve",
+        inject=False,
     ),
 )
 
