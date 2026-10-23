@@ -45,6 +45,7 @@ from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
 from cerebrofy.mcp.tools.review import handle_review as _handle_review
 from cerebrofy.mcp.tools.upgrade import handle_upgrade as _handle_upgrade
 from cerebrofy.mcp.tools.insights import handle_insights as _handle_insights
+from cerebrofy.mcp.tools.synthesize import handle_synthesize as _handle_synthesize
 from cerebrofy.utils.paths import (
     InvalidRepoRootError,
     find_repo_root,
@@ -1476,6 +1477,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_conflicts": _handle_conflicts,
     "_handle_resolve": _handle_resolve,
     "_handle_insights": _handle_insights,
+    "_handle_synthesize": _handle_synthesize,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
 if _unwired:

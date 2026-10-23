@@ -1186,6 +1186,28 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handler_name="_handle_insights",
         inject=True,
     ),
+    ToolSpec(
+        name="cerebrofy_synthesize",
+        description=(
+            "Run cross-session pattern synthesis to detect recurring failure patterns, "
+            "lobe fragility, effort calibration issues, missing steps, and agent blind spots "
+            "from recorded agent sessions. Writes patterns as memories for future reference. "
+            "Run after every N sessions (configurable) or on-demand. "
+            "Error codes: NO_INDEX, INSUFFICIENT_SESSIONS, NO_SESSION_RECORDER."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "run_now": {"type": "boolean", "description": "Force synthesis run before returning results", "default": False},
+                "min_sessions": {"type": "integer", "description": "Minimum sessions required before synthesis fires", "default": 10},
+                "show_patterns": {"type": "boolean", "description": "Include pattern list in response", "default": True},
+                "min_confidence": {"type": "number", "description": "Minimum pattern confidence to return (0-1)", "default": 0.7},
+            },
+            "required": [],
+        },
+        handler_name="_handle_synthesize",
+        inject=True,
+    ),
 )
 
 # Name -> ToolSpec lookup. Fails loudly on duplicate names so a copy/paste

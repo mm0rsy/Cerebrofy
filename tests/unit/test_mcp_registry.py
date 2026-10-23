@@ -64,6 +64,7 @@ EXPECTED_ORDER: list[str] = [
     "cerebrofy_conflicts",
     "cerebrofy_resolve",
     "cerebrofy_insights",
+    "cerebrofy_synthesize",
 ]
 
 # Data-reading tools that receive epistemic + intent enrichment at dispatch time.
@@ -86,6 +87,7 @@ INJECT_TRUE: set[str] = {
     "cerebrofy_who",
     "cerebrofy_conflicts",
     "cerebrofy_insights",
+    "cerebrofy_synthesize",
 }
 
 # Self-contained / side-effecting tools: results are returned verbatim.

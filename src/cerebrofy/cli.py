@@ -39,6 +39,7 @@ from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
 from cerebrofy.commands.vuln import cerebrofy_vuln
 from cerebrofy.commands.insights import cerebrofy_insights
+from cerebrofy.commands.synthesize import cerebrofy_synthesize
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.USE_MARKDOWN = False
@@ -107,6 +108,7 @@ main.add_command(cerebrofy_upgrade)
 main.add_command(cerebrofy_validate)
 main.add_command(cerebrofy_vuln)
 main.add_command(cerebrofy_insights)
+main.add_command(cerebrofy_synthesize)
 
 # Multi-agent coordination (Idea #25) — top-level commands plus an alias group.
 main.add_command(who_command)
