@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from mcp.types import CallToolResult
+from typing import Any
 
 from cerebrofy.synthesizer.analyzer import run_synthesis
 from cerebrofy.mcp.errors import mcp_error
@@ -63,7 +60,7 @@ def _read_patterns(
         conn.close()
 
 
-def handle_synthesize(arguments: dict[str, object]) -> "CallToolResult":
+def handle_synthesize(arguments: dict[str, object]) -> list[Any]:
     """Handle cerebrofy_synthesize MCP tool call."""
     from mcp.types import TextContent
 
