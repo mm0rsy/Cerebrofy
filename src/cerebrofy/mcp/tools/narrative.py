@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from mcp.types import CallToolResult
+from typing import Any
 
 from cerebrofy.narrative.generator import generate_narrative
 from cerebrofy.mcp.errors import mcp_error
@@ -70,7 +67,7 @@ def _read_narrative(cerebrofy_dir: Path, section: str | None = None, era: int | 
     return content
 
 
-def handle_narrative(arguments: dict[str, object]) -> "CallToolResult":
+def handle_narrative(arguments: dict[str, object]) -> list[Any]:
     """Handle cerebrofy_narrative MCP tool call."""
     from mcp.types import TextContent
 
