@@ -364,6 +364,13 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         # WAL frames are checkpointed before the file is hashed (S2/n12).
         write_sidecar(db_path)
 
+        # Run Insight Daemon after update
+        try:
+            from cerebrofy.insight.daemon import run_daemon
+            run_daemon(db_path)
+        except Exception as exc:  # daemon must never fail an update
+            click.echo(f"Warning: Insight daemon skipped — {exc}", err=True)
+
         # Step 10: Keep installed hook blocks current (e.g. upgrade to v3 with
         # the architecture drift check after 'cerebrofy arch init').
         _upgrade_git_hooks(root)

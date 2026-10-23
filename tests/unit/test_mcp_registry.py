@@ -63,6 +63,7 @@ EXPECTED_ORDER: list[str] = [
     "cerebrofy_who",
     "cerebrofy_conflicts",
     "cerebrofy_resolve",
+    "cerebrofy_insights",
 ]
 
 # Data-reading tools that receive epistemic + intent enrichment at dispatch time.
@@ -84,6 +85,7 @@ INJECT_TRUE: set[str] = {
     "cerebrofy_review",
     "cerebrofy_who",
     "cerebrofy_conflicts",
+    "cerebrofy_insights",
 }
 
 # Self-contained / side-effecting tools: results are returned verbatim.
@@ -115,27 +117,27 @@ INJECT_FALSE: set[str] = {
 # ---------------------------------------------------------------------------
 
 
-def test_tool_specs_count_is_36() -> None:
-    assert len(TOOL_SPECS) == 36
+def test_tool_specs_count_is_37() -> None:
+    assert len(TOOL_SPECS) == 37
 
 
 def test_tool_specs_order_matches_catalog() -> None:
     assert [s.name for s in TOOL_SPECS] == EXPECTED_ORDER
 
 
-def test_spec_by_name_has_36_unique_entries() -> None:
-    assert len(SPEC_BY_NAME) == 36
+def test_spec_by_name_has_37_unique_entries() -> None:
+    assert len(SPEC_BY_NAME) == 37
     assert set(SPEC_BY_NAME) == set(EXPECTED_ORDER)
 
 
 def test_no_duplicate_names_raised_at_build() -> None:
-    """Re-constructing the lookup from TOOL_SPECS must yield exactly 36 keys
+    """Re-constructing the lookup from TOOL_SPECS must yield exactly 37 keys
     (a duplicate would have raised ValueError at import time)."""
     rebuilt: dict[str, ToolSpec] = {}
     for s in TOOL_SPECS:
         assert s.name not in rebuilt
         rebuilt[s.name] = s
-    assert len(rebuilt) == 36
+    assert len(rebuilt) == 37
 
 
 @pytest.mark.parametrize("spec", TOOL_SPECS)
@@ -162,7 +164,7 @@ def test_inject_flag_partition(spec: ToolSpec) -> None:
 def test_inject_sets_partition_the_catalog() -> None:
     assert INJECT_TRUE | INJECT_FALSE == set(EXPECTED_ORDER)
     assert INJECT_TRUE.isdisjoint(INJECT_FALSE)
-    assert len(INJECT_TRUE) == 17
+    assert len(INJECT_TRUE) == 18
     assert len(INJECT_FALSE) == 19
 
 
@@ -191,7 +193,7 @@ def test_all_handlers_resolve_in_server() -> None:
     pytest.importorskip("mcp")
     from cerebrofy.mcp import server as server_mod
 
-    assert len(server_mod._HANDLERS) == 36
+    assert len(server_mod._HANDLERS) == 37
     for spec in TOOL_SPECS:
         handler = server_mod._HANDLERS.get(spec.handler_name)
         assert handler is not None, f"missing handler {spec.handler_name} for {spec.name}"

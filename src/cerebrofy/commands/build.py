@@ -369,6 +369,13 @@ def cerebrofy_build() -> None:
 
         _recompute_memory_decay_build(root, config)
 
+        # Run Insight Daemon after build (Step 8)
+        try:
+            from cerebrofy.insight.daemon import run_daemon
+            run_daemon(db_path)
+        except Exception as exc:  # daemon must never fail a build
+            click.echo(f"Warning: Insight daemon skipped — {exc}", err=True)
+
         elapsed = time.monotonic() - start
         files_count = len(parse_results)
         neurons_count = len(all_neurons)

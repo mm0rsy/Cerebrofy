@@ -1105,7 +1105,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handler_name="_handle_review",
         inject=True,
     ),
-    ToolSpec(
+        ToolSpec(
         name="cerebrofy_claim",
         description=(
             "Claim neurons before editing them so concurrent agents do not "
@@ -1161,6 +1161,30 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         input_schema=_RESOLVE_SCHEMA,
         handler_name="_handle_resolve",
         inject=False,
+    ),
+    ToolSpec(
+        name="cerebrofy_insights",
+        description=(
+            "Query or run the Cerebrofy Insight Daemon — proactive analysis across "
+            "graph, health, memories, sessions, and arch rules. Returns insights "
+            "like trend alerts, session failure patterns, silo risks, architectural "
+            "predictions, memory conflicts, and coverage regressions. Use at session "
+            "start to understand codebase health, or run_now=true to force a fresh "
+            "daemon execution. Error codes: NO_INDEX, DAEMON_RUNNING."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "description": "Filter by insight type (e.g., 'trend_alert', 'silo_risk')"},
+                "since": {"type": "string", "description": "Time window e.g. '7d', '24h'"},
+                "min_confidence": {"type": "number", "description": "Minimum confidence 0-1", "default": 0.7},
+                "run_now": {"type": "boolean", "description": "Force daemon run before returning results", "default": False},
+                "show_all": {"type": "boolean", "description": "Include all insights regardless of confidence", "default": False},
+            },
+            "required": [],
+        },
+        handler_name="_handle_insights",
+        inject=True,
     ),
 )
 
