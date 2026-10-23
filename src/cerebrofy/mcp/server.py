@@ -45,7 +45,7 @@ from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
 from cerebrofy.mcp.tools.review import handle_review as _handle_review
 from cerebrofy.mcp.tools.upgrade import handle_upgrade as _handle_upgrade
 from cerebrofy.mcp.tools.insights import handle_insights as _handle_insights
-from cerebrofy.mcp.tools.synthesize import handle_synthesize as _handle_synthesize
+from cerebrofy.mcp.tools.narrative import handle_narrative as _handle_narrative
 from cerebrofy.utils.paths import (
     InvalidRepoRootError,
     find_repo_root,
@@ -376,51 +376,6 @@ def _handle_search_code(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=json.dumps({"results": hits, "count": len(hits)}, indent=2))]
 
 
-def _synthesized_patterns_for_lobes(
-    root: Path, lobes: list[str]
-) -> list[dict[str, Any]]:
-    """Attach synthesized patterns for *lobes* (best-effort, read-only).
-
-    M9: synthesized patterns are memories with ``lobe`` set for lobe-scoped
-    detectors, so consumers query them the same way as neuron memories. Any
-    failure returns an empty list and never breaks the existing response.
-    """
-    try:
-        from cerebrofy.memory.store import open_memories_db
-        from cerebrofy.synthesizer import list_synthesized_patterns
-
-        cerebrofy_dir = root / ".cerebrofy"
-        if not (cerebrofy_dir / "db" / "memories.db").exists():
-            return []
-        mem_conn = open_memories_db(cerebrofy_dir)
-        try:
-            seen: set[str] = set()
-            payloads: list[dict[str, Any]] = []
-            for lobe in lobes:
-                if not lobe:
-                    continue
-                for pattern in list_synthesized_patterns(mem_conn, lobe=lobe):
-                    if pattern.id in seen:
-                        continue
-                    seen.add(pattern.id)
-                    payloads.append(
-                        {
-                            "type": pattern.type,
-                            "title": pattern.title,
-                            "body": pattern.body,
-                            "confidence": pattern.confidence,
-                            "lobe": pattern.lobe,
-                            "sessions_analyzed": pattern.sessions_analyzed,
-                            "sample_size": pattern.sample_size,
-                        }
-                    )
-            return payloads
-        finally:
-            mem_conn.close()
-    except Exception:
-        return []
-
-
 def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
     """Fetch a single Neuron by name, or by file + optional line number."""
     from mcp.types import TextContent
@@ -485,22 +440,6 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
     except Exception:
         for result in neurons:
             result.setdefault("memories", [])
-
-    # M9: attach lobe-scoped synthesized patterns (new `patterns` key).
-    neuron_lobes = sorted(
-        {
-            Path(str(result.get("file") or "")).parts[0]
-            for result in neurons
-            if result.get("file")
-        }
-    )
-    all_patterns = _synthesized_patterns_for_lobes(root, neuron_lobes)
-    for result in neurons:
-        parts = Path(str(result.get("file") or "")).parts
-        lobe = parts[0] if parts else None
-        result["patterns"] = [
-            pattern for pattern in all_patterns if pattern.get("lobe") == lobe
-        ]
 
     content: list[Any] = [
         TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))
@@ -1200,17 +1139,6 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
         ] if show_tests else [],
         "uncovered_callers": result.uncovered_callers if show_tests else [],
         "memory_warnings": result.memory_warnings,
-        "patterns": _synthesized_patterns_for_lobes(
-            root,
-            sorted(
-                {result.target.lobe}
-                | {
-                    n.lobe
-                    for callers in result.callers_by_depth.values()
-                    for n in callers
-                }
-            ),
-        ),
         "refactoring_sequence": [
             {
                 "step": s.step,
@@ -1549,7 +1477,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_conflicts": _handle_conflicts,
     "_handle_resolve": _handle_resolve,
     "_handle_insights": _handle_insights,
-    "_handle_synthesize": _handle_synthesize,
+    "_handle_narrative": _handle_narrative,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
 if _unwired:

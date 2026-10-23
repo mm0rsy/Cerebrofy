@@ -1187,29 +1187,24 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         inject=True,
     ),
     ToolSpec(
-        name="cerebrofy_synthesize",
+        name="cerebrofy_narrative",
         description=(
-            "Run cross-session pattern synthesis to detect recurring failure patterns, "
-            "lobe fragility, effort calibration issues, missing steps, and agent blind spots "
-            "from recorded agent sessions. Writes patterns as memories for future reference. "
-            "Run after every N sessions (configured by synthesis.every_n_sessions, default 10) "
-            "or on-demand with run_now=true. Patterns persist a parseable confidence tag so "
-            "min_confidence filters existing patterns too. Automatic scheduling is count-based: "
-            "next_synthesis_at is always null and sessions_until_next_synthesis reports how many "
-            "closed sessions remain before the next auto-trigger. "
-            "Error codes: NO_INDEX, INSUFFICIENT_SESSIONS, NO_SESSION_RECORDER."
+            "Read or regenerate the codebase narrative — a living document telling the "
+            "story of the codebase across architectural eras, significant events, and "
+            "architectural DNA. Use at session start for historical context, or "
+            "update=true to force regeneration after structural changes. "
+            "Error codes: NO_INDEX, INSUFFICIENT_HISTORY."
         ),
         input_schema={
             "type": "object",
             "properties": {
-                "run_now": {"type": "boolean", "description": "Force synthesis run before returning results", "default": False},
-                "min_sessions": {"type": "integer", "description": "Minimum sessions required before synthesis fires", "default": 10},
-                "show_patterns": {"type": "boolean", "description": "Include pattern list in response", "default": True},
-                "min_confidence": {"type": "number", "description": "Minimum persisted pattern confidence to return (0-1)", "default": 0.7},
+                "section": {"type": "string", "description": "Which section to return: 'eras', 'events', 'dna', 'trajectory', or 'all'", "default": "all"},
+                "update": {"type": "boolean", "description": "Force regenerate NARRATIVE.md before returning", "default": False},
+                "era": {"type": "integer", "description": "Return a specific era by number (1-indexed)"},
             },
             "required": [],
         },
-        handler_name="_handle_synthesize",
+        handler_name="_handle_narrative",
         inject=True,
     ),
 )
