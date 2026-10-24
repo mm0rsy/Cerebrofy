@@ -873,15 +873,16 @@ def test_end_session_injects_embedder_no_model_init(
 
 
 def test_migration_005_sessions_sql_creates_outcome_columns(tmp_path: Path) -> None:
-    """migration/005_sessions.sql applies with outcome/outcome_notes from the start."""
+    """Session schema applies with outcome/outcome_notes from the start (idempotent)."""
     import sqlite_vec  # type: ignore[import-untyped]
 
-    sql_path = Path(__file__).parents[2] / "migrations" / "005_sessions.sql"
+    from cerebrofy.db.schema import create_session_schema
+
     conn = sqlite3.connect(":memory:")
     conn.enable_load_extension(True)
     sqlite_vec.load(conn)
     conn.enable_load_extension(False)
-    conn.executescript(sql_path.read_text(encoding="utf-8"))
+    create_session_schema(conn)
 
     cols = {r[1] for r in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     assert {"outcome", "outcome_notes", "blast_radius_before", "blast_radius_after",
@@ -892,8 +893,8 @@ def test_migration_005_sessions_sql_creates_outcome_columns(tmp_path: Path) -> N
     ).fetchall()}
     assert {"sessions", "session_events", "vec_sessions"} <= tables
 
-    # Upgrade path: re-applying the file must be idempotent (CREATE ... IF NOT EXISTS).
-    conn.executescript(sql_path.read_text(encoding="utf-8"))
+    # Upgrade path: re-applying the schema must be idempotent (CREATE ... IF NOT EXISTS).
+    create_session_schema(conn)
     conn.close()
 
 

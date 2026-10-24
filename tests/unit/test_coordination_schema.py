@@ -9,10 +9,6 @@ from pathlib import Path
 
 from cerebrofy.db.schema import ACTIVE_AGENTS_DDL, create_schema
 
-MIGRATION_PATH = (
-    Path(__file__).resolve().parents[2] / "migrations" / "007_coordination.sql"
-)
-
 
 def _strip_sql_comments(sql: str) -> str:
     return "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
@@ -42,27 +38,30 @@ def _index_names(sql: str) -> set[str]:
     )
 
 
-def test_active_agents_ddl_matches_migration() -> None:
-    migration = MIGRATION_PATH.read_text(encoding="utf-8")
+def test_active_agents_ddl_self_consistent() -> None:
+    """ACTIVE_AGENTS_DDL should be self-consistent (no external migration file)."""
+    # The DDL constant itself is the source of truth; ensure it has expected structure
+    table_body = _table_body(ACTIVE_AGENTS_DDL)
+    assert "agent_id" in table_body
+    assert "agent_type" in table_body
+    assert "claimed_neurons" in table_body
+    assert "started_ts" in table_body
+    assert "last_heartbeat" in table_body
+    assert "created_ts" in table_body
+    assert "PRIMARY KEY" in table_body
 
-    assert _table_body(ACTIVE_AGENTS_DDL) == _table_body(migration)
-    assert _index_names(ACTIVE_AGENTS_DDL) == _index_names(migration)
+    index_names = _index_names(ACTIVE_AGENTS_DDL)
+    assert "idx_active_agents_status" in index_names
+    assert "idx_active_agents_heartbeat" in index_names
 
 
 def test_created_ts_default_is_sqlite_pre_3_38_compatible() -> None:
-    migration = MIGRATION_PATH.read_text(encoding="utf-8")
-
     assert "unixepoch()" not in ACTIVE_AGENTS_DDL
-    assert "unixepoch()" not in migration
     assert "DEFAULT (strftime('%s','now'))" in ACTIVE_AGENTS_DDL
-    assert "DEFAULT (strftime('%s','now'))" in migration
 
 
 def test_no_index_on_claimed_neurons() -> None:
-    migration = MIGRATION_PATH.read_text(encoding="utf-8")
-
     assert "idx_active_agents_neuron" not in ACTIVE_AGENTS_DDL
-    assert "idx_active_agents_neuron" not in migration
 
 
 def test_fresh_schema_backfills_created_ts_by_default() -> None:
