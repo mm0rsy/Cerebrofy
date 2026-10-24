@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cerebrofy</title>
+<meta name="description" content="Cerebrofy gives your repository a persistent memory. Your AI assistant queries a local index instead of re-reading every file.">
+<meta name="theme-color" content="#0d0f12">
+<link rel="stylesheet" href="fonts/fonts.css">
+<style>
+/* Concept: a phosphor instrument. Graphite ground, amber signal, hairline panels, expanded capitals.
+   Layout: story column left, one sticky scope right that changes channel as the chapters scroll. */
+:root {
+  --bg: #0d0f12; --panel: #12151a; --line: #2a2e36; --fg: #ebe6d8; --body: #c9c2af; --dim: #9a917d;
+  --amber: #ffb347; --hot: #ff8a1f; --pale: #ffe9b8;
+  --sans: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 16px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px; }
+a { color: var(--fg); }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+.wrap { max-width: 1328px; margin: 0 auto; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; }
+.mark { display: flex; align-items: center; gap: 12px; font-family: var(--sans); font-stretch: 125%; font-weight: 800; font-size: 1.1rem; letter-spacing: 0.02em; }
+.mark i { width: 10px; height: 10px; background: var(--amber); box-shadow: 0 0 12px var(--amber); display: block; }
+.top nav { display: flex; gap: 24px; color: var(--dim); align-items: center; }
+.top nav a { text-decoration: none; color: var(--dim); } .top nav a:hover { color: var(--amber); }
+.top nav b { color: var(--amber); font-weight: 500; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.02fr); column-gap: 48px; }
+.viz { grid-column: 2; grid-row: 1; align-self: start; position: sticky; top: 14px; height: min(calc(100vh - 28px), 680px); min-height: 460px; margin-top: 14px;
+  border: 1px solid var(--line); background: radial-gradient(70% 70% at 50% 50%, #181b21 0%, var(--bg) 100%); overflow: hidden; }
+.viz::before, .viz::after { content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--amber); z-index: 2; pointer-events: none; }
+.viz::before { left: 8px; top: 8px; border-right: 0; border-bottom: 0; } .viz::after { right: 8px; bottom: 8px; border-left: 0; border-top: 0; }
+.viz canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hud { position: absolute; left: 30px; right: 30px; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); pointer-events: none; }
+.hud.t { top: 14px; display: flex; justify-content: space-between; gap: 14px; }
+.hud.t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } .hud.t span:last-child { flex: none; color: var(--amber); }
+.hud.b { bottom: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.now { font-family: var(--sans); font-stretch: 112%; font-size: 1.05rem; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--fg); line-height: 1.2; }
+.now small { display: block; font-family: var(--mono); font-weight: 400; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.dots { display: flex; gap: 6px; pointer-events: auto; flex: none; }
+.dots button { width: 22px; height: 22px; border: 1px solid var(--line); background: var(--panel); padding: 0; cursor: pointer; display: grid; place-items: center; font-family: var(--mono); font-size: 0.62rem; color: var(--dim); }
+.dots button span { display: none; }
+.dots button::before { content: attr(data-ch); }
+.dots button[aria-pressed="true"] { border-color: var(--amber); color: var(--amber); background: #17140c; }
+.tip { position: absolute; z-index: 3; pointer-events: none; background: var(--amber); color: #0d0f12; padding: 4px 9px; font-family: var(--mono); font-size: 0.72rem; white-space: nowrap; transform: translate(12px, -125%); }
+.tip em { font-style: normal; opacity: 0.7; }
+.nogl { position: absolute; inset: 0; display: none; place-items: center; padding: 24px; text-align: center; color: var(--dim); }
+
+.narr { grid-column: 1; grid-row: 1; min-width: 0; }
+.eyebrow { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); }
+h1 { font-stretch: 125%; font-weight: 800; font-size: clamp(1.9rem, 3.5vw, 3.2rem); line-height: 1; letter-spacing: -0.02em; text-transform: uppercase; margin: 18px 0 22px; text-wrap: balance; }
+h1 em { font-style: normal; color: var(--amber); }
+h2 { font-stretch: 125%; font-weight: 800; font-size: clamp(1.45rem, 2.3vw, 2.15rem); line-height: 1.06; letter-spacing: -0.02em; text-transform: uppercase; margin: 12px 0 18px; text-wrap: balance; }
+.story p { font-size: 1.1rem; line-height: 1.68; color: var(--body); max-width: 33em; margin: 0 0 1em; }
+.story p strong { color: var(--fg); font-weight: 600; }
+.lede { font-size: 1.2rem; line-height: 1.55; color: var(--body); max-width: 30em; margin: 0 0 26px; }
+.chap { padding: 72px 0 24px; border-top: 1px solid var(--line); margin-top: 40px; }
+.hero { padding: 46px 0 56px; }
+
+.install { background: var(--panel); border: 1px solid var(--line); padding: 16px 18px; max-width: 32em; display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; }
+.install pre { margin: 0; font-family: var(--mono); font-size: 0.86rem; line-height: 1.8; overflow-x: auto; min-width: 0; color: var(--fg); }
+.install pre b { color: var(--dim); font-weight: 400; user-select: none; }
+.copy { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; background: var(--amber); color: #0d0f12; border: 0; padding: 8px 12px; cursor: pointer; flex: none; font-weight: 500; }
+.copy:hover { background: var(--pale); }
+.facts { display: flex; flex-wrap: wrap; margin: 34px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.facts li { padding: 14px 24px 14px 0; margin-right: 24px; }
+.facts strong { display: block; font-stretch: 125%; font-weight: 700; font-size: 1.7rem; color: var(--amber); line-height: 1.1; }
+.facts span { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+
+.log { border: 1px solid var(--line); background: var(--panel); margin: 28px 0 8px; max-width: 36em; }
+.log header { display: flex; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.log header b { color: var(--hot); font-weight: 500; }
+.log div.l { padding: 14px; font-family: var(--mono); font-size: 0.8rem; line-height: 1.9; color: var(--dim); }
+.log div.l b { color: var(--fg); font-weight: 400; } .log div.l i { font-style: normal; color: var(--hot); }
+.pain { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 28px; margin: 30px 0 10px; padding: 0; list-style: none; max-width: 38em; }
+.pain li { border-top: 1px solid var(--line); padding-top: 10px; }
+.pain h4 { font-stretch: 112%; font-weight: 700; font-size: 1.05rem; margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.01em; }
+.pain p { margin: 0; font-size: 0.93rem; color: var(--body); }
+.pain .big { font-stretch: 125%; font-size: 2.1rem; line-height: 1; letter-spacing: -0.02em; font-weight: 800; color: var(--hot); font-variant-numeric: tabular-nums; display: block; margin-bottom: 4px; }
+.pull { font-stretch: 112%; font-weight: 700; font-size: clamp(1.3rem, 2.3vw, 1.8rem); line-height: 1.15; margin: 36px 0 0; max-width: 20em; color: var(--amber); }
+.pull span { color: var(--fg); }
+
+.gloss { margin: 26px 0 8px; max-width: 36em; display: grid; font-size: 0.93rem; }
+.gloss div { display: grid; grid-template-columns: 7.5em minmax(0, 1fr); gap: 14px; padding: 10px 0; border-top: 1px solid var(--line); }
+.gloss dt { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); padding-top: 2px; }
+.gloss dd { margin: 0; color: var(--body); }
+.layer { min-height: 58vh; display: flex; flex-direction: column; justify-content: center; padding: 26px 0 26px 24px; border-left: 2px solid var(--line); margin-left: 2px; transition: border-color 0.4s, background 0.4s; }
+.layer.on { border-left-color: var(--amber); background: linear-gradient(90deg, #17140c, transparent 70%); }
+.layer .lname { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); }
+.layer h3 { font-stretch: 125%; font-weight: 800; font-size: clamp(1.35rem, 2.1vw, 1.75rem); letter-spacing: -0.02em; line-height: 1.08; margin: 8px 0 12px; text-transform: uppercase; }
+.layer p { font-size: 1.05rem; color: var(--body); max-width: 28em; margin: 0 0 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0; margin: 0 0 12px; list-style: none; }
+.chips li { font-family: var(--mono); font-size: 0.72rem; border: 1px solid var(--line); padding: 2px 8px; color: var(--body); background: var(--panel); }
+.lit { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+
+.flow { list-style: none; margin: 28px 0 10px; padding: 0 0 0 28px; position: relative; max-width: 36em; }
+.flow::before { content: ""; position: absolute; left: 6px; top: 8px; bottom: 8px; width: 1px; background: var(--line); }
+.flow li { position: relative; padding: 0 0 20px; }
+.flow li::before { content: ""; position: absolute; left: -26px; top: 7px; width: 9px; height: 9px; background: var(--bg); border: 1px solid var(--amber); }
+.flow h4 { font-stretch: 112%; font-weight: 700; font-size: 1.05rem; margin: 0 0 2px; text-transform: uppercase; }
+.flow p { margin: 0; font-size: 0.95rem; color: var(--body); max-width: 32em; }
+.asks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 28px; margin: 24px 0 0; padding: 0; list-style: none; max-width: 40em; }
+.asks li { padding: 10px 0; border-top: 1px solid var(--line); }
+.asks b { display: block; font-stretch: 112%; font-weight: 700; font-size: 0.98rem; text-transform: uppercase; }
+.asks span { font-size: 0.9rem; color: var(--body); }
+
+.bars { display: grid; gap: 12px; margin: 24px 0 6px; max-width: 34em; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 0.8rem; }
+.bars .lab { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+.bars .lab b { font-weight: 400; } .bars .lab span { color: var(--fg); }
+.track { height: 12px; background: var(--panel); border: 1px solid var(--line); }
+.fill { height: 100%; } .fill.raw { width: 100%; background: var(--hot); } .fill.brain { width: 1.67%; min-width: 5px; background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+.cap { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.08em; color: var(--dim); margin-top: 10px; text-transform: uppercase; }
+.ledger { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 32px 0 0; max-width: 48em; border: 1px solid var(--line); }
+.ledger > div { padding: 22px 24px; } .ledger .gain { background: var(--panel); } .ledger .cost { border-left: 1px solid var(--line); }
+.ledger h4 { font-family: var(--mono); font-weight: 500; font-size: 0.74rem; letter-spacing: 0.14em; text-transform: uppercase; margin: 0 0 14px; }
+.ledger .gain h4 { color: var(--amber); } .ledger .cost h4 { color: var(--hot); }
+.ledger ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.ledger li { font-size: 0.94rem; color: var(--body); line-height: 1.5; } .ledger li b { color: var(--fg); font-weight: 600; }
+.who { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin: 32px 0 0; padding: 0; list-style: none; max-width: 48em; }
+.who li { border-top: 1px solid var(--line); padding-top: 10px; font-size: 0.92rem; color: var(--body); }
+.who h5 { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin: 0 0 4px; font-weight: 500; }
+
+.close { margin-top: 90px; padding-top: 72px; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; align-items: end; }
+.close h2 { font-size: clamp(1.9rem, 4vw, 3.3rem); margin: 10px 0 0; line-height: 1; }
+.links { display: flex; gap: 18px; margin-top: 18px; font-family: var(--mono); font-size: 0.78rem; flex-wrap: wrap; }
+.links a { color: var(--fg); text-decoration: none; border-bottom: 1px solid var(--amber); } .links a:hover { color: var(--amber); }
+.foot { margin-top: 64px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 28px; justify-content: space-between; color: var(--dim); font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+@media (max-width: 900px) {
+  .stage { display: block; }
+  .viz { position: sticky; top: env(safe-area-inset-top, 0px); height: 38vh; min-height: 270px; z-index: 5; margin-top: 10px; box-shadow: 0 14px 22px 8px var(--bg); }
+  .hero { padding-top: 28px; }
+  .layer { min-height: 44vh; }
+  .pain, .asks, .ledger, .who, .close { grid-template-columns: minmax(0, 1fr); }
+  .ledger .cost { border-left: 0; border-top: 1px solid var(--line); }
+  .install { flex-direction: column; }
+  .gloss div { grid-template-columns: 6.5em minmax(0, 1fr); }
+  .hud.t span:last-child { display: none; }
+  .top { flex-wrap: wrap; gap: 8px 16px; }
+  .top nav { gap: 14px; flex-wrap: wrap; }
+  .top nav span:nth-child(2) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="mark"><i></i>CEREBROFY</div>
+    <nav><span>Index <b>fresh</b></span><span>Mode <b>local only</b></span><a href="https://github.com/mm0rsy/Cerebrofy" target="_blank" rel="noopener">GitHub</a><a href="https://pypi.org/project/cerebrofy/" target="_blank" rel="noopener">PyPI</a></nav>
+  </div>
+
+  <div class="stage">
+    <div class="viz" id="viz" role="img" aria-label="Interactive 3D drawing of Cerebrofy's own source code shaped like a brain. Each point is a Python module and each line is an import. It changes as you scroll the story.">
+      <canvas id="gl"></canvas>
+      <div class="nogl" id="nogl">This figure uses WebGL, which isn't available in this browser. The story still reads in full.</div>
+      <div class="hud t"><span id="fig">SCOPE 1 · Cerebrofy's own source, drawn as a brain</span><span id="nn"></span></div>
+      <div class="hud b">
+        <div class="now"><span id="nowT">The whole brain</span><small id="nowSub"></small></div>
+        <div class="dots" id="dots" role="group" aria-label="Highlight one region of the brain"></div>
+      </div>
+      <div class="tip" id="tip" hidden></div>
+    </div>
+
+    <div class="narr story">
+      <section class="hero" data-state="all">
+        <div class="eyebrow">Cerebrofy · the Repo Brain</div>
+        <h1>Your AI forgets everything. <em>Your repo shouldn't.</em></h1>
+        <p class="lede">Every session, your assistant wakes up with amnesia and re-reads your code from scratch. Cerebrofy gives the repository its own memory, and your AI asks it instead.</p>
+        <div class="install">
+          <pre class="cmd"><b>$ </b>uv tool install cerebrofy
+<b>$ </b>cerebrofy init &amp;&amp; cerebrofy build</pre>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <ul class="facts" id="facts"></ul>
+      </section>
+
+      <!-- CHAPTER I -->
+      <section class="chap" data-state="read">
+        <div class="eyebrow">I · The situation</div>
+        <h2>It's Monday. You ask for one small change.</h2>
+        <p>Move where cross-session patterns get saved. Twenty minutes of work, you think. Your assistant opens a file. Then another. Then forty more, hunting for the answer the way you'd look for your keys by emptying every drawer in the house.</p>
+        <p>Watch the slide. That sweep is every file being read, in order, for one question. And tomorrow it will do the whole thing again.</p>
+        <div class="log"><header><span>Session log · without a brain</span><b>Illustrative</b></header>
+<div class="l"><div>09:02 <b>task</b> move where patterns get saved</div><div>09:02 <b>read</b> 40+ files, in order</div><div>09:04 <i>guess</i> who calls what</div><div>09:05 <b>cost</b> ~600,000 tokens for one question</div><div>next day <i>memory</i> empty. start over.</div></div></div>
+        <ul class="pain">
+          <li><span class="big">600k</span><h4>Cost</h4><p>Tokens per question on a 20,000-line codebase, if the assistant reads files.</p></li>
+          <li><h4>Noise</h4><p>Most of what it reads has nothing to do with the task, and it still pays attention to all of it.</p></li>
+          <li><h4>Guesswork</h4><p>Without the real call graph it guesses who calls what. Sometimes it guesses wrong, with total confidence.</p></li>
+          <li><h4>Amnesia</h4><p>The decision you made at lunch, the dead end it hit at three, the pattern it noticed. Gone by morning.</p></li>
+        </ul>
+        <p class="pull">The model is fine. <span>What it lacks is a memory.</span></p>
+      </section>
+
+      <!-- CHAPTER II -->
+      <section class="chap" data-state="all">
+        <div class="eyebrow">II · Why a brain</div>
+        <h2>You don't re-read the library to remember your own street.</h2>
+        <p>A human brain never re-reads the world. It keeps a map, remembers what happened, works out why things are the way they are, holds goals, and has a feeling for how sure it is. Nature solved this long ago, with specialised regions that talk to each other.</p>
+        <p>So we borrowed the idea. Your repository gets one region for each kind of knowing, and your assistant asks the right region instead of searching everywhere. Scroll and watch each one light up.</p>
+        <dl class="gloss">
+          <div><dt>Neuron</dt><dd>A named function, class or module, with a meaning attached.</dd></div>
+          <div><dt>Connection</dt><dd>A call or an import between two neurons.</dd></div>
+          <div><dt>Lobe</dt><dd>A module, with a short written summary of what it does.</dd></div>
+        </dl>
+      </section>
+      <div id="layers"></div>
+
+      <!-- CHAPTER III -->
+      <section class="chap" data-state="all">
+        <div class="eyebrow">III · What exists today</div>
+        <h2>Born with the repo. Grows with it.</h2>
+        <p>Cerebrofy runs on your machine and keeps everything in one SQLite file. No server to host, no account, nothing uploaded. This is what happens when you run <code style="font-family:var(--mono);font-size:0.9em">cerebrofy build</code>.</p>
+        <ol class="flow">
+          <li><h4>Parse</h4><p>Tree-sitter reads your code and names every function, class and module as a neuron. No LLM is involved, so the result is the same every time.</p></li>
+          <li><h4>Connect</h4><p>Calls and imports become typed edges: local calls, external calls and runtime boundaries.</p></li>
+          <li><h4>Remember</h4><p>Each neuron gets a meaning vector from a small embedding model that runs locally, stored with sqlite-vec.</p></li>
+          <li><h4>Summarise</h4><p>Each module gets a written lobe summary, ready for an assistant to read in place of the code.</p></li>
+          <li><h4>Serve</h4><p>One MCP server per machine answers your assistant's questions, routed by whichever folder you are in.</p></li>
+          <li><h4>Stay fresh</h4><p>Git hooks update the index on commit, push and merge, so you never have to remember to.</p></li>
+        </ol>
+      </section>
+      <section class="chap" style="border-top:0;margin-top:0;padding-top:40px" data-state="query">
+        <h2>Ask in plain words. Get only what matters.</h2>
+        <p>Ask "where do cross-session patterns get saved?" Cerebrofy finds the closest neurons by meaning, walks the call graph around them, and hands over just that: a few signatures, their neighbours and the lobe summaries.</p>
+        <p>On the slide, the bright points are the modules involved and the rest stay faint. Your assistant never opens them. The answer is about 10,000 tokens, with real names, real paths and real call chains.</p>
+        <ul class="asks">
+          <li><b>Blast radius</b><span>What breaks if this pull request lands?</span></li>
+          <li><b>Refactor impact</b><span>What does this refactor really touch?</span></li>
+          <li><b>Vulnerability reach</b><span>Which code is exposed to this advisory?</span></li>
+          <li><b>Knowledge silos</b><span>What does only one person understand?</span></li>
+          <li><b>Coverage gaps</b><span>Which risky code has no tests?</span></li>
+          <li><b>Semantic changelog</b><span>What changed, in words people read.</span></li>
+          <li><b>Drift alerts</b><span>Did the architecture just bend?</span></li>
+          <li><b>Review copilot</b><span>A reviewer that knows the graph.</span></li>
+          <li><b>Onboarding</b><span>Where should a new hire start?</span></li>
+          <li><b>Upgrade navigator</b><span>What breaks when we bump this dependency?</span></li>
+        </ul>
+      </section>
+
+      <!-- CHAPTER IV -->
+      <section class="chap" data-state="all">
+        <div class="eyebrow">IV · What changes</div>
+        <h2>The same Monday, with a brain.</h2>
+        <p>Same task. Your assistant asks one question and gets the three neurons involved, who calls them, what was decided about them last month, who owns that lobe, and how sure the index is. It starts with the answer, and so do you.</p>
+        <div class="bars">
+          <div><div class="lab"><b>Reading raw files</b><span>~600,000 tokens</span></div><div class="track"><div class="fill raw"></div></div></div>
+          <div><div class="lab"><b>Asking Cerebrofy</b><span>~10,000 tokens</span></div><div class="track"><div class="fill brain"></div></div></div>
+        </div>
+        <div class="cap">Typical 20k LOC repo · figures from the project README</div>
+        <div class="ledger">
+          <div class="gain"><h4>What you gain</h4>
+            <ul>
+              <li><span><b>About 97% fewer tokens</b> per question than reading files.</span></li>
+              <li><span><b>Grounded answers.</b> Real names, paths and call chains instead of guesses.</span></li>
+              <li><span><b>Memory that outlives the session.</b> Decisions, sessions and learned patterns stay.</span></li>
+              <li><span><b>Blast radius before you edit,</b> not after the incident.</span></li>
+              <li><span><b>Agents that see each other</b> and claim neurons instead of colliding.</span></li>
+              <li><span><b>Private by construction.</b> The database holds neurons, edges, hashes and embeddings. Source never leaves.</span></li>
+            </ul>
+          </div>
+          <div class="cost"><h4>What it costs you</h4>
+            <ul>
+              <li><span><b>One more thing to keep fresh.</b> Hooks automate it, but an index can drift. That is why every answer carries a confidence score.</span></li>
+              <li><span><b>A first-run download.</b> The local embedding model is about 130 MB. After that it works offline.</span></li>
+              <li><span><b>Static analysis has limits.</b> Dynamic behaviour shows up as a runtime boundary, not a resolved call.</span></li>
+              <li><span><b>No unified cross-language graph yet.</b> It is on the roadmap, not shipped.</span></li>
+              <li><span><b>It is a beta.</b> It moves fast, and some edges are still rough.</span></li>
+            </ul>
+          </div>
+        </div>
+        <ul class="who">
+          <li><h5>Developers</h5>Start a task knowing the blast radius. Onboard in an afternoon instead of a month.</li>
+          <li><h5>Tech leads</h5>See ownership, knowledge silos, health trends and architecture drift without a meeting.</li>
+          <li><h5>Agent builders</h5>MCP-native, with a tool for each question. Plug it into the assistant you already use.</li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <section class="close story">
+    <div>
+      <div class="eyebrow">V · Your turn</div>
+      <h2>Give your repo a brain.</h2>
+      <div class="links"><a href="https://github.com/mm0rsy/Cerebrofy" target="_blank" rel="noopener">Source on GitHub</a><a href="https://pypi.org/project/cerebrofy/" target="_blank" rel="noopener">Package on PyPI</a></div>
+    </div>
+    <div>
+      <p style="font-size:1.1rem;margin-bottom:16px">Two commands. It builds locally, hooks itself into git, and your assistant can start asking.</p>
+      <div class="install">
+        <pre class="cmd"><b>$ </b>uv tool install cerebrofy
+<b>$ </b>cerebrofy init &amp;&amp; cerebrofy build</pre>
+        <button class="copy" type="button">Copy</button>
+      </div>
+    </div>
+  </section>
+  <div class="foot"><span>Cerebrofy · MIT licence · by Mohamed Morsy</span><span id="ver">Drawn from Cerebrofy's own source</span></div>
+</div>
+
+<script src="graph.js"></script>
+<script src="vendor/three.min.js"></script>
+<script>
+(function () {
+  var DATA = window.CEREBROFY_GRAPH;
+  var REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var LAYERS = [
+    { q: 'Where am I?', name: 'What the code is', color: '#ffcf70',
+      desc: 'Every function, class and module, how they call each other, and what they mean. The map of the territory.',
+      chips: ['build', 'update', 'validate', 'search_code', 'get_neuron', 'list_lobes'],
+      lobes: ['parser', 'graph', 'embedder', 'db', 'search', 'markdown', 'update', 'ignore', 'config', 'hooks', 'context', 'analysis'] },
+    { q: 'What happened here?', name: 'What happened', color: '#ff9d2e',
+      desc: 'Recorded sessions, memories your agents wrote, causal links between them, and a semantic changelog.',
+      chips: ['memory', 'session_recorder', 'causal_edges', 'semantic_changelog'],
+      lobes: ['memory', 'session', 'changelog', 'insight'] },
+    { q: 'Why is it like this?', name: 'Why it is the way it is', color: '#ffe9b8',
+      desc: 'Decisions and the chains of cause behind them. A narrative of how the codebase evolved, and patterns learned across sessions.',
+      chips: ['narrative_engine', 'cross_session_synthesizer'],
+      lobes: ['narrative', 'synthesizer', 'planning', 'upgrade', 'onboard'] },
+    { q: 'What are we trying to do?', name: 'What the team intends', color: '#ffb347',
+      desc: 'Sprint goals, incidents and architectural direction. The intent file that tells every agent what this repo is becoming.',
+      chips: ['intent', 'product_intent_layer'],
+      lobes: ['intent', 'review'] },
+    { q: 'How sure am I?', name: 'How much to trust any answer', color: '#ffd9a0',
+      desc: 'Confidence on every answer, drift velocity, health trends and index freshness. A brain that knows what it does not know.',
+      chips: ['epistemic', 'health', 'validate', 'drift_velocity'],
+      lobes: ['epistemic', 'health', 'validate', 'arch'] },
+    { q: 'Who else is here?', name: 'Who else is working here', color: '#ff8a1f',
+      desc: 'Agents that see each other and claim neurons, lobe ownership, and a detector for knowledge only one person holds.',
+      chips: ['multi_agent_coordination', 'lobe_governance', 'knowledge_silo_detector'],
+      lobes: ['coordination', 'governance'] }
+  ];
+  var STEM = '#7a6640';
+  var SEED_ID = 'cerebrofy.synthesizer.analyzer';
+
+  /* ---------- data ---------- */
+  var nodes = DATA.nodes, edges = DATA.edges, N = nodes.length, E = edges.length;
+  var lobeLayer = {};
+  LAYERS.forEach(function (L, i) { L.lobes.forEach(function (l) { lobeLayer[l] = i; }); });
+  var totalLoc = 0, pkgs = {};
+  nodes.forEach(function (n) {
+    n.layer = Object.prototype.hasOwnProperty.call(lobeLayer, n.lobe) ? lobeLayer[n.lobe] : -1;
+    totalLoc += n.loc; pkgs[n.lobe] = 1;
+  });
+  LAYERS.forEach(function (L, i) { L.count = nodes.filter(function (n) { return n.layer === i; }).length; });
+
+  var adj = nodes.map(function () { return []; });
+  edges.forEach(function (e) { adj[e[0]].push(e[1]); adj[e[1]].push(e[0]); });
+  var seed = -1;
+  nodes.forEach(function (n, i) { if (n.id === SEED_ID) seed = i; });
+  if (seed < 0) { var bd = -1; adj.forEach(function (a, i) { if (a.length > bd) { bd = a.length; seed = i; } }); }
+  var hop = new Array(N).fill(-1); hop[seed] = 0;
+  var qLitCount = 1, frontier = [seed];
+  for (var h = 1; h <= 2; h++) {
+    var nx = [];
+    frontier.forEach(function (u) { adj[u].forEach(function (v) { if (hop[v] < 0) { hop[v] = h; nx.push(v); if (h === 1) qLitCount++; } }); });
+    frontier = nx;
+  }
+
+  document.getElementById('facts').innerHTML = [[N, 'modules'], [E, 'import edges'], [Object.keys(pkgs).length, 'packages'], [(totalLoc / 1000).toFixed(1) + 'k', 'lines of Python']]
+    .map(function (f) { return '<li><strong>' + f[0] + '</strong><span>' + f[1] + '</span></li>'; }).join('');
+  document.getElementById('ver').textContent = 'Drawn from Cerebrofy v' + DATA.version + "'s own source";
+  document.getElementById('nn').textContent = 'n = ' + N + ' modules';
+
+  var layersEl = document.getElementById('layers');
+  layersEl.innerHTML = LAYERS.map(function (L, i) {
+    return '<section class="layer" data-state="layer:' + i + '" data-layer="' + i + '" style="--lc:' + L.color + '">' +
+      '<div class="lname">CH' + (i + 1) + ' · ' + L.name + '</div><h3>' + L.q + '</h3><p>' + L.desc + '</p>' +
+      '<ul class="chips">' + L.chips.map(function (c) { return '<li>' + c + '</li>'; }).join('') + '</ul>' +
+      '<div class="lit">' + L.count + ' modules in this region</div></section>';
+  }).join('');
+  var layerEls = Array.prototype.slice.call(layersEl.children);
+  var stateEls = Array.prototype.slice.call(document.querySelectorAll('[data-state]'));
+
+  /* copy buttons */
+  Array.prototype.forEach.call(document.querySelectorAll('.copy'), function (btn) {
+    btn.addEventListener('click', function () {
+      var text = 'uv tool install cerebrofy\ncerebrofy init && cerebrofy build';
+      var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); };
+      var fallback = function () { var r = document.createRange(); r.selectNodeContents(btn.parentNode.querySelector('.cmd')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); };
+      try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+    });
+  });
+
+  /* ---------- story state ---------- */
+  var curKey = '', cur = { t: 'all' }, forced, onState = function () {};
+  var figEl = document.getElementById('fig'), nowT = document.getElementById('nowT'), nowSub = document.getElementById('nowSub');
+  var dotsEl = document.getElementById('dots');
+  LAYERS.forEach(function (L, i) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.setAttribute('aria-pressed', 'false'); b.setAttribute('aria-label', L.name); b.title = L.name;
+    b.setAttribute('data-ch', i + 1);
+    b.addEventListener('click', function () { if (forced === i) { forced = undefined; detect(); } else { forced = i; setState('layer:' + i); } });
+    dotsEl.appendChild(b);
+  });
+  function parse(k) { return k.indexOf('layer:') === 0 ? { t: 'layer', i: +k.slice(6) } : { t: k }; }
+  function setHud(st) {
+    if (st.t === 'read') { figEl.textContent = 'SCOPE 2 · Without a brain: every file, every time'; nowT.textContent = 'Reading everything'; nowSub.textContent = 'tokens read: 0'; }
+    else if (st.t === 'layer') { figEl.textContent = 'CH ' + (st.i + 1) + ' · ' + LAYERS[st.i].name; nowT.textContent = LAYERS[st.i].q; nowSub.textContent = LAYERS[st.i].count + ' modules lit'; }
+    else if (st.t === 'query') { figEl.textContent = 'SCOPE 4 · With a brain: only what the question needs'; nowT.textContent = 'Where do patterns get saved?'; nowSub.textContent = qLitCount + ' of ' + N + ' modules involved'; }
+    else { figEl.textContent = "SCOPE 1 · Cerebrofy's own source, drawn as a brain"; nowT.textContent = 'The whole brain'; nowSub.textContent = N + ' modules, ' + E + ' connections'; }
+  }
+  function setState(k) {
+    if (k === curKey) return;
+    curKey = k; cur = parse(k);
+    layerEls.forEach(function (el, i) { el.classList.toggle('on', cur.t === 'layer' && cur.i === i); });
+    Array.prototype.forEach.call(dotsEl.children, function (b, i) { b.setAttribute('aria-pressed', cur.t === 'layer' && cur.i === i ? 'true' : 'false'); });
+    setHud(cur);
+    onState(cur);
+  }
+  function detect() {
+    var narrow = window.innerWidth <= 900;
+    var line = narrow ? (document.getElementById('viz').getBoundingClientRect().bottom + window.innerHeight) / 2 : window.innerHeight * 0.5;
+    var hit = 'all';
+    stateEls.forEach(function (el) { var r = el.getBoundingClientRect(); if (r.top <= line && r.bottom >= line) hit = el.getAttribute('data-state'); });
+    setState(hit);
+  }
+  var ticking = false;
+  window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(function () { ticking = false; forced = undefined; detect(); }); } }, { passive: true });
+  window.addEventListener('resize', function () { if (forced === undefined) detect(); });
+  setState('all'); detect();
+
+  /* ---------- 3D ---------- */
+  var viz = document.getElementById('viz');
+  if (typeof THREE === 'undefined') { document.getElementById('nogl').style.display = 'grid'; return; }
+  var renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true, alpha: true }); }
+  catch (e) { document.getElementById('nogl').style.display = 'grid'; return; }
+  renderer.setClearColor(0x000000, 0);
+
+  var scene = new THREE.Scene(), FOV = 38;
+  var camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 50);
+  camera.position.set(0, 0.12, 4);
+  var brain = new THREE.Group(); scene.add(brain);
+
+  function rng(s) { return function () { s |= 0; s = s + 0x6D2B79F5 | 0; var t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  var rand = rng(20261024);
+  function inSphere() { var x, y, z; do { x = rand() * 2 - 1; y = rand() * 2 - 1; z = rand() * 2 - 1; } while (x * x + y * y + z * z > 1); return [x, y, z]; }
+
+  var ANCH = [[0, -0.02, -0.74], [-0.42, -0.2, 0.12], [-0.3, 0.48, -0.08], [0, 0.2, 0.8], [0.42, -0.2, 0.12], [0.3, 0.48, -0.08], [0, -0.52, -0.05]];
+  var lobes = {};
+  nodes.forEach(function (n, i) { (lobes[n.lobe] = lobes[n.lobe] || { idx: [], layer: n.layer }).idx.push(i); });
+  var pos = new Float32Array(N * 3), ctr = new Float32Array(N * 3);
+  Object.keys(lobes).forEach(function (k) {
+    var L = lobes[k], a = ANCH[L.layer < 0 ? 6 : L.layer], o = inSphere(), sp = L.layer < 0 ? 0.5 : 0.2;
+    var c = [a[0] + o[0] * sp, a[1] + o[1] * sp * 0.6, a[2] + o[2] * sp * (L.layer < 0 ? 1.2 : 1)], r = 0.06 + 0.045 * Math.sqrt(L.idx.length);
+    L.idx.forEach(function (i) { var p = inSphere(); for (var d = 0; d < 3; d++) { ctr[i * 3 + d] = c[d]; pos[i * 3 + d] = c[d] + p[d] * r; } });
+  });
+  var fx = new Float32Array(N * 3);
+  for (var it = 0; it < 90; it++) {
+    fx.fill(0);
+    for (var i = 0; i < N; i++) {
+      for (var j = i + 1; j < N; j++) {
+        var dx = pos[i * 3] - pos[j * 3], dy = pos[i * 3 + 1] - pos[j * 3 + 1], dz = pos[i * 3 + 2] - pos[j * 3 + 2];
+        var d2 = dx * dx + dy * dy + dz * dz + 0.004, inv = 0.0007 / (d2 * Math.sqrt(d2));
+        fx[i * 3] += dx * inv; fx[i * 3 + 1] += dy * inv; fx[i * 3 + 2] += dz * inv;
+        fx[j * 3] -= dx * inv; fx[j * 3 + 1] -= dy * inv; fx[j * 3 + 2] -= dz * inv;
+      }
+      for (var d = 0; d < 3; d++) fx[i * 3 + d] += (ctr[i * 3 + d] - pos[i * 3 + d]) * 0.06;
+    }
+    for (var e = 0; e < E; e++) {
+      var a = edges[e][0], b = edges[e][1];
+      var ex = pos[b * 3] - pos[a * 3], ey = pos[b * 3 + 1] - pos[a * 3 + 1], ez = pos[b * 3 + 2] - pos[a * 3 + 2];
+      var len = Math.sqrt(ex * ex + ey * ey + ez * ez) + 1e-4, f = (len - 0.4) * 0.0035 / len;
+      fx[a * 3] += ex * f; fx[a * 3 + 1] += ey * f; fx[a * 3 + 2] += ez * f;
+      fx[b * 3] -= ex * f; fx[b * 3 + 1] -= ey * f; fx[b * 3 + 2] -= ez * f;
+    }
+    for (var q = 0; q < N * 3; q++) pos[q] += Math.max(-0.05, Math.min(0.05, fx[q]));
+  }
+  for (var n2 = 0; n2 < N; n2++) {
+    var X = pos[n2 * 3] / 0.64, Y = (pos[n2 * 3 + 1] + 0.02) / 0.72, Z = pos[n2 * 3 + 2] / 1.12, s = X * X + Y * Y + Z * Z;
+    if (s > 0.8) { var k2 = 0.9 / Math.sqrt(s); pos[n2 * 3] *= k2; pos[n2 * 3 + 1] = (pos[n2 * 3 + 1] + 0.02) * k2 - 0.02; pos[n2 * 3 + 2] *= k2; }
+  }
+
+  /* shaders: ink on a pale slide, so ordinary alpha blending */
+  var uniforms = { uK: { value: 600 } };
+  var pointMat = new THREE.ShaderMaterial({
+    uniforms: uniforms, transparent: true, depthWrite: false,
+    vertexShader: 'attribute float aSize; attribute float aAlpha; attribute vec3 aColor; uniform float uK; varying float vA; varying vec3 vC;' +
+      'void main(){ vA=aAlpha; vC=aColor; vec4 mv=modelViewMatrix*vec4(position,1.0); gl_PointSize=max(1.5, aSize*uK/-mv.z); gl_Position=projectionMatrix*mv; }',
+    fragmentShader: 'varying float vA; varying vec3 vC; void main(){ float d=length(gl_PointCoord-0.5); if(d>0.5) discard; float halo=smoothstep(0.5,0.1,d)*0.2; float disk=smoothstep(0.3,0.22,d); float a=clamp((halo+disk)*vA,0.0,1.0); vec3 c=mix(vC, vC*0.55, smoothstep(0.3,0.0,d)*0.5); gl_FragColor=vec4(c, a); }'
+  });
+  var lineMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    vertexShader: 'attribute float aAlpha; attribute vec3 aColor; varying float vA; varying vec3 vC; void main(){ vA=aAlpha; vC=aColor; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: 'varying float vA; varying vec3 vC; void main(){ gl_FragColor=vec4(vC, vA); }'
+  });
+  function colOf(l) { return new THREE.Color(l < 0 ? STEM : LAYERS[l].color); }
+  var nodeCols = nodes.map(function (n) { return colOf(n.layer); });
+
+  (function () { /* tissue outline */
+    var cnt = 2800, p = new Float32Array(cnt * 3), c = new Float32Array(cnt * 3), al = new Float32Array(cnt).fill(0.34), sz = new Float32Array(cnt).fill(0.02), k = 0, col = new THREE.Color('#a58a4c');
+    while (k < cnt) {
+      var hs = rand() < 0.5 ? -1 : 1, u = inSphere(), l = Math.sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]) || 1, vx = u[0] / l, vy = u[1] / l, vz = u[2] / l;
+      var m = 1 + 0.05 * Math.sin(7 * vx + 3 * vy + 1.3) * Math.sin(6 * vz + 2 * vy) + 0.025 * Math.sin(15 * vz + 9 * vx);
+      var x = hs * 0.07 + vx * 0.57 * m, y = vy * (vy < 0 ? 0.52 : 0.74) * m - 0.02, z = vz * 1.12 * m;
+      if (x * hs < 0.03) continue;
+      p[k * 3] = x; p[k * 3 + 1] = y; p[k * 3 + 2] = z; c[k * 3] = col.r; c[k * 3 + 1] = col.g; c[k * 3 + 2] = col.b; k++;
+    }
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('aColor', new THREE.BufferAttribute(c, 3));
+    g.setAttribute('aAlpha', new THREE.BufferAttribute(al, 1)); g.setAttribute('aSize', new THREE.BufferAttribute(sz, 1));
+    brain.add(new THREE.Points(g, pointMat));
+  })();
+
+  var lp = new Float32Array(E * 6), lc = new Float32Array(E * 6), la = new Float32Array(E * 2);
+  edges.forEach(function (ed, e) {
+    for (var s2 = 0; s2 < 2; s2++) {
+      var ni = ed[s2], cc = nodeCols[ni];
+      lp[e * 6 + s2 * 3] = pos[ni * 3]; lp[e * 6 + s2 * 3 + 1] = pos[ni * 3 + 1]; lp[e * 6 + s2 * 3 + 2] = pos[ni * 3 + 2];
+      lc[e * 6 + s2 * 3] = cc.r; lc[e * 6 + s2 * 3 + 1] = cc.g; lc[e * 6 + s2 * 3 + 2] = cc.b;
+    }
+  });
+  var lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.BufferAttribute(lp, 3)); lineGeo.setAttribute('aColor', new THREE.BufferAttribute(lc, 3));
+  var laAttr = new THREE.BufferAttribute(la, 1); lineGeo.setAttribute('aAlpha', laAttr);
+  var lines = new THREE.LineSegments(lineGeo, lineMat); lines.frustumCulled = false; brain.add(lines);
+
+  var nc = new Float32Array(N * 3), na = new Float32Array(N), ns = new Float32Array(N);
+  nodes.forEach(function (n, i) { nc[i * 3] = nodeCols[i].r; nc[i * 3 + 1] = nodeCols[i].g; nc[i * 3 + 2] = nodeCols[i].b; ns[i] = 0.05 + 0.0034 * Math.sqrt(n.loc); });
+  var nodeGeo = new THREE.BufferGeometry();
+  nodeGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3)); nodeGeo.setAttribute('aColor', new THREE.BufferAttribute(nc, 3));
+  var naAttr = new THREE.BufferAttribute(na, 1); nodeGeo.setAttribute('aAlpha', naAttr); nodeGeo.setAttribute('aSize', new THREE.BufferAttribute(ns, 1));
+  var nodePts = new THREE.Points(nodeGeo, pointMat); nodePts.frustumCulled = false; brain.add(nodePts);
+
+  var PN = REDUCED ? 0 : 40, pp = new Float32Array(PN * 3), pc = new Float32Array(PN * 3), pa = new Float32Array(PN), ps = new Float32Array(PN).fill(0.045), pulses = [];
+  for (var u = 0; u < PN; u++) pulses.push({ e: Math.floor(rand() * E), t: rand(), v: 0.25 + rand() * 0.4 });
+  var pulseGeo = new THREE.BufferGeometry();
+  pulseGeo.setAttribute('position', new THREE.BufferAttribute(pp, 3)); pulseGeo.setAttribute('aColor', new THREE.BufferAttribute(pc, 3));
+  pulseGeo.setAttribute('aAlpha', new THREE.BufferAttribute(pa, 1)); pulseGeo.setAttribute('aSize', new THREE.BufferAttribute(ps, 1));
+  var pulsePts = new THREE.Points(pulseGeo, pointMat); pulsePts.frustumCulled = false; if (PN) brain.add(pulsePts);
+
+  /* targets for each story state */
+  var edgeT = new Float32Array(E), nodeT = new Float32Array(N), mode = 'all', yaw = 0.5, yawTarget = 0.5, focusing = false;
+  function wrap(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
+  function focusOn(test) {
+    var cx = 0, cz = 0, c = 0;
+    for (var k = 0; k < N; k++) if (test(k)) { cx += pos[k * 3]; cz += pos[k * 3 + 2]; c++; }
+    if (!c) return null; return Math.atan2(-cx / c, cz / c);
+  }
+  onState = function (st) {
+    mode = st.t; var f = null, k, e;
+    if (st.t === 'layer') {
+      for (k = 0; k < N; k++) { var l = nodes[k].layer; nodeT[k] = l === st.i ? 1 : (l < 0 ? 0.05 : 0.09); }
+      for (e = 0; e < E; e++) { var h2 = (nodes[edges[e][0]].layer === st.i) + (nodes[edges[e][1]].layer === st.i); edgeT[e] = h2 === 2 ? 0.75 : (h2 === 1 ? 0.1 : 0.012); }
+      f = focusOn(function (k3) { return nodes[k3].layer === st.i; });
+    } else if (st.t === 'query') {
+      for (k = 0; k < N; k++) nodeT[k] = hop[k] === 0 ? 1 : (hop[k] === 1 ? 0.95 : (hop[k] === 2 ? 0.14 : 0.05));
+      for (e = 0; e < E; e++) { var ha = hop[edges[e][0]], hb = hop[edges[e][1]]; edgeT[e] = (ha >= 0 && ha <= 1 && hb >= 0 && hb <= 1) ? 0.85 : 0.01; }
+      f = focusOn(function (k4) { return hop[k4] >= 0 && hop[k4] <= 1; });
+    } else if (st.t === 'read') {
+      for (e = 0; e < E; e++) edgeT[e] = 0.05;
+      for (k = 0; k < N; k++) nodeT[k] = 0.12;
+    } else {
+      for (k = 0; k < N; k++) nodeT[k] = nodes[k].layer < 0 ? 0.5 : 0.95;
+      for (e = 0; e < E; e++) { var la2 = nodes[edges[e][0]].layer, lb = nodes[edges[e][1]].layer; edgeT[e] = (la2 < 0 || lb < 0) ? 0.07 : (la2 === lb ? 0.32 : 0.15); }
+    }
+    focusing = f !== null; yawTarget = focusing ? yaw + wrap(f - yaw) : yaw;
+  };
+  onState(cur);
+  for (var z0 = 0; z0 < N; z0++) na[z0] = nodeT[z0];
+  for (var z1 = 0; z1 < E; z1++) la[z1 * 2] = la[z1 * 2 + 1] = edgeT[z1];
+  naAttr.needsUpdate = true; laAttr.needsUpdate = true;
+
+  function resize() {
+    var w = viz.clientWidth, h = viz.clientHeight, pr = Math.min(window.devicePixelRatio || 1, 2), asp = w / h;
+    renderer.setPixelRatio(pr); renderer.setSize(w, h, false);
+    camera.aspect = asp; camera.fov = FOV;
+    camera.position.z = Math.max(3.4, 2.7 / (Math.min(asp, 1.5) * 2 * Math.tan(FOV * Math.PI / 360)));
+    camera.updateProjectionMatrix();
+    uniforms.uK.value = h * pr / (2 * Math.tan(camera.fov * Math.PI / 360));
+  }
+  resize();
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(viz); else window.addEventListener('resize', resize);
+
+  var mx = 0, my = 0, hoverX = 0, hoverY = 0, hoverDirty = false, tip = document.getElementById('tip');
+  var ray = new THREE.Raycaster(); ray.params.Points.threshold = 0.07;
+  viz.addEventListener('pointermove', function (e) {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    var r = viz.getBoundingClientRect();
+    mx = (e.clientX - r.left) / r.width * 2 - 1; my = (e.clientY - r.top) / r.height * 2 - 1; hoverX = e.clientX - r.left; hoverY = e.clientY - r.top; hoverDirty = true;
+  });
+  viz.addEventListener('pointerleave', function () { mx = my = 0; tip.hidden = true; hoverDirty = false; });
+  function hover() {
+    hoverDirty = false; ray.setFromCamera({ x: mx, y: -my }, camera);
+    var hits = ray.intersectObject(nodePts), best = null;
+    for (var q2 = 0; q2 < hits.length; q2++) if (na[hits[q2].index] > 0.3 && (!best || hits[q2].distanceToRay < best.distanceToRay)) best = hits[q2];
+    if (!best) { tip.hidden = true; return; }
+    var n = nodes[best.index];
+    tip.innerHTML = n.id.replace(/^cerebrofy\./, '') + ' <em>· ' + n.loc + ' lines · ' + (n.layer < 0 ? 'interface' : LAYERS[n.layer].name) + '</em>';
+    tip.style.left = hoverX + 'px'; tip.style.top = hoverY + 'px'; tip.hidden = false;
+  }
+
+  var visible = true;
+  if (window.IntersectionObserver) new IntersectionObserver(function (en) { visible = en[0].isIntersecting; }, { threshold: 0 }).observe(viz);
+  var last = performance.now(), time = 0, hudT = 0, TOK = 600000;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible) { last = now; return; }
+    var dt = Math.min(0.05, (now - last) / 1000); last = now; time += dt;
+
+    if (mode === 'read') {
+      var span = N + 40, head = REDUCED ? span : (time * 42) % span, tok = Math.min(TOK, Math.floor(head / span * TOK));
+      for (var k = 0; k < N; k++) { var d = head - k; nodeT[k] = d < 0 ? 0.12 : (d < 22 ? 1 - d / 22 * 0.55 : 0.4); }
+      hudT += dt; if (hudT > 0.1) { hudT = 0; nowSub.textContent = 'tokens read: ' + tok.toLocaleString('en-US'); }
+    }
+    if (!focusing && !REDUCED) yawTarget += dt * 0.14;
+    yaw += wrap(yawTarget - yaw) * (1 - Math.exp(-dt * (REDUCED ? 60 : 2.4)));
+    brain.rotation.y = yaw + ((focusing && !REDUCED) ? Math.sin(time * 0.5) * 0.1 : 0) + mx * 0.15;
+    brain.rotation.x = 0.2 + my * 0.08;
+
+    var kk = Math.min(1, dt * (REDUCED ? 60 : 4.5)), c;
+    for (var i = 0; i < N; i++) na[i] += (nodeT[i] - na[i]) * kk;
+    for (var e = 0; e < E; e++) { c = la[e * 2] + (edgeT[e] - la[e * 2]) * kk; la[e * 2] = la[e * 2 + 1] = c; }
+    naAttr.needsUpdate = true; laAttr.needsUpdate = true;
+
+    for (var p = 0; p < PN; p++) {
+      var pl = pulses[p]; pl.t += dt * pl.v;
+      if (pl.t >= 1) { pl.t = 0; for (var tr = 0; tr < 12; tr++) { pl.e = Math.floor(rand() * E); if (edgeT[pl.e] > 0.08) break; } }
+      var a2 = edges[pl.e][0], b2 = edges[pl.e][1], t = pl.t;
+      pp[p * 3] = pos[a2 * 3] + (pos[b2 * 3] - pos[a2 * 3]) * t; pp[p * 3 + 1] = pos[a2 * 3 + 1] + (pos[b2 * 3 + 1] - pos[a2 * 3 + 1]) * t; pp[p * 3 + 2] = pos[a2 * 3 + 2] + (pos[b2 * 3 + 2] - pos[a2 * 3 + 2]) * t;
+      pc[p * 3] = nodeCols[a2].r; pc[p * 3 + 1] = nodeCols[a2].g; pc[p * 3 + 2] = nodeCols[a2].b;
+      pa[p] = (mode === 'read' ? 0 : Math.min(1, edgeT[pl.e] * 3)) * Math.sin(Math.PI * t);
+    }
+    if (PN) { pulseGeo.attributes.position.needsUpdate = true; pulseGeo.attributes.aColor.needsUpdate = true; pulseGeo.attributes.aAlpha.needsUpdate = true; }
+    if (hoverDirty) hover();
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
