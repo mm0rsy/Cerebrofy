@@ -32,6 +32,10 @@ session:
   max_tracked_neurons: 50    # cap on distinct neurons folded into a session
   max_refs_per_event: 3      # cap on neuron refs resolved per recorded event
 
+# ── Cross-Session Synthesizer (optional) ─────────────────────────────────────
+synthesis:
+  every_n_sessions: 10       # run after every N closed sessions
+
 # ── Database (optional) ──────────────────────────────────────────────────────
 database:
   integrity_check: warn      # off | warn | fail — verify cerebrofy.db against its <db>.sha256 sidecar
@@ -156,6 +160,24 @@ recorded event.
 session:
   max_tracked_neurons: 50
   max_refs_per_event: 3
+```
+
+---
+
+### `synthesis`
+
+**Type**: `dict[str, int]`
+**Default**: `{every_n_sessions: 10}`
+
+Controls the Cross-Session Synthesizer trigger (Idea #24). After every
+`every_n_sessions` closed sessions, the synthesizer runs automatically from
+`cerebrofy_session_end` and from the Insight Daemon at the end of
+`cerebrofy build`. Runs are idempotent, so repeated triggers at the same session
+count do not duplicate pattern memories. Requires `record_sessions: true`.
+
+```yaml
+synthesis:
+  every_n_sessions: 10
 ```
 
 ---

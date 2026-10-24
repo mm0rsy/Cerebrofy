@@ -681,3 +681,49 @@ uv run pytest tests/integration/
 ```
 
 Integration tests use `pytest`'s `tmp_path` fixture exclusively — they never touch the real filesystem outside `tmp_path`. No mocking of the database; tests build a real `cerebrofy.db` in a temporary directory.
+
+---
+
+## Cross-Session Synthesizer (Idea #24)
+
+The synthesizer turns the session log (#11) into reusable knowledge. It reads
+closed sessions from `.cerebrofy/db/sessions.db`, runs five statistical
+detectors, and persists the results as `type=pattern` memories in `memories.db`
+with tags `synthesized,<type>,confidence=…,sessions=…,sample=…`.
+
+### Detectors and thresholds
+
+| Detector | Signal | Fires when |
+|---|---|---|
+| `failure_correlation` | tool-sequence failure lift | `failure_rate_with / max(failure_rate_without, 0.01) > 2.0`, sample >= 5 |
+| `lobe_fragility` | per-lobe failure rate | rate > 0.70, unique sessions >= 5 |
+| `effort_calibration` | mean `actual / predicted` blast radius | sample >= 5, share over 2× >= 0.80 |
+| `missing_step` | tool-sequence success lift | success lift > 2.0, both classes >= 5, candidates already flagged as failures excluded |
+| `agent_blind_spot` | module-pair omission | pair co-occurs in >= 5 successes; sessions touching A but not B fail >= 85% of the time over >= 5 samples |
+
+Patterns carry a deterministic id derived from `(type, title)`, so repeated
+runs update rather than duplicate. Updates keep the original `created_ts`;
+identical patterns are skipped entirely.
+
+### Trigger
+
+Synthesis runs automatically when the number of closed sessions crosses a
+multiple of `synthesis.every_n_sessions` (default `10`):
+
+- `session/_recorder/lifecycle.py::end_session` checks after each close when a
+  `cerebrofy_dir` is supplied;
+- `insight/daemon.py::run_daemon` checks again at the end of `cerebrofy build`.
+
+Both hooks are non-fatal: no synthesis failure can break a session close or a
+build. `cerebrofy synthesize` and the `cerebrofy_synthesize` MCP tool force a run
+with `--run` / `run_now: true`.
+
+### Storage and consumers
+
+Patterns live in `memories.db` (no new tables). Lobe-scoped detections
+(`lobe_fragility`, `agent_blind_spot`, and single-lobe failure correlations)
+set `memories.lobe`; the memory store's `list_synthesized_patterns()` helper
+parses confidence and sample metadata from tags. `get_neuron` responses gain a
+`patterns` key, and `cerebrofy_impact` reports patterns for every impacted lobe;
+existing response keys are unchanged.
+

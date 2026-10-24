@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **36 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **38 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -108,6 +108,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_who` | List active agents, their intents, claimed neurons, and overlapping claims |
 | `cerebrofy_conflicts` | Report overlapping claims and contradicting memories (`keyword_opposition`) |
 | `cerebrofy_resolve` | Resolve a pair of contradicting memories with a deterministic strategy |
+| `cerebrofy_synthesize` | Cross-session synthesizer: detect failure/success patterns, lobe fragility, effort calibration, and agent blind spots from recorded sessions |
 | `cerebrofy_build` | Full atomic re-index of the entire repository |
 | `cerebrofy_update` | Incremental re-index of changed files only |
 | `cerebrofy_validate` | Drift check — zero writes |
@@ -1099,6 +1100,46 @@ result is **surface-neutral**: it reports `winner` / `loser`, or `superseded` pl
 
 **Error codes:** `[NO_INDEX]` when no index exists; `[CEREBROFY_ERROR]` for an
 unknown memory id or strategy, or a missing `author` / `merged_body`.
+
+---
+
+### `cerebrofy_synthesize`
+
+Run the Cross-Session Synthesizer (Idea #24) or read the patterns it has already
+persisted. Synthesis reads closed sessions from `sessions.db`, runs five
+detectors, and upserts `type=pattern, tags=synthesized,<type>,confidence=…`
+memories in `memories.db`.
+
+**Input schema:**
+
+```json
+{
+  "run_now": false,
+  "min_sessions": 10,
+  "show_patterns": true,
+  "min_confidence": 0.7
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `run_now` | boolean | — | Force a synthesis run before returning (default `false`) |
+| `min_sessions` | integer | — | Closed-session gate before detectors run (default `10`) |
+| `show_patterns` | boolean | — | Include the pattern array in the response (default `true`) |
+| `min_confidence` | number | — | Minimum **persisted** confidence, applied on read and run paths (default `0.7`) |
+
+**Output:** `patterns_found`, `patterns_written` (new inserts only; `0` on the
+read path and on idempotent reruns), `patterns[]` (each with `type`, `title`,
+`confidence`, `body`, `sessions_analyzed`, `sample_size`, `lobe`),
+`sessions_analyzed`, `sessions_until_next_synthesis`, and `next_synthesis_at`.
+Automatic scheduling is session-count based, so `next_synthesis_at` is always
+`null`; the honest countdown is `sessions_until_next_synthesis`.
+
+Pattern ids are deterministic per `(type, title)`, so reruns do not duplicate
+memories and preserve each pattern's original `created_ts`.
+
+**Error codes:** `[NO_INDEX]` when no index exists; `[NO_SESSION_RECORDER]`
+when session recording is disabled (`record_sessions: true` is required).
 
 ---
 

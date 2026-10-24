@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 
 from cerebrofy.memory.store import write_memory, Memory
 from cerebrofy.embedder import get_embedder
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,8 +33,25 @@ class Insight:
     created_ts: int
 
 
+def _trigger_synthesis(db_path: str | Path) -> None:
+    """M4: non-fatal automatic synthesis check (never raises into the daemon)."""
+    try:
+        from cerebrofy.synthesizer.analyzer import maybe_run_synthesis, synthesis_interval
+
+        cerebrofy_dir = Path(db_path).resolve().parent.parent
+        if not (cerebrofy_dir / "db" / "sessions.db").exists():
+            return
+        maybe_run_synthesis(
+            cerebrofy_dir, every_n=synthesis_interval(cerebrofy_dir)
+        )
+    except Exception:
+        _logger.warning("cross-session synthesis skipped", exc_info=True)
+
+
 def run_daemon(db_path: str | Path) -> list[Insight]:
     """Run all insight detectors against the database and write new insights."""
+    _trigger_synthesis(db_path)
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
