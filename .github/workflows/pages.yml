@@ -1,0 +1,103 @@
+name: Website
+
+# Deploys website/ to GitHub Pages with dev/prod environments.
+# - PRs → preview deployment (unique URL per PR, auto-cleaned on close)
+# - master push → production deployment (https://mm0rsy.github.io/Cerebrofy/)
+# graph.js is regenerated from current source so the figure never goes stale.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "website/**"
+      - "src/cerebrofy/**"
+      - "pyproject.toml"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "website/**"
+      - "src/cerebrofy/**"
+      - "pyproject.toml"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── PREVIEW (PRs) ──────────────────────────────────────────────────────────
+  preview:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages-preview
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate the module graph
+        run: python website/scripts/build_graph.py
+
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          rsync -a --exclude scripts --exclude README.md website/ _site/
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ─── PRODUCTION (master) ────────────────────────────────────────────────────
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate the module graph
+        run: python website/scripts/build_graph.py
+
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          rsync -a --exclude scripts --exclude README.md website/ _site/
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
