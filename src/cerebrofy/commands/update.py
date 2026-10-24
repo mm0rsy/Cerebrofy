@@ -358,6 +358,14 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         # Step 9: Health snapshot
         _record_health_snapshot_update(conn, config.lobes, str(root))
         _recompute_memory_decay_update(root, config, scope.affected_node_ids)
+
+        # G4: Direct narrative update after update (mirroring build.py)
+        try:
+            from cerebrofy.narrative.generator import maybe_update_narrative
+            maybe_update_narrative(root)
+        except Exception:
+            pass  # non-fatal
+
         conn.close()
 
         # At-rest integrity sidecar: after the final write and the close, so

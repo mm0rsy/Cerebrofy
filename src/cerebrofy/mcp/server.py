@@ -465,6 +465,7 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
     # Attach memories from memories.db (if it exists)
     try:
         from cerebrofy.memory.store import list_memories, open_memories_db
+        from cerebrofy.synthesizer import list_synthesized_patterns
         cerebrofy_dir = root / ".cerebrofy"
         if (cerebrofy_dir / "db" / "memories.db").exists():
             mem_conn = open_memories_db(cerebrofy_dir)
@@ -479,14 +480,34 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
                         }
                         for m in attached
                     ]
+                    # G1: Attach synthesized patterns for this neuron's lobe
+                    neuron_lobe = result.get("lobe")
+                    if neuron_lobe:
+                        patterns = list_synthesized_patterns(mem_conn, lobe=neuron_lobe)
+                        result["synthesized_patterns"] = [
+                            {
+                                "type": p.type,
+                                "title": p.title,
+                                "body": p.body,
+                                "confidence": p.confidence,
+                                "sample_size": p.sample_size,
+                                "sessions_analyzed": p.sessions_analyzed,
+                                "lobe": p.lobe,
+                            }
+                            for p in patterns
+                        ]
+                    else:
+                        result["synthesized_patterns"] = []
             finally:
                 mem_conn.close()
         else:
             for result in neurons:
                 result["memories"] = []
+                result["synthesized_patterns"] = []
     except Exception:
         for result in neurons:
             result.setdefault("memories", [])
+            result.setdefault("synthesized_patterns", [])
 
     content: list[Any] = [
         TextContent(type="text", text=json.dumps({"neurons": neurons}, indent=2))
@@ -1137,6 +1158,8 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
         from cerebrofy.analysis.impact import compute_impact, resolve_target
         from cerebrofy.analysis.sequence import build_sequence
         from cerebrofy.db.connection import check_schema_version
+        from cerebrofy.synthesizer import list_synthesized_patterns
+        from cerebrofy.memory.store import open_memories_db
 
         try:
             check_schema_version(conn)
@@ -1157,6 +1180,39 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
             result.runtime_boundary_callers,
             conn,
         )
+
+        # G1: Attach synthesized patterns for impacted lobes
+        impacted_lobes = set()
+        for depth_list in result.callers_by_depth.values():
+            for n in depth_list:
+                if n.lobe:
+                    impacted_lobes.add(n.lobe)
+        if neuron.lobe:
+            impacted_lobes.add(neuron.lobe)
+
+        synthesized_patterns = []
+        cerebrofy_dir = root / ".cerebrofy"
+        mem_db = cerebrofy_dir / "db" / "memories.db"
+        if mem_db.exists():
+            try:
+                mem_conn = open_memories_db(cerebrofy_dir)
+                try:
+                    for lobe in impacted_lobes:
+                        for p in list_synthesized_patterns(mem_conn, lobe=lobe):
+                            synthesized_patterns.append({
+                                "type": p.type,
+                                "title": p.title,
+                                "body": p.body,
+                                "confidence": p.confidence,
+                                "sample_size": p.sample_size,
+                                "sessions_analyzed": p.sessions_analyzed,
+                                "lobe": p.lobe,
+                            })
+                finally:
+                    mem_conn.close()
+            except Exception:
+                pass  # non-fatal
+
     finally:
         conn.close()
 
