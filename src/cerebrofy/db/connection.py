@@ -28,7 +28,7 @@ def open_db_readonly(db_path: Path, *, integrity_check: str = "warn") -> sqlite3
     *integrity_check* is the ``database.integrity_check`` mode (off/warn/fail):
     the SHA256 sidecar written by ``cerebrofy build`` / ``cerebrofy update`` is
     verified before the connection is handed out. A missing sidecar is a no-op;
-    see :mod:`cerebrofy.db.integrity` and ``docs/security.md``.
+    see :mod:`cerebrofy.db.integrity` and ``docs/features/security.md``.
     """
     if not db_path.exists():
         raise FileNotFoundError("Index not found. Run 'cerebrofy build' first.")

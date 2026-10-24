@@ -22,12 +22,12 @@ cognitive_layers:
   - name: "What happened"
     description: "Memories, session recordings, causal edges, semantic changelog"
     features: [memory, session_recorder, causal_memory_edges, semantic_changelog]
-    status: partial  # memory done; session_recorder and changelog planned
+    status: done  # memory (#05), session recorder (#11), changelog (#14), insight daemon (#21) merged
 
   - name: "Why it is the way it is"
     description: "Decision memories, causal chains, narrative engine"
     features: [memory_edges, narrative_engine, cross_session_synthesizer]
-    status: partial  # causal edges done; narrative engine planned
+    status: done  # narrative engine (#26) + cross-session synthesizer (#24) merged
 
   - name: "What the team intends"
     description: "Sprint goals, incidents, architectural direction, priorities"
@@ -42,7 +42,7 @@ cognitive_layers:
   - name: "Who else is working here"
     description: "Multi-agent coordination, lobe ownership, knowledge silo detection"
     features: [multi_agent_coordination, lobe_governance, knowledge_silo_detector]
-    status: planned
+    status: done  # coordination (#25), governance (#18), silo detector (#09) merged
 
 architecture:
   direction: >
@@ -84,8 +84,12 @@ architecture:
       - "#17 AI Review Copilot"
       - "#18 Lobe Ownership Governance"
       - "#19 Dependency Upgrade Navigator"
+      - "#21 Insight Daemon"
       - "#22 Epistemic Confidence Layer"
       - "#23 Product Intent Layer"
+      - "#24 Cross-Session Pattern Synthesizer"
+      - "#25 Multi-Agent Coordination Protocol"
+      - "#26 Narrative Engine"
 
     next:
       - "#15 Multi-Language Polyglot Graph — unified graph across Python, TypeScript, Rust, Go"
@@ -93,6 +97,7 @@ architecture:
       - "#20 Cerebrofy Cloud Sync"
 
     agent_mind_layer:
+      # Merged
       - "#21 Insight Daemon — background reasoning that notices things without being asked"
       - "#24 Cross-Session Pattern Synthesizer — learns from patterns across all sessions"
       - "#25 Multi-Agent Coordination Protocol — agents see each other, claim neurons"
@@ -100,9 +105,9 @@ architecture:
 
 team_context:
   concerns:
-    - "Test surface is 28% — analysis commands (blast-radius, vuln, context, epistemic) are under-covered"
-    - "Hub concentration is 89% — check_schema_version and open_memories_db are high blast-radius with low test coverage"
-    - "Dead code at 56% — monitor for growth; partly structural (private helpers, test fixtures)"
+    - "Test surface is 40% — analysis commands (blast-radius, vuln, context, epistemic) are under-covered"
+    - "Hub concentration is 90% — check_schema_version and open_memories_db are high blast-radius with low test coverage"
+    - "Dead code at 58% — monitor for growth; partly structural (private helpers, test fixtures)"
   upcoming_risks:
     - "Schema migrations: health_snapshots pattern must be followed for every new table (ensure_X_schema idempotent)"
-    - "MCP tool count growing — need a tool routing strategy before adding more"
+    - "MCP tool count growing — 39 tools after Wave C; need a tool routing strategy before adding more"

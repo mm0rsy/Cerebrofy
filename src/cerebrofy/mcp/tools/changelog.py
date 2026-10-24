@@ -26,7 +26,7 @@ def _find_root(cwd: Path) -> Path:
 def handle_changelog(arguments: dict[str, Any]) -> list[Any]:
     """Generate a semantic changelog for a git range.
 
-    Input: {since (required), audience?, format?}
+    Input: {since (required), audience?, format?, narrative?}
     Output: the spec output schema —
       since, until, entries[], breaking_changes[], health_delta, full_text.
 
@@ -43,6 +43,7 @@ def handle_changelog(arguments: dict[str, Any]) -> list[Any]:
 
     audience = str(arguments.get("audience") or "developer")
     fmt = str(arguments.get("format") or "markdown")
+    narrative = bool(arguments.get("narrative") or False)
     if audience not in ("developer", "pm", "user"):
         return _err(f"[error] Invalid audience '{audience}'. Choose from: developer, pm, user.")
     if fmt not in ("markdown", "github", "slack"):
@@ -63,12 +64,18 @@ def handle_changelog(arguments: dict[str, Any]) -> list[Any]:
     try:
         from cerebrofy.changelog.classifier import ChangelogError
         from cerebrofy.changelog.generator import generate_changelog
+        from cerebrofy.changelog.narrative import write_narrative_events
 
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        # Use read-write connection if narrative=True (to write narrative_events)
+        uri_mode = "?mode=ro" if not narrative else ""
+        conn = sqlite3.connect(f"file:{db_path}{uri_mode}", uri=True)
         try:
             report = generate_changelog(
                 root, since, audience=audience, output_format=fmt, conn=conn
             )
+            if narrative:
+                # Write narrative events (idempotent per range)
+                write_narrative_events(conn, report, root)
         finally:
             conn.close()
     except ChangelogError as exc:
