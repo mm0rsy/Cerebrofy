@@ -39,7 +39,7 @@ a { color: var(--fg); }
 .viz::before, .viz::after { content: ""; position: absolute; width: 14px; height: 14px; border: 1px solid var(--amber); z-index: 2; pointer-events: none; }
 .viz::before { left: 8px; top: 8px; border-right: 0; border-bottom: 0; } .viz::after { right: 8px; bottom: 8px; border-left: 0; border-top: 0; }
 .viz canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.hud { position: absolute; left: 30px; right: 30px; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); pointer-events: none; }
+.hud { position: absolute; left: 30px; right: 30px; font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
 .hud.t { top: 14px; display: flex; justify-content: space-between; gap: 14px; }
 .hud.t span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } .hud.t span:last-child { flex: none; color: var(--amber); }
 .hud.b { bottom: 18px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
@@ -164,8 +164,8 @@ h2 { font-stretch: 125%; font-weight: 800; font-size: clamp(1.45rem, 2.3vw, 2.15
       <div class="hud t"><span id="fig">SCOPE 1 · Cerebrofy's own source, drawn as a brain</span><span id="nn"></span></div>
       <div class="hud b">
         <div class="now"><span id="nowT">The whole brain</span><small id="nowSub"></small></div>
-        <div class="dots" id="dots" role="group" aria-label="Highlight one region of the brain"></div>
       </div>
+      <div class="dots" id="dots" role="group" aria-label="Highlight one region of the brain"></div>
       <div class="tip" id="tip" hidden></div>
     </div>
 
