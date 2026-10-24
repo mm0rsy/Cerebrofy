@@ -57,6 +57,8 @@ jobs:
           rsync -a --exclude scripts --exclude README.md website/ _site/
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -90,6 +92,8 @@ jobs:
           rsync -a --exclude scripts --exclude README.md website/ _site/
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
