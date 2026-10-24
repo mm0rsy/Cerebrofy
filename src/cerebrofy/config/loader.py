@@ -42,6 +42,13 @@ class SessionConfig:
 
 
 @dataclass(frozen=True)
+class SynthesisConfig:
+    """Cross-Session Synthesizer (Idea #24) trigger knobs."""
+
+    every_n_sessions: int = 10
+
+
+@dataclass(frozen=True)
 class PlanningConfig:
     """Natural-language refactor planner (Idea #12) parameters."""
 
@@ -93,6 +100,7 @@ class CerebrоfyConfig:
     embedding_model: str = "local"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    synthesis: SynthesisConfig = field(default_factory=SynthesisConfig)
     planning: PlanningConfig = field(default_factory=PlanningConfig)
     changelog: ChangelogConfig = field(default_factory=ChangelogConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
@@ -145,6 +153,9 @@ def build_default_config(lobes: dict[str, str]) -> dict:  # type: ignore[type-ar
             "auto_sync_codeowners": False,
             "fallback_owner": "@tech-leads",
             "activity_days": 90,
+        },
+        "synthesis": {
+            "every_n_sessions": 10,
         },
         "record_sessions": False,
     }
@@ -218,6 +229,21 @@ def _parse_session(raw: object) -> SessionConfig:
         max_refs_per_event=_int_field(
             raw.get("max_refs_per_event", default.max_refs_per_event),
             "session", "max_refs_per_event",
+        ),
+    )
+
+
+def _parse_synthesis(raw: object) -> SynthesisConfig:
+    """Parse and validate the optional ``synthesis:`` mapping."""
+    if raw is None:
+        return SynthesisConfig()
+    raw = _require_mapping(raw, "synthesis")
+    default = SynthesisConfig()
+    return SynthesisConfig(
+        every_n_sessions=_int_field(
+            raw.get("every_n_sessions", default.every_n_sessions),
+            "synthesis",
+            "every_n_sessions",
         ),
     )
 
@@ -358,6 +384,7 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
     validate_embedding_model(embedding_model)
 
     session_cfg = _parse_session(data.get("session"))
+    synthesis_cfg = _parse_synthesis(data.get("synthesis"))
     planning_cfg = _parse_planning(data.get("planning"))
     changelog_cfg = _parse_changelog(data.get("changelog"))
     database_cfg = _parse_database(data.get("database"))
@@ -369,6 +396,7 @@ def load_config(path: Path, queries_dir: Path | None = None) -> CerebrоfyConfig
         embedding_model=embedding_model,
         memory=memory_cfg,
         session=session_cfg,
+        synthesis=synthesis_cfg,
         planning=planning_cfg,
         changelog=changelog_cfg,
         database=database_cfg,

@@ -48,6 +48,19 @@ VALID_OUTCOMES: tuple[str, ...] = (
 _SESSION_ID_PREFIX = "sess_"
 
 
+def _trigger_synthesis(cerebrofy_dir: Path) -> None:
+    """M4: run the synthesizer on session boundaries without ever raising."""
+    try:
+        from cerebrofy.synthesizer.analyzer import maybe_run_synthesis, synthesis_interval
+
+        maybe_run_synthesis(
+            cerebrofy_dir, every_n=synthesis_interval(cerebrofy_dir)
+        )
+    except Exception:
+        # Never let the reflection loop fail a session close.
+        _logger.warning("cross-session synthesis skipped", exc_info=True)
+
+
 def new_session_id() -> str:
     """Return a fresh, collision-resistant session id (``sess_<hex8>``)."""
     return f"{_SESSION_ID_PREFIX}{uuid.uuid4().hex[:8]}"
@@ -206,4 +219,5 @@ def end_session(
         write_session_summary_memory(
             cerebrofy_dir, updated, embed_memory_fn=embed_memory_fn
         )
+        _trigger_synthesis(cerebrofy_dir)
     return updated

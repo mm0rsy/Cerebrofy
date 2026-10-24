@@ -1192,7 +1192,11 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
             "Run cross-session pattern synthesis to detect recurring failure patterns, "
             "lobe fragility, effort calibration issues, missing steps, and agent blind spots "
             "from recorded agent sessions. Writes patterns as memories for future reference. "
-            "Run after every N sessions (configurable) or on-demand. "
+            "Run after every N sessions (configured by synthesis.every_n_sessions, default 10) "
+            "or on-demand with run_now=true. Patterns persist a parseable confidence tag so "
+            "min_confidence filters existing patterns too. Automatic scheduling is count-based: "
+            "next_synthesis_at is always null and sessions_until_next_synthesis reports how many "
+            "closed sessions remain before the next auto-trigger. "
             "Error codes: NO_INDEX, INSUFFICIENT_SESSIONS, NO_SESSION_RECORDER."
         ),
         input_schema={
@@ -1201,7 +1205,7 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
                 "run_now": {"type": "boolean", "description": "Force synthesis run before returning results", "default": False},
                 "min_sessions": {"type": "integer", "description": "Minimum sessions required before synthesis fires", "default": 10},
                 "show_patterns": {"type": "boolean", "description": "Include pattern list in response", "default": True},
-                "min_confidence": {"type": "number", "description": "Minimum pattern confidence to return (0-1)", "default": 0.7},
+                "min_confidence": {"type": "number", "description": "Minimum persisted pattern confidence to return (0-1)", "default": 0.7},
             },
             "required": [],
         },
