@@ -219,7 +219,7 @@ def end_session(
         write_session_summary_memory(
             cerebrofy_dir, updated, embed_memory_fn=embed_memory_fn
         )
-_trigger_synthesis(cerebrofy_dir)
+        _trigger_synthesis(cerebrofy_dir)
         # Narrative auto-update (#26): the decision memory written above may
         # belong to a new era. The gate keeps this cheap; non-fatal.
         try:
@@ -228,5 +228,4 @@ _trigger_synthesis(cerebrofy_dir)
             maybe_update_narrative(cerebrofy_dir)
         except Exception:  # narrative upkeep must never fail a session close
             pass
- 5aa14e0 (fix(narrative): resolve review findings)
     return updated

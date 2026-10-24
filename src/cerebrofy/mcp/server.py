@@ -45,6 +45,7 @@ from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
 from cerebrofy.mcp.tools.review import handle_review as _handle_review
 from cerebrofy.mcp.tools.upgrade import handle_upgrade as _handle_upgrade
 from cerebrofy.mcp.tools.insights import handle_insights as _handle_insights
+from cerebrofy.mcp.tools.synthesize import handle_synthesize as _handle_synthesize
 from cerebrofy.mcp.tools.narrative import handle_narrative as _handle_narrative
 from cerebrofy.utils.paths import (
     InvalidRepoRootError,
@@ -104,6 +105,52 @@ _INDEX_WATCH_INTERVAL_SECONDS = 0.5
 _MAX_TOP_K = 50      # matches search_code schema maximum
 _MAX_LIMIT = 100     # cerebrofy_recall result limit
 _MAX_RESULT_TOP = 100  # cerebrofy_silo / coverage_gap "top N" rankings
+
+
+
+def _synthesized_patterns_for_lobes(
+    root: Path, lobes: list[str]
+) -> list[dict[str, Any]]:
+    """Attach synthesized patterns for *lobes* (best-effort, read-only).
+
+    M9: synthesized patterns are memories with ``lobe`` set for lobe-scoped
+    detectors, so consumers query them the same way as neuron memories. Any
+    failure returns an empty list and never breaks the existing response.
+    """
+    try:
+        from cerebrofy.memory.store import open_memories_db
+        from cerebrofy.synthesizer import list_synthesized_patterns
+
+        cerebrofy_dir = root / ".cerebrofy"
+        if not (cerebrofy_dir / "db" / "memories.db").exists():
+            return []
+        mem_conn = open_memories_db(cerebrofy_dir)
+        try:
+            seen: set[str] = set()
+            payloads: list[dict[str, Any]] = []
+            for lobe in lobes:
+                if not lobe:
+                    continue
+                for pattern in list_synthesized_patterns(mem_conn, lobe=lobe):
+                    if pattern.id in seen:
+                        continue
+                    seen.add(pattern.id)
+                    payloads.append(
+                        {
+                            "type": pattern.type,
+                            "title": pattern.title,
+                            "body": pattern.body,
+                            "confidence": pattern.confidence,
+                            "sample_size": pattern.sample_size,
+                            "sessions_analyzed": pattern.sessions_analyzed,
+                            "lobe": pattern.lobe,
+                        }
+                    )
+            return payloads
+        finally:
+            mem_conn.close()
+    except Exception:
+        return []
 
 
 def _parse_int_arg(
@@ -1477,6 +1524,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], list[Any]]] = {
     "_handle_conflicts": _handle_conflicts,
     "_handle_resolve": _handle_resolve,
     "_handle_insights": _handle_insights,
+    "_handle_synthesize": _handle_synthesize,
     "_handle_narrative": _handle_narrative,
 }
 _unwired = [s.name for s in TOOL_SPECS if s.handler_name not in _HANDLERS]
