@@ -14,4 +14,6 @@ tracked_extensions:
 - .cpp
 - .c
 - .h
-record_sessions: false
+record_sessions: true
+synthesis:
+  every_n_sessions: 10
