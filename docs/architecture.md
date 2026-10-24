@@ -727,3 +727,92 @@ parses confidence and sample metadata from tags. `get_neuron` responses gain a
 `patterns` key, and `cerebrofy_impact` reports patterns for every impacted lobe;
 existing response keys are unchanged.
 
+## Codebase Narrative Engine (Idea #26)
+
+`cerebrofy build`, `cerebrofy update`, the Insight Daemon, and closed sessions
+keep `.cerebrofy/NARRATIVE.md` — a template-generated story of the codebase.
+The implementation lives in `src/cerebrofy/narrative/generator.py`; the CLI is
+`cerebrofy narrative` and the MCP tool is `cerebrofy_narrative`.
+
+### Era algorithm
+
+Eras are detected from `health_snapshots` ordered by `build_ts`:
+
+1. Start an era at the first snapshot.
+2. A snapshot starts a new era when, relative to the previous snapshot:
+   * `lobe_count` changed (the real count of configured lobes), or
+   * `|Δ coupling| / previous coupling > 0.10`, or
+   * `|Δ avg_blast| / previous avg_blast > 0.20`.
+3. The closing era ends at `prev.build_ts`; the new era starts at the snapshot
+   that crossed the threshold, so era boundaries never overlap.
+4. The final era always closes at the latest snapshot. With `--force` (or an
+   MCP `update=true`), a single-snapshot index renders one era; the non-forced
+   path raises `INSUFFICIENT_HISTORY` until three snapshots exist.
+
+Era names describe the trigger ("Expansion", "Consolidation", "Coupling
+shift", "Blast-radius shift"); the numeric prefix is added only by the writer,
+so headings read `## Era 2: Expansion`, never `## Era 2: Era 2`.
+
+### Event sources
+
+`_load_significant_events` merges two streams, dedupes by `(title, date)`, sorts
+newest-first, and caps the result at 20:
+
+* `narrative_events` (written by `cerebrofy changelog --narrative`): `ts`,
+  `type`, `title`, JSON `lobes_affected`, `blast_radius_delta`.
+* `memories.db` rows of type `decision`, `warning`, or `incident`.
+
+Only the ten newest events are rendered in the table.
+
+### Intent mapping
+
+`Where It's Going` reads `.cerebrofy/intent.yaml` through
+`intent/loader.py::load_intent` (never by hand-parsing YAML keys):
+
+| Intent field | Rendered as |
+|--------------|-------------|
+| `sprint.name` + `sprint.goal` | `Sprint goal (name): goal` |
+| `incidents[]` with status not `closed`/`patched`/`resolved` | `Open incident (severity): description [status]` |
+| `architecture.direction` | `Architectural direction: ...` |
+| `architecture.principles` | `Architectural goals: ...` |
+
+A missing intent file degrades to a pointer at `intent.yaml`; malformed YAML
+degrades to a parse warning. Architectural DNA loads
+`.cerebrofy/arch-rules.yaml` through `config/loader.py::load_arch_rules` and
+never raises on malformed rules.
+
+### Auto-update hooks
+
+`maybe_update_narrative(cerebrofy_dir)` is a cheap, non-fatal gate. It
+regenerates only when `NARRATIVE.md` is absent, or when the newest snapshot
+crosses an era threshold relative to the last rendered era end. It is called
+after:
+
+* `commands/build.py::_record_health_snapshot`,
+* `insight/daemon.py::run_daemon` when a new insight has confidence ≥ 0.9,
+* `session/_recorder/lifecycle.py::end_session` after the decision memory is
+  written.
+
+Intent changes are not on the hot path: they are picked up on the next build
+(or via `cerebrofy narrative --update` / MCP `update=true`).
+
+### Size cap and atomic writes
+
+The rendered document is capped at 50 KB. When it would exceed the cap, the
+oldest eras are replaced one by one with a single summary line
+(`- Era N (start–end): X neurons, coupling Y (summarized)`) until the document
+fits; the newest era is never collapsed. NARRATIVE.md is written to a sibling
+`.tmp` file and `os.replace`d into place, so a crashed generation cannot
+truncate the previous document.
+
+### History preservation
+
+`cerebrofy build` creates a fresh `.tmp` database and swaps it over
+`cerebrofy.db`. `health_snapshots` and `narrative_events` are longitudinal
+history, not index state, so `_preserve_history` copies their rows into the new
+database with `INSERT OR REPLACE` before the swap (ignoring a missing old DB or
+an old DB that predates either table). `cerebrofy update` already accumulates
+history in place. Both snapshot writers pass `lobe_count=len(config.lobes)`;
+`ensure_health_schema` adds the column idempotently to older databases.
+ 5aa14e0 (fix(narrative): resolve review findings)
+

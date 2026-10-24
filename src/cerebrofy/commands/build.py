@@ -77,7 +77,12 @@ def _record_health_snapshot(
         try:
             prior = fetch_snapshots(conn, limit=30)
             metrics = compute_metrics(conn, lobes, prior_snapshots=prior)
-            record_snapshot(conn, metrics, repo_root=repo_root)
+            record_snapshot(
+                conn,
+                metrics,
+                repo_root=repo_root,
+                lobe_count=len(lobes),
+            )
             conn.commit()
         finally:
             conn.close()
@@ -122,6 +127,67 @@ def cleanup_stale_tmp(tmp_path: Path) -> None:
         tmp_path.unlink()
     except FileNotFoundError:
         pass
+
+
+def _preserve_history(db_path: Path, tmp_path: Path) -> None:
+    """Copy durable history tables from the old DB into the freshly built one.
+
+    ``cerebrofy build`` recreates ``cerebrofy.db`` from scratch and swaps it in
+    with ``os.replace``. Health snapshots and changelog narrative events are
+    longitudinal history, not index state, so they must survive the swap —
+    otherwise era detection (#26) can never accumulate three snapshots for
+    users who primarily run full builds. Best-effort: a read failure on the old
+    DB must never fail the build.
+    """
+    if not db_path.exists():
+        return
+
+    history_tables = ("health_snapshots", "narrative_events")
+    old_conn: sqlite3.Connection | None = None
+    new_conn: sqlite3.Connection | None = None
+    try:
+        old_conn = sqlite3.connect(str(db_path))
+        new_conn = sqlite3.connect(str(tmp_path))
+        old_tables = {
+            row[0]
+            for row in old_conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        new_tables = {
+            row[0]
+            for row in new_conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        for table in history_tables:
+            if table not in old_tables or table not in new_tables:
+                continue
+            cursor = old_conn.execute(f"SELECT * FROM {table}")
+            columns = [column[0] for column in cursor.description or []]
+            if not columns:
+                continue
+            rows = cursor.fetchall()
+            if not rows:
+                continue
+            placeholders = ", ".join("?" for _ in columns)
+            column_list = ", ".join(columns)
+            new_conn.executemany(
+                f"INSERT OR REPLACE INTO {table} ({column_list}) "
+                f"VALUES ({placeholders})",
+                rows,
+            )
+        new_conn.commit()
+    except sqlite3.Error as exc:
+        click.echo(
+            f"Warning: could not preserve health/narrative history: {exc}",
+            err=True,
+        )
+    finally:
+        if old_conn is not None:
+            old_conn.close()
+        if new_conn is not None:
+            new_conn.close()
 
 
 def build_step0_create_db(db_path: Path, embed_model: str, embed_dim: int) -> sqlite3.Connection:
@@ -346,6 +412,10 @@ def cerebrofy_build() -> None:
         conn.close()
         conn = None
 
+        # Health snapshots and narrative events are history, not index state:
+        # carry them across the rebuild before the new DB replaces the old one.
+        _preserve_history(db_path, tmp_path)
+
         # Atomic swap: .tmp → .db (only on success)
         os.replace(str(tmp_path), str(db_path))
 
@@ -361,6 +431,16 @@ def cerebrofy_build() -> None:
                 )
 
         _record_health_snapshot(db_path, config.lobes, str(root))
+
+        # Narrative auto-update (#26): cheap era-threshold gate, non-fatal.
+        try:
+            from cerebrofy.narrative.generator import maybe_update_narrative
+
+            maybe_update_narrative(root / ".cerebrofy")
+        except Exception as exc:  # narrative upkeep must never fail a build
+            click.echo(
+                f"Warning: narrative update skipped (non-fatal): {exc}", err=True
+            )
 
         # At-rest integrity sidecar: after the health snapshot (the last write
         # to cerebrofy.db) and after its connection closed, so WAL frames are

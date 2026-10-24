@@ -93,6 +93,16 @@ def run_daemon(db_path: str | Path) -> list[Insight]:
             )
             write_memory(conn=conn, memory=memory, embedding=embedder.embed([insight.title + " " + insight.body])[0])
 
+        # Narrative auto-update (#26): only a high-confidence insight is worth
+        # the regeneration gate; non-fatal and cheap when no era is crossed.
+        if any(insight.confidence >= 0.9 for insight in new_insights):
+            try:
+                from cerebrofy.narrative.generator import maybe_update_narrative
+
+                maybe_update_narrative(Path(db_path).parent.parent)
+            except Exception:  # narrative upkeep must never fail the daemon
+                pass
+
         return new_insights
     finally:
         conn.close()

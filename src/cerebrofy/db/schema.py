@@ -66,7 +66,8 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
   drift_velocity    REAL,
   hub_concentration REAL,
   neuron_count      INTEGER,
-  edge_count        INTEGER
+  edge_count        INTEGER,
+  lobe_count        INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_health_ts ON health_snapshots(build_ts DESC);
 """
@@ -129,11 +130,19 @@ def ensure_health_schema(conn: sqlite3.Connection) -> None:
           drift_velocity    REAL,
           hub_concentration REAL,
           neuron_count      INTEGER,
-          edge_count        INTEGER
+          edge_count        INTEGER,
+          lobe_count        INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_health_ts ON health_snapshots(build_ts DESC);
         """
     )
+    # Older databases predate lobe_count (Idea #26 era detection). Add the
+    # column in place; ALTER TABLE is cheap and idempotent when guarded.
+    columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(health_snapshots)")
+    }
+    if "lobe_count" not in columns:
+        conn.execute("ALTER TABLE health_snapshots ADD COLUMN lobe_count INTEGER")
 
 
 def ensure_narrative_schema(conn: sqlite3.Connection) -> None:
