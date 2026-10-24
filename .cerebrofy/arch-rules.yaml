@@ -1,0 +1,37 @@
+# .cerebrofy/arch-rules.yaml — architecture drift rules for Cerebrofy
+
+rules:
+  - name: no-circular-lobe-deps
+    description: No circular dependencies between lobes
+    severity: error
+    check:
+      no_cycles:
+        scope: lobes
+
+  - name: max-blast-radius
+    description: No single function may have a blast radius above 50
+    severity: warning
+    check:
+      max_blast_radius: 50
+
+slack_webhook: ""
+
+governance:
+  rules:
+    - name: high-blast-requires-two-reviews
+      description: Any PR touching blast_radius > 30 requires 2 approvals
+      check:
+        if_blast_radius: { gt: 30 }
+        then_require_approvals: 2
+
+    - name: silo-lobes-require-backup
+      description: Lobes with bus_factor=1 require a non-owner second reviewer
+      check:
+        if_bus_factor: { eq: 1 }
+        then_require_non_owner_review: true
+
+    - name: new-neurons-require-coverage
+      description: Any PR adding new neurons must include tests
+      check:
+        if_new_neurons: true
+        then_require_test_file: true
