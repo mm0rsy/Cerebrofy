@@ -541,6 +541,11 @@ _CHANGELOG_SCHEMA: dict[str, Any] = {
             "default": "markdown",
             "description": "Output format for full_text.",
         },
+        "narrative": {
+            "type": "boolean",
+            "default": False,
+            "description": "Also write entries to the narrative_events table (idempotent per range).",
+        },
     },
     "required": ["since"],
 }
