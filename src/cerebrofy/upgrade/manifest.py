@@ -26,7 +26,7 @@ Unknown keys are ignored so manifests written for newer Cerebrofy versions
 degrade gracefully instead of failing to load.
 
 The module is offline by design — it never contacts PyPI or GitHub. Automatic
-changelog fetching is deliberately deferred (see ``docs/upgrade.md``).
+changelog fetching is deliberately deferred (see ``docs/features/upgrade.md``).
 """
 
 from __future__ import annotations

@@ -12,7 +12,7 @@ A *missing* sidecar is a no-op, so databases built before this feature (or
 without a completed build/update) remain readable. Verification is best-effort
 against at-rest tampering: WAL checkpoints and concurrent writers can
 legitimately change file bytes between the hash and a read, which is why the
-default mode only warns. See ``docs/security.md``.
+default mode only warns. See ``docs/features/security.md``.
 """
 
 from __future__ import annotations

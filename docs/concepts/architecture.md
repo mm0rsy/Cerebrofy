@@ -2,8 +2,6 @@
 
 This document describes the internal structure, data flow, key invariants, and extension points of Cerebrofy. It is aimed at contributors and anyone who wants to understand how the system works beneath the CLI.
 
----
-
 ## Module Map
 
 ```
@@ -22,7 +20,22 @@ src/cerebrofy/
 │   ├── plan.py                   ← cerebrofy plan: graph-aware refactor plan (Idea #12)
 │   ├── upgrade.py                ← cerebrofy upgrade: dependency upgrade navigator (Idea #19)
 │   ├── governance.py             ← cerebrofy governance: ownership, CODEOWNERS, reviewers (Idea #18)
-│   └── review.py                 ← cerebrofy review: graph-aware review copilot (Idea #17)
+│   ├── review.py                 ← cerebrofy review: graph-aware review copilot (Idea #17)
+│   ├── synthesize.py             ← cerebrofy synthesize: cross-session pattern detection (Idea #24)
+│   ├── narrative.py              ← cerebrofy narrative: codebase narrative engine (Idea #26)
+│   ├── insights.py               ← cerebrofy insights: insight daemon output
+│   ├── coverage_gap.py           ← cerebrofy coverage-gap: test coverage gap predictor
+│   ├── silo.py                   ← cerebrofy silo: knowledge silo detection
+│   ├── vuln.py                   ← cerebrofy vuln: vulnerability blast radius
+│   ├── onboard.py                ← cerebrofy onboard: onboarding guide generator
+│   ├── blast_radius.py           ← cerebrofy blast-radius: caller traversal + risk score
+│   ├── health.py                 ← cerebrofy health: longitudinal health metrics
+│   ├── changelog.py              ← cerebrofy changelog: semantic changelog generator
+│   ├── context.py                ← cerebrofy context: optimal context window builder
+│   ├── epistemic.py              ← cerebrofy epistemic: index confidence scoring
+│   ├── memory.py                 ← cerebrofy memory: structured memory store
+│   ├── intent.py                 ← cerebrofy intent: product intent declaration
+│   └── coordination.py           ← cerebrofy who/claim/release/conflicts/resolve
 │
 ├── parser/
 │   ├── engine.py                 ← Tree-sitter runner; dispatches to .scm queries
@@ -66,34 +79,42 @@ src/cerebrofy/
 │
 ├── mcp/
 │   ├── registrar.py              ← MCP config path detection + idempotent write
-│   ├── server.py                 ← MCPServer: tool + resource dispatch (36 tools)
+│   ├── server.py                 ← MCPServer: tool + resource dispatch (39 tools)
 │   ├── tools/upgrade.py          ← cerebrofy_upgrade handler: plan / auto-fix / validate
 │   ├── tools/governance.py       ← cerebrofy_governance handler: CODEOWNERS / reviewers / rules
 │   ├── tools/review.py           ← cerebrofy_review handler: diff/PR review
-│   └── tools/coordination.py     ← cerebrofy_claim / release / who / conflicts / resolve handlers
+│   ├── tools/coordination.py     ← cerebrofy_claim / release / who / conflicts / resolve handlers
+│   ├── tools/synthesize.py       ← cerebrofy_synthesize handler (Idea #24)
+│   ├── tools/narrative.py        ← cerebrofy_narrative handler (Idea #26)
+│   ├── tools/insights.py         ← cerebrofy_insights handler
+│   └── tools/session.py          ← cerebrofy_session_* handlers
 │
 ├── session/                      ← (Idea #11) Live Agent Session Recorder
 │   ├── recorder.py               ← sessions + session_events storage; blast-radius tracking
 │   ├── replay.py                 ← build_session_diff() — graph delta + risk verdict
 │   ├── reporter.py               ← render_markdown() + render_html() replay renderers
 │   └── middleware.py             ← SessionMiddleware: thin recorder wired into the MCP dispatcher
+│
 ├── coordination/                 ← (Idea #25) Multi-Agent Coordination
 │   ├── registry.py               ← active_agents storage: claims, heartbeats, stale cleanup
 │   ├── conflict_detector.py      ← claim collisions, lobe awareness, keyword-opposition memories
 │   ├── resolver.py               ← keep_newest / keep_by_author / human_review / merge
 │   └── constants.py              ← TTL bounds, heartbeat interval, resolution strategies
+│
 ├── planning/                     ← Refactor Planner (Idea #12)
-    ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
-    ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
-    ├── formatter.py              ← Markdown + JSON plan output
-    └── planner.py                ← pipeline orchestration + feature integrations
+│   ├── extractor.py              ← KNN seed + cohesive cluster expansion (>50% internal edges)
+│   ├── sequence.py               ← dependency-safe migration steps (reverse-topo sort)
+│   ├── formatter.py              ← Markdown + JSON plan output
+│   └── planner.py                ← pipeline orchestration + feature integrations
+│
 ├── changelog/                    ← Semantic Changelog Generator (Idea #14)
-    ├── classifier.py             ← drift records + blast radius + memories → entry types
-    ├── generator.py              ← audience-specific text (developer/pm/user)
-    ├── formatter.py              ← markdown | github | slack output
-    └── __init__.py               ← public API surface
+│   ├── classifier.py             ← drift records + blast radius + memories → entry types
+│   ├── generator.py              ← audience-specific text (developer/pm/user)
+│   ├── formatter.py              ← markdown | github | slack output
+│   └── __init__.py               ← public API surface
+│
 ├── config/
-│   └── loader.py                 ← CerebrофyConfig dataclass + YAML I/O
+│   └── loader.py                 ← CerebrofyConfig dataclass + YAML I/O
 │
 ├── update/
 │   ├── change_detector.py        ← ChangeSet via git diff or hash comparison
@@ -125,11 +146,17 @@ src/cerebrofy/
 ├── validate/
 │   └── drift_classifier.py       ← DriftRecord: hash scan → re-parse → Neuron diff
 │
-└── changelog/
-    ├── classifier.py               ← Changes → semantic entry types (breaking-first)
-    ├── generator.py                ← Classified changes → ChangelogReport + narrative events
-    ├── formatter.py                ← Markdown / GitHub / Slack output formatters
-    └── __init__.py                 ← Public API: collect_changes, generate_changelog, etc.
+├── synthesizer/                  ← (Idea #24) Cross-Session Synthesizer
+│   ├── detectors.py              ← five statistical detectors: failure_correlation, lobe_fragility,
+│   │                               effort_calibration, missing_step, agent_blind_spot
+│   └── store.py                  ← pattern persistence in memories.db
+│
+├── narrative/                    ← (Idea #26) Codebase Narrative Engine
+│   └── generator.py              ← era detection, event sources, intent mapping, NARRATIVE.md
+│
+└── insight/                      ← Insight Daemon
+    ├── daemon.py                 ← run_daemon(): generate insights from health snapshots
+    └── notifier.py               ← format_insights_cli / format_insights_mcp renderers
 ```
 
 ---
@@ -149,7 +176,7 @@ config.yaml + .cerebrofy-ignore
         │
         ├── resolve_local_edges() → LOCAL_CALL edges
         └── resolve_cross_module_edges() + resolve_import_edges()
-                                  → EXTERNAL_CALL, IMPORT, RUNTIME_BOUNDARY edges
+                                      → EXTERNAL_CALL, IMPORT, RUNTIME_BOUNDARY edges
         │
         ▼
    write_edges(conn, edges)       ← INSERT into edges table
@@ -169,6 +196,27 @@ config.yaml + .cerebrofy-ignore
         ▼
    write_lobe_md() × N            ← per-lobe Markdown (post-swap, fresh conn)
    write_map_md()                 ← cerebrofy_map.md
+```
+
+### `cerebrofy update`
+
+```
+git diff / file hash comparison
+        │
+        ▼
+   change_detector.detect()       ← ChangeSet of modified files
+        │
+        ▼
+   scope_resolver.resolve()       ← depth-2 BFS from changed nodes → affected neurons
+        │
+        ▼
+   embed changed neurons          ← embedding BEFORE write lock
+        │
+        ▼
+   write_transaction(BEGIN IMMEDIATE)
+        ├── DELETE+INSERT vectors  ← vec0 has no UPDATE
+        ├── upsert nodes/edges     ← only for affected neurons
+        └── commit file hashes     ← state_hash updated
 ```
 
 ---
@@ -241,6 +289,10 @@ CREATE VIRTUAL TABLE vec_neurons USING vec0(
 ```
 
 Every `nodes` row has a corresponding `vec_neurons` row after a completed build (Law III). The `vec_neurons` table cannot be updated in-place — `cerebrofy update` always DELETE+INSERT within the same transaction.
+
+Separate databases (not rebuilt by `cerebrofy build`):
+- `memories.db` — structured memories, synthesized patterns, insights
+- `sessions.db` — agent session recordings (Idea #11)
 
 ---
 
@@ -414,7 +466,7 @@ The sentinel format `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END
 
 The MCP server (`mcp/server.py`) uses **CWD routing**: at each tool invocation it calls `os.getcwd()` and walks up the directory tree looking for `.cerebrofy/config.yaml`. A single registered MCP server entry (`mcpServers.cerebrofy`) serves all repos on the machine — no per-repo registration needed.
 
-**Launch boundary (C1).** Per-call routing is clipped to a *launch boundary* set once at start-up (`utils/paths.py::set_root_boundary`): when the server is launched inside a Cerebrofy project the boundary is that project root, so a manipulated CWD cannot redirect the server at a sibling project; when it is launched at a non-project directory (for example a workspace root holding several repos) the boundary is the launch CWD itself, so the repos *beneath* it are still served while siblings and parents are not. `--root` / `CEREBROFY_ROOT` remain a hard pin — the walk-up is skipped entirely and the boundary does not apply.
+**Launch boundary (C1).** Per-call routing is clipped to a *launch boundary* set once at start-up (`utils/paths.py::set_root_boundary`): when the server is launched inside a Cerebrofy project the boundary is that project root, so a manipulated CWD cannot redirect the server at a sibling project; when it is launched at a non-project directory (for example a workspace root holding several repos) the boundary is the launch CWD itself, so the repos *beneath* it are served while siblings and parents are not. `--root` / `CEREBROFY_ROOT` remain a hard pin — the walk-up is skipped entirely and the boundary does not apply.
 
 ```
 AI calls search_code(query="rate limiting middleware")
@@ -446,7 +498,7 @@ The **Live Agent Session Recorder** captures every MCP tool call of an agent ses
 
 Storage is split from the index for the same reason `memories.db` (#05) is split from `cerebrofy.db`: the index is rebuilt atomically by `cerebrofy build` and written under `BEGIN IMMEDIATE` by `cerebrofy update`, while the audit trail must survive rebuilds and never contend with the index writer.
 
-- `session/recorder.py` — `sessions` + `session_events` tables in `.cerefy/db/sessions.db`; `start_session`, `record_event`, `end_session`, `search_sessions`. Argument/result payloads are truncated so storage stays well under 1 MB/hour.
+- `session/recorder.py` — `sessions` + `session_events` tables in `.cerebrofy/db/sessions.db`; `start_session`, `record_event`, `end_session`, `search_sessions`. Argument/result payloads are truncated so storage stays well under 1 MB/hour.
 - `session/middleware.py` — thin `SessionMiddleware` with per-request instances (no global singleton); recording only fires when opt-in is enabled and a session is active, and never raises.
 - `session/replay.py` — `build_session_diff()` computes the graph delta (touched / missing / appeared / index-refreshed) and a blast-radius verdict.
 - `session/reporter.py` — self-contained Markdown + HTML renderers for `cerebrofy session show/export`.
@@ -457,15 +509,15 @@ Storage is split from the index for the same reason `memories.db` (#05) is split
 ```mermaid
 flowchart TD
     A[AI agent starts a coding task] --> B{record_sessions<br/>enabled in config?}
-    B -- yes --> C[cerebrofy_session_start&#40;task, agent&#41;<br/>INSERT sessions row → sess_id]
+    B -- yes --> C[cerebrofy_session_start(task, agent)<br/>INSERT sessions row → sess_id]
     B -- no --> D[tools run normally<br/>no recording]
     C --> E[MCP dispatcher wraps every tool call<br/>call_tool → SessionMiddleware.record]
-    E --> F[record_event&#40;sessions.db&#41;<br/>args/result truncated < 1KB]
-    F --> G[resolve_neuron_refs&#40;&#41; + depth-2<br/>blast-radius lookup into cerebrofy.db<br/>captured once per neuron]
+    E --> F[record_event(sessions.db)<br/>args/result truncated < 1KB]
+    F --> G[resolve_neuron_refs() + depth-2<br/>blast-radius lookup into cerebrofy.db<br/>captured once per neuron]
     G --> E
-    E --> H[cerebrofy_session_end&#40;outcome, summary&#41;<br/>ends session + blast_radius_after + outcome]
+    E --> H[cerebrofy_session_end(outcome, summary)<br/>ends session + blast_radius_after + outcome]
     H --> I[sessions.db: closed session]
-    I --> J[cerebrofy session show/show/diff/export<br/>replay_session + build_session_diff<br/>+ render_markdown&#40;&#41; / render_html&#40;&#41;]
+    I --> J[cerebrofy session show/diff/export<br/>replay_session + build_session_diff<br/>+ render_markdown() / render_html()]
     style D fill:#f6f8fa,stroke:#e1e4e8
     style J fill:#f6f8fa,stroke:#e1e4e8
 ```
@@ -480,60 +532,15 @@ The `SessionMiddleware.record()` path is bounded for latency: one indexed `INSER
 
 ## Multi-Agent Coordination (Idea #25)
 
-Coordination lets several agents — and humans — share one codebase without
-silently undoing each other's work. It is a local, advisory protocol: Cerebrofy
-reports claim collisions and contradicting memories, but never blocks an edit.
+Coordination lets several agents — and humans — share one codebase without silently undoing each other's work. It is a local, advisory protocol: Cerebrofy reports claim collisions and contradicting memories, but never blocks an edit.
 
-- `coordination/registry.py` — persistent `active_agents` rows in
-  `.cerebrofy/db/cerebrofy.db`. `claim_neurons`, `release_neurons`, `release_all`,
-  `heartbeat`, and `cleanup_stale_agents` are the only writers.
-- `coordination/conflict_detector.py` — claim collisions, same-lobe awareness,
-  and the Phase-1 keyword-opposition heuristic for memories (`keyword_opposition`).
-- `coordination/resolver.py` — `keep_newest`, `keep_by_author`, `human_review`,
-  and `merge` against `memories.db`; mutations are atomic and surface-neutral
-  (`winner` / `loser` / `superseded`).
-- `mcp/tools/coordination.py` — `cerebrofy_claim`, `cerebrofy_release`,
-  `cerebrofy_who`, `cerebrofy_conflicts`, `cerebrofy_resolve`.
-- `commands/coordination.py` — the matching `cerebrofy who|claim|release|conflicts|resolve`
-  commands plus the `cerebrofy coordination` alias group.
+- `coordination/registry.py` — persistent `active_agents` rows in `.cerebrofy/db/cerebrofy.db`. `claim_neurons`, `release_neurons`, `release_all`, `heartbeat`, and `cleanup_stale_agents` are the only writers.
+- `coordination/conflict_detector.py` — claim collisions, same-lobe awareness, and the Phase-1 keyword-opposition heuristic for memories (`keyword_opposition`).
+- `coordination/resolver.py` — `keep_newest`, `keep_by_author`, `human_review`, and `merge` against `memories.db`; mutations are atomic and surface-neutral (`winner` / `loser` / `superseded`).
+- `mcp/tools/coordination.py` — `cerebrofy_claim`, `cerebrofy_release`, `cerebrofy_who`, `cerebrofy_conflicts`, `cerebrofy_resolve`.
+- `commands/coordination.py` — the matching `cerebrofy who|claim|release|conflicts|resolve` commands plus the `cerebrofy coordination` alias group.
 
-### Heartbeats, TTL, and stale claims
-
-Any MCP tool call that identifies an agent is a heartbeat: `search_code`,
-`get_neuron`, and `cerebrofy_remember` accept an optional `agent_id`, and the
-dispatcher also falls back to `CEREBROFY_AGENT_ID`. A heartbeat refreshes
-`last_heartbeat` and pushes `expires_ts` forward by the claim's TTL.
-
-- Heartbeat interval: **5 minutes**.
-- Stale threshold: **2× the interval (10 minutes) or the TTL**, whichever comes
-  first. Stale rows are marked `completed` and their claims are cleared.
-- TTL: default **60 minutes**, configurable per claim in `1..1440` minutes
-  (`ttl_minutes` / `--ttl-minutes`).
-
-### `active_agents` storage
-
-The table has 11 columns: `agent_id`, `agent_type`, `session_id`, `intent`,
-`claimed_neurons`, `started_ts`, `last_heartbeat`, `status`, `ttl_minutes`,
-`expires_ts`, `created_ts`. `status` is only `active` or `completed`.
-`session_id` records the Idea #11 session id supplied with a
-claim but is **not a foreign key**; adding that constraint is an Idea #11 TODO.
-The full per-column contract lives in [docs/coordination.md](coordination.md) and
-[docs/db-schema.md](db-schema.md).
-
-### Read-only reads
-
-`cerebrofy_who`, `cerebrofy_conflicts`, and the heartbeat/conflict hooks open the
-registry **read-only** and never create `cerebrofy.db`; if the index is absent
-they return `NO_INDEX` (or silently skip the optional notice) instead of creating
-state. Only explicit claim/release/heartbeat calls mutate `active_agents`, and all
-of those go through `write_transaction`.
-
-### Ephemeral on rebuild
-
-Coordination state is deliberately **ephemeral**: it lives in `cerebrofy.db`,
-which `cerebrofy build` recreates atomically. A full rebuild therefore discards
-every claim and registration — re-claim after rebuilding. Durable knowledge
-belongs in `memories.db`.
+See [Coordination](../features/coordination.md) for the full user guide.
 
 ---
 
@@ -541,84 +548,7 @@ belongs in `memories.db`.
 
 The changelog pipeline classifies changes from the **semantic graph** — not commit messages — and renders them as audience-specific entries. It is exposed via the `cerebrofy changelog` CLI command and the `cerebrofy_changelog` MCP tool.
 
-### Flow
-
-```
-cerebrofy changelog --since <ref> --audience <dev|pm|user> --format <md|gh|slack>
-    │
-    ▼
-resolve_range()              ← git tag/hash ↔ commit hash (or last-build, project-start)
-    │                          raises ChangelogError(REF_NOT_FOUND) if the ref is missing
-    ▼
-detect_changes_between_refs() ← git diff --name-status since_ref..until_ref
-    │
-    ├── DriftRecord per file from classify_drift(drift_classifier.py)
-    │       reads: nodes.name, nodes.signature, nodes.type, file_hashes
-    │       returns: neuron-level change kind (added/removed/signature_changed)
-    │
-    ▼
-collect_changes()            ← NeuronChange list (file, name, lobe, kind)
-    │
-    ▼
-classify_changes()           ← breaking-first precedence:
-│                                 added → breaking → security → perf → fix → internal
-│                               refactor for cross-lobe moves
-│                               is_breaking_change(): removed w/ callers, sig change on
-│                               public surface, >BREAKING_CROSS_LOBE_CALLERS cross-lobe
-│
-▼
-build_entries()              ← ordered ChangelogEntry list per audience
-    │                          (pm/user: internal & intent_update text suppressed)
-    ▼
-format_changelog()           ← markdown | github | slack
-    │
-    ▼
-ChangelogReport.to_dict()    ← exact spec schema:
-                              {since, until, entries[], breaking_changes[],
-                               health_delta, full_text}
-```
-
-### Classification matrix
-
-| Entry type | Trigger |
-|---|---|
-| `feat` | New neuron (no predecessor in index) |
-| `fix` | Existing neuron modified + warning memory |
-| `refactor` | Same name removed from one lobe, added in another |
-| `security` | Security/CVE-tagged memories on a changed neuron |
-| `breaking` | Removal with callers · signature change on public surface · >3 cross-lobe callers |
-| `perf` | Performance-tagged memories on a changed neuron |
-| `internal` | No other signal matched |
-| `intent_update` | `.cerebrofy/intent.yaml` changed in range (#23) |
-
-### Narrative events (#26 feed)
-
-With `--narrative`, each entry is written to the `narrative_events` table (migration `006_narrative_events.sql`, managed by `ensure_narrative_schema()`). Event IDs are deterministic per `(commit_ref, type, title)`, so re-running the same range replaces rows instead of duplicating them. The Narrative Engine (#26) reads this table to synthesise eras and stories — this lane only writes.
-
-```mermaid
-flowchart TD
-    A[CLI / MCP Tool] --> B[resolve_range]
-    B --> C[detect_changes_between_refs]
-    C --> D{classify_drift}
-    D --> E[collect_changes: NeuronChange list]
-    E --> F[classify_changes: ClassifiedChange list]
-    F --> G[build_entries: ChangelogEntry list]
-    G --> H[format_changelog: markdown/github/slack]
-    H --> I[ChangelogReport]
-    F --> J{is breaking?}
-    J -->|yes| K[breaking_changes]
-    J -->|no| L[regular entries]
-    K --> I
-    L --> I
-    I --> M{narrative?}
-    M -->|yes| N[write_narrative_events]
-    N --> O[narrative_events table]
-    M -->|no| P[emit full_text]
-    I -.-> Q[health_snapshots delta]
-    I -.-> R[memories by neuron]
-```
-
-> **Template-based generation only.** The optional LLM-assisted path is not implemented (see `# TODO(llm)` markers in `generator.py`).
+See [Changelog](../features/changelog.md) for the full user guide.
 
 ---
 
@@ -629,9 +559,7 @@ Cerebrofy is designed so that new language support requires zero changes to the 
 ### Steps
 
 1. Verify the language is in `EXTENSION_TO_LANGUAGE` in `parser/engine.py`. If not, open a PR to add the extension mapping.
-
 2. Create `.cerebrofy/queries/<lang>.scm` (or install it into `src/cerebrofy/queries/` for bundled support).
-
 3. The query file must capture these node names:
 
 | Capture name | Meaning |
@@ -642,7 +570,6 @@ Cerebrofy is designed so that new language support requires zero changes to the 
 | `import.path` | The module path being imported |
 
 4. Add the extension to `tracked_extensions` in `.cerebrofy/config.yaml`.
-
 5. Run `cerebrofy build` to index the new language.
 
 ### Example (Python fragment)
@@ -681,138 +608,3 @@ uv run pytest tests/integration/
 ```
 
 Integration tests use `pytest`'s `tmp_path` fixture exclusively — they never touch the real filesystem outside `tmp_path`. No mocking of the database; tests build a real `cerebrofy.db` in a temporary directory.
-
----
-
-## Cross-Session Synthesizer (Idea #24)
-
-The synthesizer turns the session log (#11) into reusable knowledge. It reads
-closed sessions from `.cerebrofy/db/sessions.db`, runs five statistical
-detectors, and persists the results as `type=pattern` memories in `memories.db`
-with tags `synthesized,<type>,confidence=…,sessions=…,sample=…`.
-
-### Detectors and thresholds
-
-| Detector | Signal | Fires when |
-|---|---|---|
-| `failure_correlation` | tool-sequence failure lift | `failure_rate_with / max(failure_rate_without, 0.01) > 2.0`, sample >= 5 |
-| `lobe_fragility` | per-lobe failure rate | rate > 0.70, unique sessions >= 5 |
-| `effort_calibration` | mean `actual / predicted` blast radius | sample >= 5, share over 2× >= 0.80 |
-| `missing_step` | tool-sequence success lift | success lift > 2.0, both classes >= 5, candidates already flagged as failures excluded |
-| `agent_blind_spot` | module-pair omission | pair co-occurs in >= 5 successes; sessions touching A but not B fail >= 85% of the time over >= 5 samples |
-
-Patterns carry a deterministic id derived from `(type, title)`, so repeated
-runs update rather than duplicate. Updates keep the original `created_ts`;
-identical patterns are skipped entirely.
-
-### Trigger
-
-Synthesis runs automatically when the number of closed sessions crosses a
-multiple of `synthesis.every_n_sessions` (default `10`):
-
-- `session/_recorder/lifecycle.py::end_session` checks after each close when a
-  `cerebrofy_dir` is supplied;
-- `insight/daemon.py::run_daemon` checks again at the end of `cerebrofy build`.
-
-Both hooks are non-fatal: no synthesis failure can break a session close or a
-build. `cerebrofy synthesize` and the `cerebrofy_synthesize` MCP tool force a run
-with `--run` / `run_now: true`.
-
-### Storage and consumers
-
-Patterns live in `memories.db` (no new tables). Lobe-scoped detections
-(`lobe_fragility`, `agent_blind_spot`, and single-lobe failure correlations)
-set `memories.lobe`; the memory store's `list_synthesized_patterns()` helper
-parses confidence and sample metadata from tags. `get_neuron` responses gain a
-`patterns` key, and `cerebrofy_impact` reports patterns for every impacted lobe;
-existing response keys are unchanged.
-
-## Codebase Narrative Engine (Idea #26)
-
-`cerebrofy build`, `cerebrofy update`, the Insight Daemon, and closed sessions
-keep `.cerebrofy/NARRATIVE.md` — a template-generated story of the codebase.
-The implementation lives in `src/cerebrofy/narrative/generator.py`; the CLI is
-`cerebrofy narrative` and the MCP tool is `cerebrofy_narrative`.
-
-### Era algorithm
-
-Eras are detected from `health_snapshots` ordered by `build_ts`:
-
-1. Start an era at the first snapshot.
-2. A snapshot starts a new era when, relative to the previous snapshot:
-   * `lobe_count` changed (the real count of configured lobes), or
-   * `|Δ coupling| / previous coupling > 0.10`, or
-   * `|Δ avg_blast| / previous avg_blast > 0.20`.
-3. The closing era ends at `prev.build_ts`; the new era starts at the snapshot
-   that crossed the threshold, so era boundaries never overlap.
-4. The final era always closes at the latest snapshot. With `--force` (or an
-   MCP `update=true`), a single-snapshot index renders one era; the non-forced
-   path raises `INSUFFICIENT_HISTORY` until three snapshots exist.
-
-Era names describe the trigger ("Expansion", "Consolidation", "Coupling
-shift", "Blast-radius shift"); the numeric prefix is added only by the writer,
-so headings read `## Era 2: Expansion`, never `## Era 2: Era 2`.
-
-### Event sources
-
-`_load_significant_events` merges two streams, dedupes by `(title, date)`, sorts
-newest-first, and caps the result at 20:
-
-* `narrative_events` (written by `cerebrofy changelog --narrative`): `ts`,
-  `type`, `title`, JSON `lobes_affected`, `blast_radius_delta`.
-* `memories.db` rows of type `decision`, `warning`, or `incident`.
-
-Only the ten newest events are rendered in the table.
-
-### Intent mapping
-
-`Where It's Going` reads `.cerebrofy/intent.yaml` through
-`intent/loader.py::load_intent` (never by hand-parsing YAML keys):
-
-| Intent field | Rendered as |
-|--------------|-------------|
-| `sprint.name` + `sprint.goal` | `Sprint goal (name): goal` |
-| `incidents[]` with status not `closed`/`patched`/`resolved` | `Open incident (severity): description [status]` |
-| `architecture.direction` | `Architectural direction: ...` |
-| `architecture.principles` | `Architectural goals: ...` |
-
-A missing intent file degrades to a pointer at `intent.yaml`; malformed YAML
-degrades to a parse warning. Architectural DNA loads
-`.cerebrofy/arch-rules.yaml` through `config/loader.py::load_arch_rules` and
-never raises on malformed rules.
-
-### Auto-update hooks
-
-`maybe_update_narrative(cerebrofy_dir)` is a cheap, non-fatal gate. It
-regenerates only when `NARRATIVE.md` is absent, or when the newest snapshot
-crosses an era threshold relative to the last rendered era end. It is called
-after:
-
-* `commands/build.py::_record_health_snapshot`,
-* `insight/daemon.py::run_daemon` when a new insight has confidence ≥ 0.9,
-* `session/_recorder/lifecycle.py::end_session` after the decision memory is
-  written.
-
-Intent changes are not on the hot path: they are picked up on the next build
-(or via `cerebrofy narrative --update` / MCP `update=true`).
-
-### Size cap and atomic writes
-
-The rendered document is capped at 50 KB. When it would exceed the cap, the
-oldest eras are replaced one by one with a single summary line
-(`- Era N (start–end): X neurons, coupling Y (summarized)`) until the document
-fits; the newest era is never collapsed. NARRATIVE.md is written to a sibling
-`.tmp` file and `os.replace`d into place, so a crashed generation cannot
-truncate the previous document.
-
-### History preservation
-
-`cerebrofy build` creates a fresh `.tmp` database and swaps it over
-`cerebrofy.db`. `health_snapshots` and `narrative_events` are longitudinal
-history, not index state, so `_preserve_history` copies their rows into the new
-database with `INSERT OR REPLACE` before the swap (ignoring a missing old DB or
-an old DB that predates either table). `cerebrofy update` already accumulates
-history in place. Both snapshot writers pass `lobe_count=len(config.lobes)`;
-`ensure_health_schema` adds the column idempotently to older databases.
- 5aa14e0 (fix(narrative): resolve review findings)
-

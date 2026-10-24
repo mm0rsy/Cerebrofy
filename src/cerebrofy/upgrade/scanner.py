@@ -12,7 +12,7 @@ The graph is used for the file list and (as a supplement) for
 ``RUNTIME_BOUNDARY`` edges whose destination is ``external::<package>``. Semantic
 search is *not* used: a meaningful embedding pass needs the fastembed model and
 would make the scanner non-deterministic/offline-hostile. This is documented as
-a deferred enhancement in ``docs/upgrade.md``.
+a deferred enhancement in ``docs/features/upgrade.md``.
 """
 
 from __future__ import annotations

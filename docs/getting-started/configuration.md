@@ -1,8 +1,6 @@
-# Cerebrofy Configuration Reference
+# Configuration Reference
 
 Cerebrofy is configured through `.cerebrofy/config.yaml`, created automatically by `cerebrofy init` and editable by hand.
-
----
 
 ## Full Schema
 
@@ -39,9 +37,14 @@ synthesis:
 # ── Database (optional) ──────────────────────────────────────────────────────
 database:
   integrity_check: warn      # off | warn | fail — verify cerebrofy.db against its <db>.sha256 sidecar
-```
 
----
+# ── Governance (Idea #18) ────────────────────────────────────────────────────
+governance:
+  strategy: git-blame
+  auto_sync_codeowners: false
+  fallback_owner: "@tech-leads"
+  activity_days: 90
+```
 
 ## Field Reference
 
@@ -61,8 +64,6 @@ lobes:
 ```
 
 Lobe names appear in `search_code` MCP tool results and in the blast-radius analysis. A neuron whose file path starts with `src/auth/` belongs to the `auth` lobe.
-
----
 
 ### `tracked_extensions`
 
@@ -90,8 +91,6 @@ Only files whose extension is in this list are parsed and indexed. Remove extens
 
 A Tree-sitter `.scm` query file must exist in `.cerebrofy/queries/` for each extension. If no `.scm` file is found, files with that extension are skipped with a warning.
 
----
-
 ### `embedding_model`
 
 **Type**: `string`
@@ -106,8 +105,6 @@ Controls which embedding model is used at `cerebrofy build` time. The model name
 | `none` | — | — | Disables embeddings and KNN search; `search_code` will return an error |
 
 The `local` model downloads ~130MB of ONNX weights on first use and caches them. All subsequent builds are fully offline with no API key or network access needed.
-
----
 
 ### `record_sessions`
 
@@ -125,36 +122,24 @@ Sessions are started and ended explicitly via the `cerebrofy_session_start` / `c
 
 Privacy: recording is **local-only**. No session data, tool arguments, or result snippets are uploaded or sent to any server. Disable at any time by setting the flag back to `false` and restarting the MCP server.
 
----
-
 ### `database.integrity_check`
 
 **Type**: `str` (`off` | `warn` | `fail`)
 **Default**: `warn`
 
-Controls verification of `cerebrofy.db` against the SHA256 sidecar
-(`cerebrofy.db.sha256`) written by `cerebrofy build` / `cerebrofy update`.
-`warn` logs a warning on mismatch and continues; `fail` raises
-`IntegrityError`; `off` skips the check. A missing sidecar is always a no-op,
-so databases from before this feature remain readable. See
-[security.md](security.md).
+Controls verification of `cerebrofy.db` against the SHA256 sidecar (`cerebrofy.db.sha256`) written by `cerebrofy build` / `cerebrofy update`. `warn` logs a warning on mismatch and continues; `fail` raises `IntegrityError`; `off` skips the check. A missing sidecar is always a no-op, so databases from before this feature remain readable. See [Security](../features/security.md).
 
 ```yaml
 database:
   integrity_check: warn
 ```
 
----
-
 ### `session`
 
 **Type**: `dict[str, int]`
 **Default**: `{max_tracked_neurons: 50, max_refs_per_event: 3}`
 
-Caps applied while recording sessions. `max_tracked_neurons` bounds the
-distinct neurons folded into a session's blast-radius tracking;
-`max_refs_per_event` bounds how many neuron references are resolved per
-recorded event.
+Caps applied while recording sessions. `max_tracked_neurons` bounds the distinct neurons folded into a session's blast-radius tracking; `max_refs_per_event` bounds how many neuron references are resolved per recorded event.
 
 ```yaml
 session:
@@ -162,36 +147,24 @@ session:
   max_refs_per_event: 3
 ```
 
----
-
 ### `synthesis`
 
 **Type**: `dict[str, int]`
 **Default**: `{every_n_sessions: 10}`
 
-Controls the Cross-Session Synthesizer trigger (Idea #24). After every
-`every_n_sessions` closed sessions, the synthesizer runs automatically from
-`cerebrofy_session_end` and from the Insight Daemon at the end of
-`cerebrofy build`. Runs are idempotent, so repeated triggers at the same session
-count do not duplicate pattern memories. Requires `record_sessions: true`.
+Controls the Cross-Session Synthesizer trigger (Idea #24). After every `every_n_sessions` closed sessions, the synthesizer runs automatically from `cerebrofy_session_end` and from the Insight Daemon at the end of `cerebrofy build`. Runs are idempotent, so repeated triggers at the same session count do not duplicate pattern memories. Requires `record_sessions: true`.
 
 ```yaml
 synthesis:
   every_n_sessions: 10
 ```
 
----
-
 ### `governance`
 
 **Type**: `dict`
 **Default**: `{strategy: git-blame, auto_sync_codeowners: false, fallback_owner: "@tech-leads", activity_days: 90}`
 
-Controls lobe ownership and CODEOWNERS generation (Idea #18). `strategy` is
-`git-blame`, `explicit` (`.cerebrofy/team.yaml`), or `hybrid` (blame weighted by
-commits in the last `activity_days`). `fallback_owner` is used for lobes with no
-commit history. Set `auto_sync_codeowners: true` to regenerate `CODEOWNERS`
-after the health snapshot in `cerebrofy build`.
+Controls lobe ownership and CODEOWNERS generation (Idea #18). `strategy` is `git-blame`, `explicit` (`.cerebrofy/team.yaml`), or `hybrid` (blame weighted by commits in the last `activity_days`). `fallback_owner` is used for lobes with no commit history. Set `auto_sync_codeowners: true` to regenerate `CODEOWNERS` after the health snapshot in `cerebrofy build`.
 
 ```yaml
 governance:
@@ -201,9 +174,7 @@ governance:
   activity_days: 90
 ```
 
-See [governance.md](governance.md).
-
----
+See [Governance](../features/governance.md).
 
 ## Ignore Files
 
@@ -231,8 +202,6 @@ vendor/
 
 Add patterns to `.cerebrofy-ignore` to exclude generated files, large asset directories, or test fixtures from the index without affecting git tracking.
 
----
-
 ## Minimal Example
 
 ```yaml
@@ -246,3 +215,9 @@ embedding_model: local
 
 record_sessions: false
 ```
+
+## Next Steps
+
+- [Quick Start](./quickstart.md) — initialize your first repository
+- [Architecture](../concepts/architecture.md) — understand how configuration drives the build pipeline
+- [CLI Reference](../reference/cli.md) — commands that read and use configuration
