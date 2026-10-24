@@ -258,3 +258,133 @@ def active_session_id(cerebrofy_dir: Path) -> str | None:
         return session.id if session else None
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# cerebrofy_session_search
+# ---------------------------------------------------------------------------
+
+def handle_session_search(arguments: dict[str, Any]) -> list[Any]:
+    """Semantic search across session tasks (falls back to task-text match)."""
+    from mcp.types import TextContent
+
+    query = str(arguments.get("query", "") or "").strip()
+    if not query:
+        return _err("[error] 'query' is required.")
+
+    limit = int(arguments.get("limit", 10))
+
+    try:
+        root = _find_root(Path.cwd())
+    except Exception:
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+
+    cerebrofy_dir = root / ".cerebrofy"
+    if not (cerebrofy_dir / "db" / "sessions.db").exists():
+        return _err(
+            f"[{SESSION_NOT_FOUND}] no sessions recorded yet. Enable recording with "
+            f"'record_sessions: true' in .cerebrofy/config.yaml, then call "
+            f"cerebrofy_session_start."
+        )
+
+    config_path = root / ".cerebrofy" / "config.yaml"
+    embedding: list[float] | None = None
+    try:
+        from cerebrofy.config.loader import load_config
+        from cerebrofy.search.hybrid import embed_query
+        config = load_config(config_path)
+        embedding = embed_query(query, config.embedding_model)
+    except Exception as exc:
+        pass  # fall back to text match
+
+    conn = _open_sessions(cerebrofy_dir)
+    try:
+        hits = search_sessions(conn, query, query_embedding=embedding, limit=limit)
+    finally:
+        conn.close()
+
+    if not hits:
+        return [TextContent(type="text", text=json.dumps({"hits": [], "count": 0}, indent=2))]
+
+    results = []
+    for hit in hits:
+        results.append({
+            "session_id": hit.session.id,
+            "task": hit.session.task,
+            "outcome": hit.session.outcome,
+            "started_at": hit.session.started_at,
+            "score": hit.score,
+            "match_kind": hit.match_kind,
+        })
+
+    return [TextContent(type="text", text=json.dumps({"hits": results, "count": len(results)}, indent=2))]
+
+
+# ---------------------------------------------------------------------------
+# cerebrofy_session_export
+# ---------------------------------------------------------------------------
+
+def handle_session_export(arguments: dict[str, Any]) -> list[Any]:
+    """Export a session as a shareable report (HTML, Markdown, or JSON)."""
+    from mcp.types import TextContent
+
+    session_id = arguments.get("session_id")
+    session_id_str = str(session_id).strip() if session_id else None
+    fmt = str(arguments.get("format", "markdown") or "markdown").lower()
+    if fmt not in ("html", "markdown", "json"):
+        return _err("[error] 'format' must be 'html', 'markdown', or 'json'.")
+
+    try:
+        root = _find_root(Path.cwd())
+    except Exception:
+        return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
+
+    cerebrofy_dir = root / ".cerebrofy"
+    if not (cerebrofy_dir / "db" / "sessions.db").exists():
+        return _err(
+            f"[{SESSION_NOT_FOUND}] no sessions recorded yet. Enable recording with "
+            f"'record_sessions: true' in .cerebrofy/config.yaml, then call "
+            f"cerebrofy_session_start."
+        )
+
+    conn = _open_sessions(cerebrofy_dir)
+    index_conn = _index_conn(cerebrofy_dir)
+    try:
+        session: SessionRecord | None = (
+            get_session(conn, session_id_str) if session_id_str else latest_session(conn)
+        )
+        if session is None:
+            raise LookupError(session_id_str or "<latest>")
+
+        from cerebrofy.session.replay import build_session_diff, session_to_dict
+        from cerebrofy.session.reporter import render_html, render_markdown
+
+        events = list_events(conn, session.id)
+        diff = build_session_diff(session, events, index_conn)
+
+        if fmt == "json":
+            content = json.dumps(session_to_dict(session, events, diff), indent=2)
+        elif fmt == "html":
+            content = render_html(session, events, diff)
+        else:
+            content = render_markdown(session, events, diff)
+
+        return [TextContent(type="text", text=content)]
+    except LookupError:
+        return _err(f"[{SESSION_NOT_FOUND}] no session with id '{session_id_str or '<latest>'}'.")
+    except Exception as exc:  # pragma: no cover - defensive
+        return _err(f"cerebrofy_session_export failed: {exc}")
+    finally:
+        conn.close()
+        if index_conn is not None:
+            index_conn.close()
+
+
+def active_session_id(cerebrofy_dir: Path) -> str | None:
+    """Return the id of the currently active session, or None (CLI helper)."""
+    conn = open_sessions_db(cerebrofy_dir)
+    try:
+        session = active_session(conn)
+        return session.id if session else None
+    finally:
+        conn.close()

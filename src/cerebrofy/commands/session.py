@@ -384,3 +384,77 @@ def session_export(session_id: str | None, fmt: str, output_path: str | None) ->
         click.echo(f"Wrote {dest}", err=True)
         return
     click.echo(rendered)
+
+
+# ---------------------------------------------------------------------------
+# cerebrofy session start
+# ---------------------------------------------------------------------------
+
+@session_group.command("start")
+@click.argument("task")
+@click.option("--agent-id", default=None, help="Acting agent id.")
+@click.option("--agent-type", type=click.Choice(["claude", "cursor", "devin", "human", "ci"]), default="claude", help="Agent type.")
+@click.option("--ttl-minutes", type=int, default=60, show_default=True, help="Claim lifetime before auto-release.")
+def session_start(task: str, agent_id: str | None, agent_type: str, ttl_minutes: int) -> None:
+    """Start recording a new session. Requires record_sessions: true in config.yaml."""
+    from cerebrofy.mcp.tools.session import handle_session_start
+
+    root = _resolve_root()
+    config_path = root / ".cerebrofy" / "config.yaml"
+
+    # Check if recording is enabled
+    from cerebrofy.config.loader import load_config
+    config = load_config(root / ".cerebrofy" / "config.yaml")
+    if not config.record_sessions:
+        click.echo(
+            "Error: session recording is disabled. Set 'record_sessions: true' "
+            "in .cerebrofy/config.yaml and restart the MCP server.",
+            err=True
+        )
+        sys.exit(1)
+
+    from cerebrofy.mcp.tools.session import _recording_enabled, _embed_task
+    if not _recording_enabled(root / ".cerebrofy" / "config.yaml"):
+        click.echo(
+            "Error: session recording is disabled. Set 'record_sessions: true' "
+            "in .cerebrofy/config.yaml and restart the MCP server.",
+            err=True
+        )
+        sys.exit(1)
+
+    embedding = _embed_task(task, Path.cwd() / ".cerebrofy" / "config.yaml")
+
+    result = handle_session_start({
+        "task": task,
+        "agent_id": agent_id,
+        "agent_type": agent_type,
+        "ttl_minutes": ttl_minutes,
+    })
+    click.echo(result[0].text)
+
+
+# ---------------------------------------------------------------------------
+# cerebrofy session end
+# ---------------------------------------------------------------------------
+
+@session_group.command("end")
+@click.argument("session_id", required=False)
+@click.option("--outcome", type=click.Choice(["success", "partial", "failed", "unknown"]), default="success", help="Session outcome.")
+@click.option("--summary", default=None, help="Outcome notes.")
+def session_end(session_id: str | None, outcome: str, summary: str | None) -> None:
+    """Close a session and return its metrics."""
+    from cerebrofy.mcp.tools.session import handle_session_end
+
+    root = _resolve_root()
+    session_id_str = session_id if session_id else None
+
+    result = handle_session_end({
+        "session_id": session_id_str,
+        "outcome": outcome,
+        "summary": summary,
+    })
+    click.echo(result[0].text)
+
+
+if __name__ == "__main__":
+    session_group()
