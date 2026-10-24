@@ -31,8 +31,14 @@ def record_snapshot(
     conn: sqlite3.Connection,
     metrics: HealthMetrics,
     repo_root: str = ".",
+    lobe_count: int = 0,
 ) -> None:
-    """Insert a health snapshot row for the current build."""
+    """Insert a health snapshot row for the current build.
+
+    ``lobe_count`` is the number of configured lobes at build time. It feeds
+    the Narrative Engine's era detection (#26); ``0`` keeps older callers
+    working but is treated as "unknown" by the narrative.
+    """
     ensure_health_schema(conn)
     commit_hash = _get_current_commit(repo_root)
     conn.execute(
@@ -40,8 +46,8 @@ def record_snapshot(
         INSERT INTO health_snapshots (
             build_ts, commit_hash, coupling, avg_blast, dead_code_pct,
             cohesion, test_surface, drift_velocity, hub_concentration,
-            neuron_count, edge_count
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            neuron_count, edge_count, lobe_count
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             int(time.time()),
@@ -55,6 +61,7 @@ def record_snapshot(
             metrics.hub_concentration,
             metrics.neuron_count,
             metrics.edge_count,
+            int(lobe_count),
         ),
     )
 
@@ -69,7 +76,7 @@ def fetch_snapshots(
         """
         SELECT id, build_ts, commit_hash, coupling, avg_blast, dead_code_pct,
                cohesion, test_surface, drift_velocity, hub_concentration,
-               neuron_count, edge_count
+               neuron_count, edge_count, lobe_count
         FROM health_snapshots
         ORDER BY build_ts DESC
         LIMIT ?
@@ -79,7 +86,7 @@ def fetch_snapshots(
     cols = (
         "id", "build_ts", "commit_hash", "coupling", "avg_blast",
         "dead_code_pct", "cohesion", "test_surface", "drift_velocity",
-        "hub_concentration", "neuron_count", "edge_count",
+        "hub_concentration", "neuron_count", "edge_count", "lobe_count",
     )
     return [dict(zip(cols, row)) for row in rows]
 

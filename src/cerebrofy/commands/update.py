@@ -57,7 +57,7 @@ def _record_health_snapshot_update(
 
         prior = fetch_snapshots(c, limit=30)
         metrics = compute_metrics(c, lobes, prior_snapshots=prior)
-        record_snapshot(c, metrics, repo_root=repo_root)
+        record_snapshot(c, metrics, repo_root=repo_root, lobe_count=len(lobes))
         c.commit()
         click.echo("Cerebrofy: Health snapshot recorded.")
     except Exception as exc:

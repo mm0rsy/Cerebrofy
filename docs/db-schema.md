@@ -125,3 +125,22 @@ Out of scope (single-writer or non-index DBs, not migrated here):
 `src/cerebrofy/arch/`, `src/cerebrofy/changelog/`, `src/cerebrofy/skill/`,
 and the `memories.db` / `sessions.db` / audit-trail writers, each of which has
 its own connection and transaction boundaries.
+
+## Health snapshots and narrative history
+
+`health_snapshots` carries a `lobe_count` column (the number of configured
+lobes at build time), used by the Narrative Engine (#26) to detect era
+boundaries. `ensure_health_schema()` creates the column on fresh databases and
+adds it in place (`ALTER TABLE ... ADD COLUMN`) on older ones, so existing
+indexes upgrade lazily on the next health write. Both `cerebrofy build` and
+`cerebrofy update` populate it via `record_snapshot(..., lobe_count=...)`.
+
+Rows in `health_snapshots` and `narrative_events` are **durable history**, not
+rebuildable index state. Although `cerebrofy build` creates a fresh database
+and swaps it in with `os.replace`, `commands/build.py::_preserve_history` copies
+both tables from the old database into the new one (`INSERT OR REPLACE`, with a
+missing old DB or missing tables ignored) before the swap. This keeps health
+trends, era detection, and changelog narrative events intact across full
+rebuilds; `cerebrofy update` accumulates them in place as before. Only the
+index-derived tables (`nodes`, `edges`, `vec_neurons`, `file_hashes`, `meta`,
+`active_agents`) are recreated from scratch.

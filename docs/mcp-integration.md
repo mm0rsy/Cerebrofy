@@ -1,6 +1,6 @@
 # MCP Integration Guide
 
-Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **38 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
+Cerebrofy ships an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) stdio server that registers **39 fully operational tools** and a set of URI-addressable **resources** for AI assistants. Once registered, any MCP-compatible client (Claude Code, Cursor, VS Code, Copilot, etc.) can call them directly against your local index.
 
 ---
 
@@ -115,6 +115,7 @@ Use the full absolute path (find it with `which cerebrofy`). For Claude Desktop 
 | `cerebrofy_session_start` | Start recording an agent session (opt-in via `record_sessions`). Returns a `session_id`. |
 | `cerebrofy_session_end` | End the active session: outcome, duration, neurons touched, events, and blast-radius before/after. |
 | `cerebrofy_session_show` | Full replay of a session (latest when omitted): timeline, neurons touched, graph diff, blast-radius verdict. |
+| `cerebrofy_narrative` | Read or regenerate `NARRATIVE.md` — architectural eras, significant events, architectural DNA, and intent-driven trajectory |
 
 ---
 
@@ -662,6 +663,67 @@ cerebrofy_plan(description="extract the payment logic into a payments service", 
 **Error codes:** `NO_INDEX` (run `cerebrofy build` first), `REF_NOT_FOUND` (unknown git ref).
 
 Breaking changes are listed separately in `breaking_changes[]` so release notes never miss them. Use `--narrative` from the CLI to also persist every entry into the `narrative_events` table (idempotent per range — feeds the Codebase Narrative Engine, Idea #26).
+
+---
+
+### `cerebrofy_narrative`
+
+Read the living history of the codebase, or force a fresh render. The document
+combines era detection over `health_snapshots`, changelog `narrative_events`,
+decision/warning/incident memories, architecture rules, and `intent.yaml`.
+
+**Input schema:**
+
+```json
+{
+  "section": "eras",
+  "update": false,
+  "era": 2
+}
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `section` | string | — | `eras`, `events`, `dna`, `trajectory`, or `all` (default). `eras` returns every era section. |
+| `update` | boolean | — | Force regeneration of `.cerebrofy/NARRATIVE.md` before returning (default `false`). |
+| `era` | integer | — | Return one 1-indexed era; also selects it as `current_era`. |
+
+**Output schema** (exact keys):
+
+```json
+{
+  "narrative_markdown": "## Era 1: Expansion & Coupling shift\n...",
+  "era_count": 3,
+  "event_count": 14,
+  "last_updated": 1760000000,
+  "current_era": {
+    "name": "Stability",
+    "started": "2026-06-19",
+    "key_changes": ["Neuron count changed by +120"],
+    "structural_state": {
+      "lobes": 12,
+      "neurons": 1204,
+      "coupling": 0.31,
+      "avg_blast_radius": 8.4
+    },
+    "commit": "a1b2c3d4"
+  }
+}
+```
+
+`current_era` is the newest era unless `era` is supplied. `started` is an ISO
+date (`YYYY-MM-DD`); the short commit hash is exposed separately as `commit`.
+`era_count`/`event_count` come from the structured narrative data, never from
+counting markdown.
+
+**Generation rules:** at least three health snapshots are needed for
+non-forced generation (`INSUFFICIENT_HISTORY` otherwise); `update=true` renders
+a single-era document from whatever history exists. NARRATIVE.md is capped at
+50 KB — the oldest eras collapse to one-line summaries first. Health snapshots
+and narrative events survive `cerebrofy build`'s database swap.
+
+**Error codes:** `NO_INDEX` (run `cerebrofy build` first), `INSUFFICIENT_HISTORY`
+(fewer than 3 snapshots on a non-forced run).
 
 ---
 

@@ -1212,6 +1212,27 @@ TOOL_SPECS: tuple[ToolSpec, ...] = (
         handler_name="_handle_synthesize",
         inject=True,
     ),
+    ToolSpec(
+        name="cerebrofy_narrative",
+        description=(
+            "Read or regenerate the codebase narrative — a living document telling the "
+            "story of the codebase across architectural eras, significant events, and "
+            "architectural DNA. Use at session start for historical context, or "
+            "update=true to force regeneration after structural changes. "
+            "Error codes: NO_INDEX, INSUFFICIENT_HISTORY."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "section": {"type": "string", "description": "Which section to return: 'eras', 'events', 'dna', 'trajectory', or 'all'", "default": "all"},
+                "update": {"type": "boolean", "description": "Force regenerate NARRATIVE.md before returning", "default": False},
+                "era": {"type": "integer", "description": "Return a specific era by number (1-indexed)"},
+            },
+            "required": [],
+        },
+        handler_name="_handle_narrative",
+        inject=True,
+    ),
 )
 
 # Name -> ToolSpec lookup. Fails loudly on duplicate names so a copy/paste
