@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
-from pathlib import Path
 
 from cerebrofy.db.schema import ACTIVE_AGENTS_DDL, create_schema
 

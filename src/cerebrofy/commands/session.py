@@ -400,7 +400,6 @@ def session_start(task: str, agent_id: str | None, agent_type: str, ttl_minutes:
     from cerebrofy.mcp.tools.session import handle_session_start
 
     root = _resolve_root()
-    config_path = root / ".cerebrofy" / "config.yaml"
 
     # Check if recording is enabled
     from cerebrofy.config.loader import load_config
@@ -413,7 +412,7 @@ def session_start(task: str, agent_id: str | None, agent_type: str, ttl_minutes:
         )
         sys.exit(1)
 
-    from cerebrofy.mcp.tools.session import _recording_enabled, _embed_task
+    from cerebrofy.mcp.tools.session import _recording_enabled
     if not _recording_enabled(root / ".cerebrofy" / "config.yaml"):
         click.echo(
             "Error: session recording is disabled. Set 'record_sessions: true' "
@@ -421,8 +420,6 @@ def session_start(task: str, agent_id: str | None, agent_type: str, ttl_minutes:
             err=True
         )
         sys.exit(1)
-
-    embedding = _embed_task(task, Path.cwd() / ".cerebrofy" / "config.yaml")
 
     result = handle_session_start({
         "task": task,
@@ -445,7 +442,6 @@ def session_end(session_id: str | None, outcome: str, summary: str | None) -> No
     """Close a session and return its metrics."""
     from cerebrofy.mcp.tools.session import handle_session_end
 
-    root = _resolve_root()
     session_id_str = session_id if session_id else None
 
     result = handle_session_end({

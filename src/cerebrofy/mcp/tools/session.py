@@ -26,6 +26,7 @@ from cerebrofy.session.recorder import (
     list_events,
     list_sessions,
     open_sessions_db,
+    search_sessions,
     start_session,
 )
 from cerebrofy.utils.paths import find_repo_root as _find_repo_root_impl
@@ -250,16 +251,6 @@ def handle_session_show(arguments: dict[str, Any]) -> list[Any]:
             index_conn.close()
 
 
-def active_session_id(cerebrofy_dir: Path) -> str | None:
-    """Return the id of the currently active session, or None (CLI helper)."""
-    conn = open_sessions_db(cerebrofy_dir)
-    try:
-        session = active_session(conn)
-        return session.id if session else None
-    finally:
-        conn.close()
-
-
 # ---------------------------------------------------------------------------
 # cerebrofy_session_search
 # ---------------------------------------------------------------------------
@@ -294,7 +285,7 @@ def handle_session_search(arguments: dict[str, Any]) -> list[Any]:
         from cerebrofy.search.hybrid import embed_query
         config = load_config(config_path)
         embedding = embed_query(query, config.embedding_model)
-    except Exception as exc:
+    except Exception:
         pass  # fall back to text match
 
     conn = _open_sessions(cerebrofy_dir)
