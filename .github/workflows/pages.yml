@@ -1,0 +1,53 @@
+name: Website
+
+# Publishes website/ to GitHub Pages. In the repo settings, set Pages > Source to "GitHub Actions".
+# graph.js is regenerated here from the current source, so the figure never goes stale.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "website/**"
+      - "src/cerebrofy/**"
+      - "pyproject.toml"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate the module graph
+        run: python website/scripts/build_graph.py
+
+      - name: Assemble the site
+        run: |
+          mkdir _site
+          rsync -a --exclude scripts --exclude README.md website/ _site/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
