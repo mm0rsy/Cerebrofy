@@ -9,12 +9,11 @@ import pytest
 
 from cerebrofy.analysis.impact import bfs_callers
 from cerebrofy.security.vuln_scanner import (
+    _is_trust_boundary,
     compute_vuln_blast_radius,
     find_package_callers,
     read_pinned_version,
-    _is_trust_boundary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

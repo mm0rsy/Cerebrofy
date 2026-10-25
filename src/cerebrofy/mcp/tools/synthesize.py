@@ -12,8 +12,8 @@ from cerebrofy.synthesizer import (
     StoredPattern,
     list_synthesized_patterns,
     sessions_until_next_synthesis,
-    synthesize,
     synthesis_interval,
+    synthesize,
 )
 
 

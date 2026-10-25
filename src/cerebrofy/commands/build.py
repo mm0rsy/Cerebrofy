@@ -87,7 +87,7 @@ def _record_health_snapshot(
         finally:
             conn.close()
         click.echo("Cerebrofy: Health snapshot recorded.")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
 
 
@@ -109,7 +109,7 @@ def _recompute_memory_decay_build(root: Path, config: CerebrоfyConfig) -> None:
         conn.execute("PRAGMA journal_mode=WAL")
         recompute_all_decay(conn, set(), config.memory)
         conn.commit()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Warning: memory decay recompute failed: {exc}", err=True)
     finally:
         if conn is not None:
@@ -381,7 +381,7 @@ def cerebrofy_build() -> None:
 
     try:
         embedder = get_embedder(config.embedding_model)
-    except (ValueError, Exception) as exc:
+    except (ValueError, Exception) as exc:  # noqa: BLE001
         click.echo(f"Error: Could not initialize embedder: {exc}", err=True)
         sys.exit(1)
 
@@ -425,7 +425,7 @@ def cerebrofy_build() -> None:
         if config.governance.auto_sync_codeowners:
             try:
                 _sync_codeowners(root, config, db_path)
-            except Exception as exc:  # governance sync must never fail a build
+            except Exception as exc:  # governance sync must never fail a build  # noqa: BLE001
                 click.echo(
                     f"Warning: CODEOWNERS sync failed (non-fatal): {exc}", err=True
                 )
@@ -437,7 +437,7 @@ def cerebrofy_build() -> None:
             from cerebrofy.narrative.generator import maybe_update_narrative
 
             maybe_update_narrative(root / ".cerebrofy")
-        except Exception as exc:  # narrative upkeep must never fail a build
+        except Exception as exc:  # narrative upkeep must never fail a build  # noqa: BLE001
             click.echo(
                 f"Warning: narrative update skipped (non-fatal): {exc}", err=True
             )
@@ -453,7 +453,7 @@ def cerebrofy_build() -> None:
         try:
             from cerebrofy.insight.daemon import run_daemon
             run_daemon(db_path)
-        except Exception as exc:  # daemon must never fail a build
+        except Exception as exc:  # daemon must never fail a build  # noqa: BLE001
             click.echo(f"Warning: Insight daemon skipped — {exc}", err=True)
 
         elapsed = time.monotonic() - start
@@ -464,7 +464,7 @@ def cerebrofy_build() -> None:
             f"Indexed {neurons_count} neurons across {files_count} files in {elapsed:.1f}s."
         )
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         if conn is not None:
             conn.close()
         cleanup_stale_tmp(tmp_path)

@@ -17,8 +17,8 @@ from pathlib import Path
 
 from cerebrofy.changelog.classifier import (
     CollectedChanges,
-    collect_changes,
     classify_changes,
+    collect_changes,
     validate_git_ref,
 )
 from cerebrofy.changelog.collector import (
@@ -42,10 +42,10 @@ from cerebrofy.config.loader import ChangelogConfig, load_config
 __all__ = [
     "ChangelogEntry",
     "ChangelogReport",
+    "_first_sentence",
     "build_entries",
     "generate_changelog",
     "write_narrative_events",
-    "_first_sentence",
 ]
 
 
@@ -87,7 +87,7 @@ def generate_changelog(
     if config_path.exists():
         try:
             full_config = load_config(config_path)
-        except Exception:
+        except Exception:  # noqa: BLE001
             full_config = None
 
     # Determine the changelog-specific config (m11):

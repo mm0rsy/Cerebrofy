@@ -17,7 +17,6 @@ from cerebrofy.epistemic.state import (
     inject_epistemic,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -39,9 +38,9 @@ def _make_db(last_build_offset_hours: float = 0.0) -> sqlite3.Connection:
     """)
     import datetime
     if last_build_offset_hours == 0.0:
-        ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        ts = datetime.datetime.now(datetime.UTC).isoformat()
     else:
-        dt = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=last_build_offset_hours)
+        dt = datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=last_build_offset_hours)
         ts = dt.isoformat()
     conn.execute("INSERT INTO meta VALUES ('schema_version', '1')")
     conn.execute("INSERT INTO meta VALUES ('last_build', ?)", (ts,))

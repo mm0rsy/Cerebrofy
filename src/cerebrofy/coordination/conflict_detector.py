@@ -37,14 +37,14 @@ CONTRADICTION_PATTERNS: list[tuple[str, str]] = [
     # "never X" vs "X is fine"
     (
         r"\bnever\s+(?:use\s+|call\s+)?([a-z_][\w.]*)",
-        r"\b([a-z_][\w.]*(?:\s+[a-z_][\w.]*){0,3})(?:\(\))?\s+is\s+"
-        r"(?:fine|ok(?:ay)?|acceptable|recommended|good|safe)\b",
+        (r"\b([a-z_][\w.]*(?:\s+[a-z_][\w.]*){0,3})(?:\(\))?\s+is\s+"
+        r"(?:fine|ok(?:ay)?|acceptable|recommended|good|safe)\b"),
     ),
     # "always Y" vs "Y is not required"
     (
         r"\balways\s+(?:use\s+)?([a-z_][\w.]*)",
-        r"\b([a-z_][\w.]*(?:\s+[a-z_][\w.]*){0,3})(?:\(\))?\s+is\s+"
-        r"(?:not\s+required|optional|unnecessary|deprecated)\b",
+        (r"\b([a-z_][\w.]*(?:\s+[a-z_][\w.]*){0,3})(?:\(\))?\s+is\s+"
+        r"(?:not\s+required|optional|unnecessary|deprecated)\b"),
     ),
     # "deprecated" vs "recommended" (keyword-only: the IDEA's canonical pair)
     (r"\bdeprecated\b", r"\brecommended\b"),
@@ -57,8 +57,8 @@ CONTRADICTION_PATTERNS: list[tuple[str, str]] = [
     # "don't use X" vs "X is fine"
     (
         r"\b(?:don'?t|do\s+not)\s+use\s+([a-z_][\w.]*)",
-        r"\b([a-z_][\w.]*(?:\s+[a-z_][\w.]*){0,3})(?:\(\))?\s+is\s+"
-        r"(?:fine|ok(?:ay)?|acceptable|recommended)\b",
+        (r"\b([a-z_][\w.]*(?:\s+[a-z_][\w.]*){0,3})(?:\(\))?\s+is\s+"
+        r"(?:fine|ok(?:ay)?|acceptable|recommended)\b"),
     ),
     # "remove/delete X" vs "add/keep X"
     (
@@ -94,8 +94,9 @@ class ConflictDetector:
                 base_dir = self._resolve_memories_path()
                 if base_dir and base_dir.parent.parent.exists():
                     self._persistent_metrics = get_persistent_metrics(base_dir.parent.parent)
-            except Exception:
-                pass  # Fail silently if metrics can't be initialized
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
     # ------------------------------------------------------------------
     # Claim conflicts

@@ -119,8 +119,8 @@ def _render_rules(result: GovernanceCheckResult, fmt: str) -> str:
     lines = [
         f"## Governance Rules — {result.result}",
         "",
-        f"_{result.rules_checked} rule(s) checked · "
-        f"{len(result.failing)} failing · {len(result.warnings)} warning(s)_",
+        (f"_{result.rules_checked} rule(s) checked · "
+        f"{len(result.failing)} failing · {len(result.warnings)} warning(s)_"),
         "",
     ]
     icons = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}
@@ -168,7 +168,7 @@ def generate_codeowners_command(
         except ConfigError as exc:
             click.echo(f"Error: [CONFIG_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             click.echo(f"Error: [CEREBROFY_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
     finally:
@@ -209,7 +209,7 @@ def sync_codeowners_command() -> None:
         except ConfigError as exc:
             click.echo(f"Error: [CONFIG_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             click.echo(f"Error: [CEREBROFY_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
     finally:
@@ -261,7 +261,7 @@ def suggest_reviewers_command(pr: int | None, diff_ref: str | None, fmt: str) ->
         except ConfigError as exc:
             click.echo(f"Error: [CONFIG_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             click.echo(f"Error: [CEREBROFY_ERROR] {exc}", err=True)
             sys.exit(_EXIT_ERROR)
     finally:

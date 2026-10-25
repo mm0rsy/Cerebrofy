@@ -23,8 +23,7 @@ from cerebrofy.health.reporter import (
     format_trend_sparkline,
     to_export_json,
 )
-from cerebrofy.health.snapshot import fetch_snapshots, fetch_latest_snapshot, record_snapshot
-
+from cerebrofy.health.snapshot import fetch_latest_snapshot, fetch_snapshots, record_snapshot
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -407,15 +406,15 @@ def test_to_export_json_structure():
 
 
 def _arch_summary(**overrides: object) -> HistorySummary:
-    defaults: dict[str, object] = dict(
-        runs=3,
-        latest_result="FAIL",
-        latest_ts=1718793600,
-        latest_commit="abc1234",
-        error_count=2,
-        warning_count=1,
-        series=(0, 1, 3),
-    )
+    defaults: dict[str, object] = {
+        "runs": 3,
+        "latest_result": "FAIL",
+        "latest_ts": 1718793600,
+        "latest_commit": "abc1234",
+        "error_count": 2,
+        "warning_count": 1,
+        "series": (0, 1, 3),
+    }
     defaults.update(overrides)
     return HistorySummary(**defaults)  # type: ignore[arg-type]
 

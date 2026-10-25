@@ -10,8 +10,8 @@ from cerebrofy.synthesizer.analyzer import (
     parse_pattern_confidence,
     run_synthesis,
     sessions_until_next_synthesis,
-    synthesize,
     synthesis_interval,
+    synthesize,
 )
 
 __all__ = [
@@ -24,6 +24,6 @@ __all__ = [
     "parse_pattern_confidence",
     "run_synthesis",
     "sessions_until_next_synthesis",
-    "synthesize",
     "synthesis_interval",
+    "synthesize",
 ]

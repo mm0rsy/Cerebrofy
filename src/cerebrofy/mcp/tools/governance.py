@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from cerebrofy.mcp.errors import mcp_error as _err
@@ -44,8 +44,8 @@ def _render_rules(result: Any, fmt: str) -> str:
     lines = [
         f"## Governance Rules — {result.result}",
         "",
-        f"_{result.rules_checked} rule(s) checked · "
-        f"{len(result.failing)} failing · {len(result.warnings)} warning(s)_",
+        (f"_{result.rules_checked} rule(s) checked · "
+        f"{len(result.failing)} failing · {len(result.warnings)} warning(s)_"),
         "",
     ]
     icons = {"PASS": "✅", "WARN": "⚠️", "FAIL": "❌"}
@@ -80,7 +80,7 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return _err(
             "[NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init' and 'cerebrofy build' first."
@@ -93,7 +93,7 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         config = load_config(root / ".cerebrofy" / "config.yaml")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[CONFIG_ERROR] {exc}")
 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)

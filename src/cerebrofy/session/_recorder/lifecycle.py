@@ -226,6 +226,6 @@ def end_session(
             from cerebrofy.narrative.generator import maybe_update_narrative
 
             maybe_update_narrative(cerebrofy_dir)
-        except Exception:  # narrative upkeep must never fail a session close
+        except Exception:  # narrative upkeep must never fail a session close  # noqa: BLE001
             pass
     return updated

@@ -6,17 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from cerebrofy.changelog.generator import (
-    ChangelogEntry,
-    ChangelogReport,
-    build_entries,
-    generate_changelog,
-    write_narrative_events,
-    _first_sentence,
-)
-from cerebrofy.changelog.renderer import _audience_text, _entry_title
-from cerebrofy.changelog.collector import _health_delta, _load_memories, _open_index_db
-from cerebrofy.changelog.formatter import format_changelog
 from cerebrofy.changelog.classifier import (
     BREAKING,
     FEAT,
@@ -33,6 +22,17 @@ from cerebrofy.changelog.classifier import (
     classify_change,
     validate_git_ref,
 )
+from cerebrofy.changelog.collector import _health_delta, _load_memories, _open_index_db
+from cerebrofy.changelog.formatter import format_changelog
+from cerebrofy.changelog.generator import (
+    ChangelogEntry,
+    ChangelogReport,
+    _first_sentence,
+    build_entries,
+    generate_changelog,
+    write_narrative_events,
+)
+from cerebrofy.changelog.renderer import _audience_text, _entry_title
 from cerebrofy.config.loader import ChangelogConfig
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import ChangeSet, FileChange
@@ -517,33 +517,47 @@ def test_validate_git_ref_accepts_valid_refs() -> None:
 def test_changelog_module_imports() -> None:
     """New sub-modules import cleanly and __init__ re-exports public names."""
     # types.py
-    from cerebrofy.changelog.types import ChangelogEntry as _CE, ChangelogReport as _CR  # noqa: F401
+    from cerebrofy.changelog.types import ChangelogEntry as _CE
+    from cerebrofy.changelog.types import ChangelogReport as _CR
     assert _CE.__dataclass_fields__  # sanity: the dataclasses are exported
     assert _CR.__dataclass_fields__
 
     # collector.py
-    from cerebrofy.changelog.collector import (  # noqa: F401
-        _docstrings, _git_output, _health_delta, _load_memories, _open_index_db,
+    from cerebrofy.changelog.collector import (
+        _docstrings,
+        _open_index_db,
     )
     assert callable(_docstrings) and callable(_open_index_db)
 
     # renderer.py
-    from cerebrofy.changelog.renderer import (  # noqa: F401
-        _first_sentence as _fs2, build_entries as _be, with_full_text as _wft,
+    from cerebrofy.changelog.renderer import (
+        _first_sentence as _fs2,
+    )
+    from cerebrofy.changelog.renderer import (
+        build_entries as _be,
+    )
+    from cerebrofy.changelog.renderer import (
+        with_full_text as _wft,
     )
     assert callable(_fs2) and callable(_be) and callable(_wft)
 
     # narrative.py
-    from cerebrofy.changelog.narrative import (  # noqa: F401
-        _commit_ts, _intent_entry, write_narrative_events,
+    from cerebrofy.changelog.narrative import (
+        _commit_ts,
+        _intent_entry,
+        write_narrative_events,
     )
     assert callable(_commit_ts) and callable(_intent_entry) and callable(write_narrative_events)
 
     # generator re-exports
-    from cerebrofy.changelog.generator import (  # noqa: F401
-        ChangelogEntry as _CE3, ChangelogReport as _CR3,
-        _first_sentence as _fs3, build_entries as _be3,
-        write_narrative_events as _wne3, generate_changelog as _gen,
+    from cerebrofy.changelog.generator import (
+        ChangelogEntry as _CE3,
+    )
+    from cerebrofy.changelog.generator import (
+        ChangelogReport as _CR3,
+    )
+    from cerebrofy.changelog.generator import (
+        generate_changelog as _gen,
     )
     assert _CE3 is _CE and _CR3 is _CR and _gen is generate_changelog
 

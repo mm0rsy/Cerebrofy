@@ -1,8 +1,10 @@
 import json
 import socket
 import urllib.request
+
 import pytest
-from cerebrofy.viz.graph_export import VizGraph, VizNode, VizEdge, VizMeta
+
+from cerebrofy.viz.graph_export import VizEdge, VizGraph, VizMeta, VizNode
 from cerebrofy.viz.server import VizServer
 
 

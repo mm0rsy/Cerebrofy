@@ -9,11 +9,10 @@ import sys
 from pathlib import Path
 
 import rich_click as click
+from rich import box
 from rich.console import Console
 from rich.table import Table
-from rich import box
 
-from cerebrofy.db.connection import check_schema_version
 from cerebrofy.analysis.blast_radius import (
     BlastRadiusReport,
     compute_blast_radius_report,
@@ -21,6 +20,7 @@ from cerebrofy.analysis.blast_radius import (
     neuron_for_target,
     neurons_for_changed_files,
 )
+from cerebrofy.db.connection import check_schema_version
 
 console = Console()
 

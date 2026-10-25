@@ -30,15 +30,15 @@ def _plan(**overrides: object) -> RefactorPlan:
     callee = _neuron("pay.py::charge", "charge", "pay.py", line=5, score=0.95)
     caller = _neuron("pay.py::refund", "refund", "pay.py", line=40, score=0.8)
     ext = _neuron("api.py::route", "route", "api.py", line=12, score=0.0)
-    defaults: dict[str, object] = dict(
-        description="extract the payment logic into a payments service.",
-        cluster=[callee, caller],
-        seeds=[callee],
-        callers_to_update=[ext],
-        new_module="payments",
-        proposed_files=["payments/pay.py"],
-        file_map={"pay.py": "payments/pay.py"},
-        steps=[
+    defaults: dict[str, object] = {
+        "description": "extract the payment logic into a payments service.",
+        "cluster": [callee, caller],
+        "seeds": [callee],
+        "callers_to_update": [ext],
+        "new_module": "payments",
+        "proposed_files": ["payments/pay.py"],
+        "file_map": {"pay.py": "payments/pay.py"},
+        "steps": [
             MigrationStep(1, "Create skeleton for 'payments/' — 1 new file(s): pay.py", [], False),
             MigrationStep(2, "Move 2 neuron(s) from pay.py → payments/pay.py", 
                          ["pay.py::charge", "pay.py::refund"], False),
@@ -47,10 +47,10 @@ def _plan(**overrides: object) -> RefactorPlan:
             MigrationStep(4, "Remove backward-compat re-exports from 1 file(s) "
                          "and run the test suite", ["pay.py::charge", "pay.py::refund"], False),
         ],
-        estimated_hours=1.1,
-        files_affected=3,
-        blast_radius_label="MEDIUM",
-    )
+        "estimated_hours": 1.1,
+        "files_affected": 3,
+        "blast_radius_label": "MEDIUM",
+    }
     defaults.update(overrides)
     return RefactorPlan(**defaults)  # type: ignore[arg-type]
 

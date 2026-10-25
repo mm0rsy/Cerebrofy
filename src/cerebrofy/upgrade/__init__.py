@@ -11,6 +11,7 @@ Public surface:
 
 from __future__ import annotations
 
+from cerebrofy.upgrade.fixer import FixResult, apply_fixes
 from cerebrofy.upgrade.manifest import (
     Change,
     Manifest,
@@ -19,9 +20,8 @@ from cerebrofy.upgrade.manifest import (
     load_manifest_file,
     parse_manifest,
 )
-from cerebrofy.upgrade.scanner import ScanResult, scan_package
 from cerebrofy.upgrade.planner import UpgradePlan, build_plan, render_markdown
-from cerebrofy.upgrade.fixer import FixResult, apply_fixes
+from cerebrofy.upgrade.scanner import ScanResult, scan_package
 from cerebrofy.upgrade.validator import ValidationResult, validate_upgrade
 
 __all__ = [

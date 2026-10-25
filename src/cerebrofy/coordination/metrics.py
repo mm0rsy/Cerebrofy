@@ -200,8 +200,8 @@ def get_persistent_metrics(cerebrofy_dir: str | Path) -> PersistentMetrics:
 
 __all__ = [
     "CoordinationMetrics",
-    "get_metrics",
-    "reset_metrics",
     "PersistentMetrics",
+    "get_metrics",
     "get_persistent_metrics",
+    "reset_metrics",
 ]

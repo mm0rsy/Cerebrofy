@@ -256,7 +256,7 @@ _RISK_ICON = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}
 def render_markdown(
     plan: UpgradePlan,
     *,
-    validation: "object | None" = None,
+    validation: object | None = None,
     fix_results: Sequence[object] | None = None,
 ) -> str:
     """Render the plan as human-readable Markdown.
@@ -269,12 +269,12 @@ def render_markdown(
     lines: list[str] = [
         f"# 🧠 Cerebrofy — Upgrade Navigator: {plan.package} {version_label}",
         "",
-        f"Scanned the indexed Python files and found **{plan.total_sites} sites** "
-        f"across **{plan.total_neurons} neurons** in **{plan.files_affected} files**.",
+        (f"Scanned the indexed Python files and found **{plan.total_sites} sites** "
+        f"across **{plan.total_neurons} neurons** in **{plan.files_affected} files**."),
         "",
-        f"**Effort Estimate:** ~{plan.total_effort_hours:g} hours  |  "
+        (f"**Effort Estimate:** ~{plan.total_effort_hours:g} hours  |  "
         f"**Risk:** {icon} {plan.risk}  |  "
-        f"**Manifest:** `{plan.manifest_source}`",
+        f"**Manifest:** `{plan.manifest_source}`"),
         "",
         "## Breaking Changes Affecting Your Code",
         "",

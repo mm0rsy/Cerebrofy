@@ -8,14 +8,13 @@ import sys
 from pathlib import Path
 
 import rich_click as click
+from rich import box
 from rich.console import Console
+from rich.table import Table
+
 from cerebrofy.analysis.impact import ImpactResult
 from cerebrofy.analysis.sequence import SequenceStep
-from rich.table import Table
-from rich import box
-
 from cerebrofy.db.connection import check_schema_version
-
 
 _COMPLEXITY_COLOR = {"LOW": "green", "MEDIUM": "yellow", "HIGH": "red"}
 _COMPLEXITY_ICON = {"LOW": "🟢", "MEDIUM": "🟡", "HIGH": "🔴"}

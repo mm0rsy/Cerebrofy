@@ -11,15 +11,14 @@ from cerebrofy.analysis.coverage_gap import (
     GapReport,
     _detect_covered_neurons,
     _file_velocity,
-    _gap_risk_label,
     _gap_risk_icon,
+    _gap_risk_label,
     _get_current_commit,
     _parse_coverage_xml,
     _topology_covered_neurons,
     _write_gap_memories,
     compute_coverage_gap_report,
 )
-
 
 # ---------------------------------------------------------------------------
 # _gap_risk_label
@@ -304,7 +303,7 @@ def test_detect_covered_neurons_falls_back_when_xml_has_no_hits(tmp_path: Path) 
     )
     conn.execute("INSERT INTO edges VALUES (?,?,?,?)", ("test_fn", "prod_fn", "CALLS", "tests/test_mod.py"))
 
-    covered, source = _detect_covered_neurons(tmp_path, conn)
+    _covered, source = _detect_covered_neurons(tmp_path, conn)
     assert source == "graph_topology"
 
 

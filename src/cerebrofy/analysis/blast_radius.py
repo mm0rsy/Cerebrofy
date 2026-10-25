@@ -7,8 +7,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cerebrofy.analysis.risk_scorer import compute_risk_score, risk_icon, risk_label
 from cerebrofy.graph.edges import RUNTIME_BOUNDARY
-from cerebrofy.analysis.risk_scorer import compute_risk_score, risk_label, risk_icon
 
 
 @dataclass(frozen=True)

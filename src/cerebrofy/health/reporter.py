@@ -141,10 +141,10 @@ def format_arch_section(summary: HistorySummary) -> str:
     )
     lines = [
         "",
-        f"  Architecture Drift — last check {icon} {summary.latest_result or '?'} "
-        f"({counts}) at {when}{commit_note}",
-        f"  Violations (last {summary.runs} checks): "
-        f"{_sparkline([float(v) for v in summary.series])}",
+        (f"  Architecture Drift — last check {icon} {summary.latest_result or '?'} "
+        f"({counts}) at {when}{commit_note}"),
+        (f"  Violations (last {summary.runs} checks): "
+        f"{_sparkline([float(v) for v in summary.series])}"),
     ]
     return "\n".join(lines) + "\n"
 

@@ -12,8 +12,9 @@ from cerebrofy.mcp.errors import mcp_error
 
 pytest.importorskip("mcp")
 
-from mcp.types import TextContent  # noqa: E402
-from cerebrofy.mcp.tools import changelog, memory_graph, onboard, plan, session  # noqa: E402
+from mcp.types import TextContent
+
+from cerebrofy.mcp.tools import changelog, memory_graph, onboard, plan, session
 
 
 def test_mcp_error_returns_single_text_content() -> None:

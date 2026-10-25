@@ -59,7 +59,7 @@ def _classify_file_drift(
 
     try:
         pr = parse_file(root / file, queries_dir, root)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(
             f"Warning: Syntax error in {file} during validation. Results may be incomplete: {exc}",
             file=sys.stderr,

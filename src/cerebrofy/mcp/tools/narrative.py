@@ -35,7 +35,7 @@ def _extract_era(content: str, era: int) -> str | None:
     in_era = False
     era_lines: list[str] = []
     for line in lines:
-        if line.startswith(f"## Era {era}:") or line.startswith(f"## Era {era} "):
+        if line.startswith((f"## Era {era}:", f"## Era {era} ")):
             in_era = True
         elif line.startswith("## ") and in_era:
             break
@@ -134,7 +134,7 @@ def handle_narrative(arguments: dict[str, object]) -> list[Any]:
         data = build_narrative_data(cerebrofy_dir)
     except FileNotFoundError as exc:
         return mcp_error("[NO_INDEX] " + str(exc))
-    except Exception as exc:  # noqa: BLE001 — return a structured MCP error
+    except Exception as exc:  # noqa: BLE001
         return mcp_error("[ERROR] " + str(exc))
 
     narrative_markdown = _read_narrative(cerebrofy_dir, section, era)

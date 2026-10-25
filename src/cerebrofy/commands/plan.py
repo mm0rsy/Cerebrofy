@@ -43,8 +43,8 @@ def cerebrofy_plan(description: str, execute: bool, output: str) -> None:
       cerebrofy plan "extract the auth helpers" --execute
     """
     from cerebrofy.config.loader import load_config
-    from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
     from cerebrofy.db.connection import open_db_readonly
+    from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
 
     # Repo-root resolution is delegated to the shared pure finder
     # ``require_repo_root``; failure (missing project or a bad CEREBROFY_ROOT)

@@ -25,7 +25,6 @@ from cerebrofy.arch.rules import (
 )
 from cerebrofy.epistemic.state import EpistemicState
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -108,7 +107,7 @@ def test_no_edge_violation_and_location_fields() -> None:
     _add_edge(conn, "src/api/views.py::endpoint", "src/db/writer.py::write_nodes")
 
     result = run_arch_check(
-        RulesConfig(rules=(_edge_rule("no-db", **{"from_lobe": "api", "to_lobe": "db"}),)),
+        RulesConfig(rules=(_edge_rule("no-db", from_lobe="api", to_lobe="db"),)),
         conn,
         _LOBES,
     )
@@ -134,7 +133,7 @@ def test_no_edge_runtime_boundary_always_excluded() -> None:
     )
 
     result = run_arch_check(
-        RulesConfig(rules=(_edge_rule("no-db", **{"from_lobe": "api", "to_lobe": "db"}),)),
+        RulesConfig(rules=(_edge_rule("no-db", from_lobe="api", to_lobe="db"),)),
         conn,
         _LOBES,
     )
@@ -150,7 +149,7 @@ def test_no_edge_ignores_external_dst_nodes() -> None:
     _add_edge(conn, "src/api/views.py::endpoint", "external::os.system", "EXTERNAL_CALL")
 
     result = run_arch_check(
-        RulesConfig(rules=(_edge_rule("no-db", **{"from_lobe": "api", "to_lobe": "db"}),)),
+        RulesConfig(rules=(_edge_rule("no-db", from_lobe="api", to_lobe="db"),)),
         conn,
         _LOBES,
     )
@@ -209,7 +208,7 @@ def test_unknown_lobe_in_rule_is_config_error() -> None:
     _add_edge(conn, "src/api/views.py::endpoint", "src/db/writer.py::write_nodes")
 
     result = run_arch_check(
-        RulesConfig(rules=(_edge_rule("typo", **{"from_lobe": "ap", "to_lobe": "db"}),)),
+        RulesConfig(rules=(_edge_rule("typo", from_lobe="ap", to_lobe="db"),)),
         conn,
         _LOBES,
     )
@@ -228,8 +227,8 @@ def test_rule_name_filter_and_unknown_rule() -> None:
 
     rules = RulesConfig(
         rules=(
-            _edge_rule("a", **{"from_lobe": "api", "to_lobe": "db"}),
-            _edge_rule("b", severity="warning", **{"from_lobe": "api", "to_lobe": "db"}),
+            _edge_rule("a", from_lobe="api", to_lobe="db"),
+            _edge_rule("b", severity="warning", from_lobe="api", to_lobe="db"),
         )
     )
     result = run_arch_check(rules, conn, _LOBES, rule_name="b")
@@ -497,7 +496,7 @@ def test_changed_files_filter_drops_untouched_violations() -> None:
     _add_edge(conn, "src/api/views.py::endpoint", "src/db/writer.py::write_nodes")
 
     rules = RulesConfig(
-        rules=(_edge_rule("no-db", **{"from_lobe": "api", "to_lobe": "db"}),)
+        rules=(_edge_rule("no-db", from_lobe="api", to_lobe="db"),)
     )
     everything = run_arch_check(rules, conn, _LOBES)
     assert everything.result == "FAIL"
@@ -597,7 +596,7 @@ def _edge_db() -> sqlite3.Connection:
 
 
 def test_priority_lobes_escalate_warning_to_error() -> None:
-    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    rule = _edge_rule("no-db", severity="warning", from_lobe="api", to_lobe="db")
     result = run_arch_check(
         RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"api"})
     )
@@ -611,7 +610,7 @@ def test_priority_lobes_escalate_warning_to_error() -> None:
 
 
 def test_priority_lobes_no_escalation_outside_overlap() -> None:
-    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    rule = _edge_rule("no-db", severity="warning", from_lobe="api", to_lobe="db")
     result = run_arch_check(
         RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"commands"})
     )
@@ -621,7 +620,7 @@ def test_priority_lobes_no_escalation_outside_overlap() -> None:
 
 
 def test_error_rules_do_not_mark_escalation() -> None:
-    rule = _edge_rule("no-db", severity="error", **{"from_lobe": "api", "to_lobe": "db"})
+    rule = _edge_rule("no-db", severity="error", from_lobe="api", to_lobe="db")
     result = run_arch_check(
         RulesConfig(rules=(rule,)), _edge_db(), _LOBES, priority_lobes=frozenset({"api"})
     )
@@ -654,7 +653,7 @@ def test_rules_without_explicit_lobes_never_escalate() -> None:
 def test_escalated_lobes_sorted_and_full_overlap() -> None:
     from cerebrofy.arch.checker import escalated_priority_lobes
 
-    rule = _edge_rule("no-db", severity="warning", **{"from_lobe": "api", "to_lobe": "db"})
+    rule = _edge_rule("no-db", severity="warning", from_lobe="api", to_lobe="db")
     assert escalated_priority_lobes(rule, frozenset({"db", "api"})) == ("api", "db")
     assert escalated_priority_lobes(rule, frozenset()) == ()
 

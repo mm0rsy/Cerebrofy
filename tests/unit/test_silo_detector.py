@@ -19,7 +19,6 @@ from cerebrofy.analysis.silo_detector import (
     compute_silo_report,
 )
 
-
 # ---------------------------------------------------------------------------
 # _silo_risk_label
 # ---------------------------------------------------------------------------
@@ -74,7 +73,7 @@ def test_authors_for_range_missing_lines_fallback() -> None:
 
 def test_authors_for_range_partial_coverage() -> None:
     blame = {2: "carol@x.com", 4: "carol@x.com"}
-    authors, primary, pct = _authors_for_range(blame, 1, 5)
+    authors, primary, _pct = _authors_for_range(blame, 1, 5)
     assert primary == "carol@x.com"
     assert len(authors) == 1
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -57,7 +57,7 @@ def _commit(
     *,
     days_ago: int = 400,
 ) -> None:
-    when = (datetime.now(timezone.utc) - timedelta(days=days_ago)).strftime(
+    when = (datetime.now(UTC) - timedelta(days=days_ago)).strftime(
         "%Y-%m-%dT%H:%M:%S+00:00"
     )
     env = os.environ.copy()

@@ -15,18 +15,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sqlite3
 import subprocess
-import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.lowlevel.server import NotificationOptions
 from pydantic import AnyUrl
 
+from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
+from cerebrofy.errors import NO_INDEX
 from cerebrofy.mcp.tool_specs import SPEC_BY_NAME, TOOL_SPECS
 from cerebrofy.mcp.tools.changelog import handle_changelog as _handle_changelog
 from cerebrofy.mcp.tools.coordination import handle_claim as _handle_claim
@@ -35,18 +38,18 @@ from cerebrofy.mcp.tools.coordination import handle_release as _handle_release
 from cerebrofy.mcp.tools.coordination import handle_resolve as _handle_resolve
 from cerebrofy.mcp.tools.coordination import handle_who as _handle_who
 from cerebrofy.mcp.tools.governance import handle_governance as _handle_governance
+from cerebrofy.mcp.tools.insights import handle_insights as _handle_insights
 from cerebrofy.mcp.tools.memory_graph import handle_link_memories as _handle_link_memories
 from cerebrofy.mcp.tools.memory_graph import handle_trace_history as _handle_trace_history
+from cerebrofy.mcp.tools.narrative import handle_narrative as _handle_narrative
 from cerebrofy.mcp.tools.onboard import handle_onboard as _handle_onboard
+from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
+from cerebrofy.mcp.tools.review import handle_review as _handle_review
 from cerebrofy.mcp.tools.session import handle_session_end as _handle_session_end
 from cerebrofy.mcp.tools.session import handle_session_show as _handle_session_show
 from cerebrofy.mcp.tools.session import handle_session_start as _handle_session_start
-from cerebrofy.mcp.tools.plan import handle_plan as _handle_plan
-from cerebrofy.mcp.tools.review import handle_review as _handle_review
-from cerebrofy.mcp.tools.upgrade import handle_upgrade as _handle_upgrade
-from cerebrofy.mcp.tools.insights import handle_insights as _handle_insights
 from cerebrofy.mcp.tools.synthesize import handle_synthesize as _handle_synthesize
-from cerebrofy.mcp.tools.narrative import handle_narrative as _handle_narrative
+from cerebrofy.mcp.tools.upgrade import handle_upgrade as _handle_upgrade
 from cerebrofy.utils.paths import (
     InvalidRepoRootError,
     find_repo_root,
@@ -54,9 +57,6 @@ from cerebrofy.utils.paths import (
     set_bound_root,
     set_root_boundary,
 )
-from cerebrofy.errors import NO_INDEX
-from cerebrofy.constants import DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS
-
 
 # ---------------------------------------------------------------------------
 # Server subclass — advertise resource subscription support
@@ -149,7 +149,7 @@ def _synthesized_patterns_for_lobes(
             return payloads
         finally:
             mem_conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return []
 
 
@@ -216,7 +216,7 @@ async def _watch_index_changes(session: Any, subscriptions: set[str], root: Path
             await _notify_resource_changes(
                 session, subscriptions, db_changed=db_changed, docs_changed=docs_changed
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             return  # write failed — client connection is gone; stop quietly
 
 
@@ -297,7 +297,7 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
         integrity_check = load_config(
             root / ".cerebrofy" / "config.yaml"
         ).database.integrity_check
-    except Exception:  # config problems surface with their own errors elsewhere
+    except Exception:  # config problems surface with their own errors elsewhere  # noqa: BLE001
         pass
     from cerebrofy.db.integrity import verify_integrity
 
@@ -330,7 +330,7 @@ def _enrich_with_coordination(
         return enrich_response(
             result, neuron_id, agent.strip(), memories=memories
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         return result
 
 
@@ -357,7 +357,7 @@ def _record_session_event(
             middleware.record(name, arguments, result)
         finally:
             middleware.close()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return
 
 
@@ -504,7 +504,7 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
             for result in neurons:
                 result["memories"] = []
                 result["synthesized_patterns"] = []
-    except Exception:
+    except Exception:  # noqa: BLE001
         for result in neurons:
             result.setdefault("memories", [])
             result.setdefault("synthesized_patterns", [])
@@ -650,7 +650,7 @@ def _handle_blast_radius(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=json.dumps(payload, indent=2))]
 
 
-def _compute_epistemic(root: Path) -> "Any | None":
+def _compute_epistemic(root: Path) -> Any | None:
     """Return EpistemicState or None if the DB is unavailable."""
     db_path = root / ".cerebrofy" / "db" / "cerebrofy.db"
     if not db_path.exists():
@@ -666,7 +666,7 @@ def _compute_epistemic(root: Path) -> "Any | None":
             return compute_epistemic_state(conn, config.tracked_extensions, root)
         finally:
             conn.close()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -736,14 +736,14 @@ def _handle_epistemic(arguments: dict[str, Any]) -> list[Any]:
     return [TextContent(type="text", text=_json.dumps(state.to_dict(), indent=2))]
 
 
-def _arch_history_summary(root: Path) -> "Any | None":
+def _arch_history_summary(root: Path) -> Any | None:
     """Arch check history summary for health output (Idea #16 × #03), or None."""
     try:
         from cerebrofy.arch.history import read_history, summarize_history
 
         entries = read_history(root)
         return summarize_history(entries) if entries else None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -800,18 +800,18 @@ def _handle_health(arguments: dict[str, Any]) -> list[Any]:
                 return _make_error_content(f"[error] Unknown metric: {metric}")
             text = f"{metric}: {val}"
 
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _make_error_content(f"[error] {exc}")
 
     return [TextContent(type="text", text=text)]
 
 
-def _load_intent(root: Path) -> "Any | None":
+def _load_intent(root: Path) -> Any | None:
     """Return IntentConfig or None if intent.yaml is missing or unreadable."""
     try:
         from cerebrofy.intent.loader import load_intent
         return load_intent(root / ".cerebrofy")
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -837,6 +837,7 @@ def _with_intent(result: list[Any], root: Path) -> list[Any]:
 def _handle_intent(arguments: dict[str, Any]) -> list[Any]:
     """Return current product intent, optionally filtered by lobe or neuron."""
     import json as _json
+
     from mcp.types import TextContent
 
     lobe: str | None = arguments.get("lobe")
@@ -912,7 +913,7 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = require_repo_root(Path.cwd())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return _make_error_content(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -951,7 +952,7 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
                 else:
                     neuron_id = rows[0][0]
                     enrich_neuron_id = neuron_id
-            except Exception:
+            except Exception:  # noqa: BLE001
                 warning_msg = "could not resolve neuron — memory stored without anchor"
 
         tags_raw = arguments.get("tags", [])
@@ -984,12 +985,13 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
             TextContent(type="text", text=_json.dumps(result, indent=2))
         ]
         return _enrich_with_coordination(content, enrich_neuron_id, arguments)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _make_error_content(f"cerebrofy_remember failed: {exc}")
 
 
 def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
     import json as _json
+
     from mcp.types import TextContent
 
     query = arguments.get("query", "").strip()
@@ -998,7 +1000,7 @@ def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = require_repo_root(Path.cwd())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -1039,12 +1041,13 @@ def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
             "count": len(results),
         }
         return [TextContent(type="text", text=_json.dumps(out, indent=2))]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return [TextContent(type="text", text=_json.dumps({"memories": [], "error": str(exc)}))]
 
 
 def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
     import json as _json
+
     from mcp.types import TextContent
 
     neuron = arguments.get("neuron")
@@ -1054,7 +1057,7 @@ def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = require_repo_root(Path.cwd())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -1098,7 +1101,7 @@ def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
             "count": len(memories),
         }
         return [TextContent(type="text", text=_json.dumps(out, indent=2))]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _make_error_content(f"cerebrofy_memories failed: {exc}")
 
 
@@ -1158,8 +1161,8 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
         from cerebrofy.analysis.impact import compute_impact, resolve_target
         from cerebrofy.analysis.sequence import build_sequence
         from cerebrofy.db.connection import check_schema_version
-        from cerebrofy.synthesizer import list_synthesized_patterns
         from cerebrofy.memory.store import open_memories_db
+        from cerebrofy.synthesizer import list_synthesized_patterns
 
         try:
             check_schema_version(conn)
@@ -1210,8 +1213,9 @@ def _handle_impact(arguments: dict[str, Any]) -> list[Any]:
                             })
                 finally:
                     mem_conn.close()
-            except Exception:
-                pass  # non-fatal
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
     finally:
         conn.close()
@@ -1276,8 +1280,8 @@ def _handle_silo(arguments: dict[str, Any]) -> list[Any]:
 
     conn = _open_db_ro(root)
     try:
-        from cerebrofy.db.connection import check_schema_version
         from cerebrofy.analysis.silo_detector import compute_silo_report
+        from cerebrofy.db.connection import check_schema_version
 
         try:
             check_schema_version(conn)
@@ -1331,8 +1335,8 @@ def _handle_coverage_gap(arguments: dict[str, Any]) -> list[Any]:
 
     conn = _open_db_ro(root)
     try:
-        from cerebrofy.db.connection import check_schema_version
         from cerebrofy.analysis.coverage_gap import compute_coverage_gap_report
+        from cerebrofy.db.connection import check_schema_version
 
         try:
             check_schema_version(conn)
@@ -1630,7 +1634,7 @@ def _heartbeat_if_agent(arguments: dict[str, Any]) -> None:
         return
     except (ClaimExpiredError, NoActiveAgentError, OSError):
         return
-    except Exception:
+    except Exception:  # noqa: BLE001
         # sqlite errors / partially-implemented registries must not break tools
         return
 
@@ -1672,7 +1676,7 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
             result = _with_epistemic(result, root)
             result = _with_intent(result, root)
             return result
-        except Exception:
+        except Exception:  # noqa: BLE001
             return result
 
     except FileNotFoundError as exc:
@@ -1688,7 +1692,7 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
         return _make_error_content(
             f"[error] Command timed out after {DEFAULT_MCP_COMMAND_TIMEOUT_SECONDS} seconds."
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         print(f"cerebrofy mcp: unexpected error: {exc}", file=sys.stderr)
         return _make_error_content(f"[error] {exc}")
 
@@ -1829,6 +1833,7 @@ async def run_mcp_server(root: Path | str | None = None) -> None:
     @app.list_resources()  # type: ignore[no-untyped-call,untyped-decorator]
     async def list_resources() -> list[Any]:
         from mcp.types import Resource
+
         from cerebrofy.mcp.resources import list_resource_entries
 
         _capture_session()
@@ -1852,6 +1857,7 @@ async def run_mcp_server(root: Path | str | None = None) -> None:
     @app.list_resource_templates()  # type: ignore[no-untyped-call,untyped-decorator]
     async def list_resource_templates() -> list[Any]:
         from mcp.types import ResourceTemplate
+
         from cerebrofy.mcp.resources import list_resource_entries
 
         try:
@@ -1884,10 +1890,19 @@ async def run_mcp_server(root: Path | str | None = None) -> None:
         from urllib.parse import parse_qs, unquote, urlsplit
 
         from mcp.server.lowlevel.helper_types import ReadResourceContents
+
         from cerebrofy.mcp.resources import (
-            blast_radius_summary, current_health, entry_points, file_neurons,
-            get_neuron, memories_for_neuron, neuron_callers, neuron_source,
-            read_lobe, read_map, search_resource_results,
+            blast_radius_summary,
+            current_health,
+            entry_points,
+            file_neurons,
+            get_neuron,
+            memories_for_neuron,
+            neuron_callers,
+            neuron_source,
+            read_lobe,
+            read_map,
+            search_resource_results,
         )
 
         _capture_session()

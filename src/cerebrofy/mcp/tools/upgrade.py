@@ -75,7 +75,7 @@ def handle_upgrade(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return _err(
             "[NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init' and 'cerebrofy build' first."
@@ -129,7 +129,7 @@ def handle_upgrade(arguments: dict[str, Any]) -> list[Any]:
                 validation = validate_upgrade(manifest, conn, root)
     except ValueError as exc:
         return _err(f"[error] {exc}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"cerebrofy_upgrade failed: {exc}")
     finally:
         conn.close()

@@ -16,21 +16,21 @@ import pytest
 from cerebrofy.changelog.classifier import (
     BREAKING,
     BREAKING_CROSS_LOBE_CALLERS,
-    REF_NOT_FOUND,
     FEAT,
     FIX,
     INTERNAL,
     KIND_ADDED,
     KIND_MODIFIED,
+    KIND_MOVED,
     KIND_REMOVED,
     KIND_SIGNATURE_CHANGED,
-    KIND_MOVED,
     PERF,
+    REF_NOT_FOUND,
     REFACTOR,
     SECURITY,
+    ChangelogError,
     NeuronChange,
     ResolvedRange,
-    ChangelogError,
     classify_change,
     classify_changes,
     collect_changes,
@@ -496,7 +496,7 @@ def test_resolve_range_last_build_uses_snapshot(tmp_path: Path) -> None:
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
     conn.execute("CREATE TABLE health_snapshots (id INTEGER PRIMARY KEY, build_ts INTEGER, commit_hash TEXT, coupling REAL, avg_blast REAL)")
-    repo, first, head = _git_repo(tmp_path)
+    repo, first, _head = _git_repo(tmp_path)
     conn.execute("INSERT INTO health_snapshots (build_ts, commit_hash) VALUES (?, ?)", (1, first))
     conn.commit()
     r = resolve_range(repo, "last-build", conn)
@@ -508,7 +508,7 @@ def test_resolve_range_last_build_falls_back_when_no_snapshot(tmp_path: Path) ->
     conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
     conn.execute("CREATE TABLE health_snapshots (id INTEGER PRIMARY KEY, build_ts INTEGER, commit_hash TEXT, coupling REAL, avg_blast REAL)")
     conn.commit()
-    repo, first, head = _git_repo(tmp_path)
+    repo, _first, head = _git_repo(tmp_path)
     r = resolve_range(repo, "last-build", conn)
     assert r.note is not None
     assert r.since_ref == r.until_ref == head
@@ -516,7 +516,7 @@ def test_resolve_range_last_build_falls_back_when_no_snapshot(tmp_path: Path) ->
 
 def test_resolve_range_bad_ref_raises(tmp_path: Path) -> None:
     conn = sqlite3.connect(":memory:")
-    repo, first, head = _git_repo(tmp_path)
+    repo, _first, _head = _git_repo(tmp_path)
     with pytest.raises(ChangelogError) as exc_info:
         resolve_range(repo, "does-not-exist", conn)
     assert exc_info.value.code == "REF_NOT_FOUND"
@@ -640,7 +640,7 @@ def test_validate_git_ref_accepts_valid_refs() -> None:
 def test_resolve_range_rejects_malicious_ref(tmp_path: Path) -> None:
     """Option-like refs raise REF_NOT_FOUND and never reach git as options."""
     conn = sqlite3.connect(":memory:")
-    repo, first, head = _git_repo(tmp_path)
+    repo, _first, _head = _git_repo(tmp_path)
     bad_refs = ["--help", "--upload-pack=x", "", "foo; rm -rf /"]
     for bad_ref in bad_refs:
         with pytest.raises(ChangelogError) as exc_info:
@@ -651,7 +651,7 @@ def test_resolve_range_rejects_malicious_ref(tmp_path: Path) -> None:
 def test_resolve_range_rejects_malicious_ref_without_git_invocation(tmp_path: Path) -> None:
     """validate_git_ref raises before _run_git is ever called for malicious refs."""
     conn = sqlite3.connect(":memory:")
-    repo, first, head = _git_repo(tmp_path)
+    repo, _first, head = _git_repo(tmp_path)
 
     def mock_run_git(args: list[str], repo_root: Path) -> str | None:
         joined = " ".join(args)

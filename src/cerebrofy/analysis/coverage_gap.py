@@ -8,7 +8,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -209,8 +208,10 @@ def _write_gap_memories(
             mconn.commit()
         finally:
             mconn.close()
-    except Exception:
-        pass  # Non-fatal — memory writes never block the report
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning("Silent error ignored: %s", exc)
+        _ = exc  # mark as used for linter
 
 
 # ---------------------------------------------------------------------------

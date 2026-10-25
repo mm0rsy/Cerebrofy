@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
-
-import sqlite3
 
 import rich_click as click
 from rich import box
@@ -29,12 +28,13 @@ def _get_author(override: str | None) -> str:
         email = result.stdout.strip()
         if email:
             return f"human:{email}"
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     return "human:unknown"
 
 
-def _open(root: Path) -> "sqlite3.Connection":
+def _open(root: Path) -> sqlite3.Connection:
     from cerebrofy.memory.store import open_memories_db
     cerebrofy_dir = root / ".cerebrofy"
     if not (cerebrofy_dir / "config.yaml").exists():
@@ -101,9 +101,9 @@ def memory_add(title: str, mem_type: str, body: str, neuron: str | None,
                     neuron_id = rows[0][0]
                 else:
                     neuron_id = rows[0][0]
-            except Exception:
-                pass
-
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     tag_tuple = tuple(t.strip() for t in tags.split(",") if t.strip()) if tags else ()
     mem = Memory(
         id=str(uuid.uuid4()),
@@ -196,8 +196,9 @@ def memory_list(neuron: str | None, lobe: str | None, mem_type: str | None,
                         err=True,
                     )
                 neuron_id = rows[0][0]
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     memories = list_memories(conn, neuron_id=neuron_id, lobe=lobe,
                              type_filter=mem_type, include_stale=include_stale)
     conn.close()

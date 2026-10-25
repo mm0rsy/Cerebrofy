@@ -7,7 +7,7 @@ import time as _time
 from typing import Any
 
 from cerebrofy.config.loader import MemoryConfig
-from cerebrofy.memory.store import Memory, _SELECT_COLS, row_to_memory
+from cerebrofy.memory.store import _SELECT_COLS, Memory, row_to_memory
 
 
 def compute_decay(

@@ -10,22 +10,6 @@ from cerebrofy.commands.blast_radius import cerebrofy_blast_radius
 from cerebrofy.commands.build import cerebrofy_build
 from cerebrofy.commands.changelog import cerebrofy_changelog
 from cerebrofy.commands.context import cerebrofy_context
-from cerebrofy.commands.epistemic import cerebrofy_epistemic
-from cerebrofy.commands.health import cerebrofy_health
-from cerebrofy.commands.governance import cerebrofy_governance
-from cerebrofy.commands.impact import cerebrofy_impact
-from cerebrofy.commands.init import cerebrofy_init
-from cerebrofy.commands.intent import cerebrofy_intent
-from cerebrofy.commands.memory import mem_group
-from cerebrofy.commands.onboard import cerebrofy_onboard
-from cerebrofy.commands.plan import cerebrofy_plan
-from cerebrofy.commands.review import cerebrofy_review
-from cerebrofy.commands.mcp import cerebrofy_mcp
-from cerebrofy.commands.migrate import cerebrofy_migrate
-from cerebrofy.commands.session import session_group
-from cerebrofy.commands.update import cerebrofy_update
-from cerebrofy.commands.upgrade import cerebrofy_upgrade
-from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
 from cerebrofy.commands.coordination import (
     claim_command,
     conflicts_command,
@@ -34,13 +18,29 @@ from cerebrofy.commands.coordination import (
     resolve_command,
     who_command,
 )
+from cerebrofy.commands.coverage_gap import cerebrofy_coverage_gap
+from cerebrofy.commands.epistemic import cerebrofy_epistemic
+from cerebrofy.commands.governance import cerebrofy_governance
+from cerebrofy.commands.health import cerebrofy_health
+from cerebrofy.commands.impact import cerebrofy_impact
+from cerebrofy.commands.init import cerebrofy_init
+from cerebrofy.commands.insights import cerebrofy_insights
+from cerebrofy.commands.intent import cerebrofy_intent
+from cerebrofy.commands.mcp import cerebrofy_mcp
+from cerebrofy.commands.memory import mem_group
+from cerebrofy.commands.migrate import cerebrofy_migrate
+from cerebrofy.commands.narrative import cerebrofy_narrative
+from cerebrofy.commands.onboard import cerebrofy_onboard
+from cerebrofy.commands.plan import cerebrofy_plan
+from cerebrofy.commands.review import cerebrofy_review
+from cerebrofy.commands.session import session_group
 from cerebrofy.commands.silo import cerebrofy_silo
+from cerebrofy.commands.synthesize import cerebrofy_synthesize
+from cerebrofy.commands.update import cerebrofy_update
+from cerebrofy.commands.upgrade import cerebrofy_upgrade
 from cerebrofy.commands.validate import cerebrofy_validate
 from cerebrofy.commands.viz import cerebrofy_viz
 from cerebrofy.commands.vuln import cerebrofy_vuln
-from cerebrofy.commands.insights import cerebrofy_insights
-from cerebrofy.commands.synthesize import cerebrofy_synthesize
-from cerebrofy.commands.narrative import cerebrofy_narrative
 
 click.rich_click.USE_RICH_MARKUP = True
 click.rich_click.USE_MARKDOWN = False

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from cerebrofy.ignore.ruleset import DEFAULT_IGNORE_CONTENT, IgnoreRuleSet
 
-
 # ---------------------------------------------------------------------------
 # Basic matching
 # ---------------------------------------------------------------------------

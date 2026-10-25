@@ -30,7 +30,7 @@ def _intent_entry(
         return None
     try:
         intent = load_intent(repo_root / ".cerebrofy")
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     if intent is None or intent.sprint is None:
         return None

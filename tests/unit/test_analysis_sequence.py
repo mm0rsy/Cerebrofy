@@ -20,7 +20,6 @@ from cerebrofy.analysis.sequence import (
 )
 from cerebrofy.graph.edges import LOCAL_CALL
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

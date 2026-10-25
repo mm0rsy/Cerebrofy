@@ -9,9 +9,9 @@ import yaml
 
 from cerebrofy.config.loader import (
     DEFAULT_TRACKED_EXTENSIONS,
+    CerebrоfyConfig,
     ChangelogConfig,
     ConfigError,
-    CerebrоfyConfig,
     DatabaseConfig,
     GovernanceConfig,
     PlanningConfig,
@@ -21,7 +21,6 @@ from cerebrofy.config.loader import (
     validate_config,
     write_config,
 )
-
 
 # ---------------------------------------------------------------------------
 # build_default_config
@@ -217,6 +216,7 @@ def test_memory_config_on_cerebrofy_config() -> None:
 def test_load_config_parses_memory_section(tmp_path: Path) -> None:
     """load_config correctly reads a memory: section from YAML."""
     import yaml as _yaml
+
     from cerebrofy.config.loader import load_config
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text(_yaml.dump({
@@ -236,7 +236,7 @@ def test_load_config_parses_memory_section(tmp_path: Path) -> None:
 
 def test_load_config_memory_null_key_uses_defaults(tmp_path: Path) -> None:
     """load_config handles `memory:` set to null without crashing."""
-    from cerebrofy.config.loader import load_config, MemoryConfig
+    from cerebrofy.config.loader import MemoryConfig, load_config
     cfg_file = tmp_path / "config.yaml"
     # `memory:` with no value → YAML parses as null
     cfg_file.write_text("lobes:\n  src: src/\ntracked_extensions:\n  - .py\nmemory:\n")

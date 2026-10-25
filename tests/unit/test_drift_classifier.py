@@ -3,7 +3,6 @@
 import sqlite3
 from pathlib import Path
 
-
 from cerebrofy.validate.drift_classifier import (
     _classify_file_drift,
     _normalize_sig,
@@ -73,6 +72,7 @@ def test_structural_drift_new_function(tmp_path: Path) -> None:
 def test_no_drift_hash_match(tmp_path: Path) -> None:
     """classify_drift skips files whose hash matches the index."""
     import hashlib
+
     from cerebrofy.validate.drift_classifier import classify_drift
 
     py_file = tmp_path / "test.py"

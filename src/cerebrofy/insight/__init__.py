@@ -1,5 +1,5 @@
 """Insight Daemon — proactive analysis across all Cerebrofy data."""
 
-from cerebrofy.insight.daemon import run_daemon, Insight
+from cerebrofy.insight.daemon import Insight, run_daemon
 
-__all__ = ["run_daemon", "Insight"]
+__all__ = ["Insight", "run_daemon"]

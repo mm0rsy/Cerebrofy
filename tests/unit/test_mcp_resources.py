@@ -30,7 +30,6 @@ from cerebrofy.mcp.resources import (
     search_resource_results,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -699,7 +698,7 @@ def test_start_index_watcher_starts_task_and_resets_on_completion(
     (db_dir / "cerebrofy.db").write_text("v1", encoding="utf-8")
 
     class _App:
-        class request_context:  # noqa: N801 — simple stub, mimics the SDK shape
+        class request_context:
             session = _FakeSession()
 
     state: dict[str, Any] = {}

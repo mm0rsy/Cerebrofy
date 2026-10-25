@@ -19,7 +19,7 @@ import rich_click as click
 def cerebrofy_mcp(root: Path | None) -> None:
     """Start the cerebrofy MCP stdio server (requires `cerebrofy[mcp]` extra)."""
     try:
-        import mcp  # noqa: F401
+        import mcp
     except ImportError:
         click.echo(
             "Error: MCP server requires the 'mcp' package. "

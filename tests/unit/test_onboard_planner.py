@@ -15,7 +15,6 @@ from cerebrofy.onboard.queries import (
     fetch_things_to_know,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -88,7 +87,7 @@ def test_build_adjacency_ignores_runtime_boundary(tmp_path: Path) -> None:
     _add_edge(conn, "a::f", "b::g", "RUNTIME_BOUNDARY")
     conn.commit()
 
-    _, in_adj, out_adj, valid_edges = build_adjacency(conn)
+    _, _in_adj, out_adj, valid_edges = build_adjacency(conn)
     conn.close()
 
     assert len(valid_edges) == 0
@@ -214,7 +213,7 @@ def test_hotspots_ranked_by_score(tmp_path: Path) -> None:
     _add_edge(conn, "b::f3", "db::hub")
     conn.commit()
 
-    node_map, in_adj, out_adj, _ = build_adjacency(conn)
+    node_map, in_adj, _out_adj, _ = build_adjacency(conn)
     conn.close()
 
     lobes = {"db": "src/db", "a": "src/a", "b": "src/b"}

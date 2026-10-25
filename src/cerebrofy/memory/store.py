@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 VALID_TYPES = frozenset({"decision", "warning", "context", "pattern", "agent_action", "insight"})
 VALID_REL_TYPES = frozenset({"caused", "motivated", "resolved", "contradicts", "updated_by"})
 

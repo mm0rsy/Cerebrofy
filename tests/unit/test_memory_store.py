@@ -4,9 +4,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from cerebrofy.memory.store import (
-    Memory, MemoryEdge, open_memories_db,
-    write_memory, get_memory, list_memories, delete_memory,
-    write_memory_edge, trace_history,
+    Memory,
+    MemoryEdge,
+    delete_memory,
+    get_memory,
+    list_memories,
+    open_memories_db,
+    trace_history,
+    write_memory,
+    write_memory_edge,
 )
 
 
@@ -41,12 +47,12 @@ def _make_conn(tmp_path: Path):
 
 
 def _mem(id: str = "m1", **kwargs) -> Memory:
-    defaults = dict(
-        neuron_id=None, lobe="auth", type="warning",
-        title="Test memory", body="Body text",
-        author="human:test@co.com", created_ts=1_000_000,
-        tags=("security",), decay_score=1.0, status="active",
-    )
+    defaults = {
+        "neuron_id": None, "lobe": "auth", "type": "warning",
+        "title": "Test memory", "body": "Body text",
+        "author": "human:test@co.com", "created_ts": 1_000_000,
+        "tags": ("security",), "decay_score": 1.0, "status": "active",
+    }
     defaults.update(kwargs)
     return Memory(id=id, **defaults)
 

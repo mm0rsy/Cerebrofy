@@ -10,9 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from cerebrofy.errors import (
-    NO_ACTIVE_SESSION as NO_ACTIVE_SESSION,
-    RECORDING_DISABLED as RECORDING_DISABLED,
-    SESSION_NOT_FOUND as SESSION_NOT_FOUND,
+    SESSION_NOT_FOUND,
 )
 
 # Error codes surfaced by the MCP tools / CLI are defined once in

@@ -23,12 +23,13 @@ jobs:
   # (Git for Windows) handles, and python3 detection is now portable.
   # ───────────────────────────────────────────────────────────────────────────
   smoke-fast:
-    name: Smoke fast (${{ matrix.os }})
+    name: Smoke fast (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +37,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install cerebrofy from this commit
         run: uv sync --group dev
@@ -54,8 +56,12 @@ jobs:
   # is provided by the existing integration tests (fake embedder).
   # ───────────────────────────────────────────────────────────────────────────
   smoke-full:
-    name: Smoke full (ubuntu)
+    name: Smoke full (ubuntu, Python ${{ matrix.python-version }})
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +69,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install cerebrofy from this commit
         run: uv sync --group dev

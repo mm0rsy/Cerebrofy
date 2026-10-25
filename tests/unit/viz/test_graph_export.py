@@ -1,9 +1,9 @@
 import json
 import sqlite3
+
 import pytest
-from cerebrofy.viz.graph_export import (
-    export_graph, VizGraph, ANATOMICAL_REGIONS
-)
+
+from cerebrofy.viz.graph_export import ANATOMICAL_REGIONS, VizGraph, export_graph
 
 
 @pytest.fixture

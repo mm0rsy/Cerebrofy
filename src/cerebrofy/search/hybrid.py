@@ -22,7 +22,6 @@ from typing import Any
 from cerebrofy.db.vec import load_sqlite_vec
 from cerebrofy.graph.edges import RUNTIME_BOUNDARY
 
-
 # ---------------------------------------------------------------------------
 # Public dataclasses
 # ---------------------------------------------------------------------------

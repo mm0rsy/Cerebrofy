@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -39,7 +39,7 @@ def write_lobe_md(
     inbound: dict[str, int] = {nid: cnt for nid, cnt in inbound_raw}
     outbound: dict[str, int] = {nid: cnt for nid, cnt in outbound_raw}
 
-    last_indexed = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    last_indexed = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     lines: list[str] = [
         f"# {lobe_name} Lobe",

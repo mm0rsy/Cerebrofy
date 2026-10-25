@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from cerebrofy.memory.store import Memory, open_memories_db, write_memory
+
 from cerebrofy.memory.search import recall_memories
+from cerebrofy.memory.store import Memory, open_memories_db, write_memory
 
 
 def _make_conn(tmp_path: Path):

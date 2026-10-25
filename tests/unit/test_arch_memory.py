@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from cerebrofy.arch.checker import CheckResult, RuleResult, Violation
 from cerebrofy.arch.memory import write_violation_memories
-from cerebrofy.arch.rules import ArchRule, NoEdgeCheck, NoCyclesCheck
+from cerebrofy.arch.rules import ArchRule, NoCyclesCheck, NoEdgeCheck
 
 
 def _rule(name: str, severity: str = "error") -> ArchRule:

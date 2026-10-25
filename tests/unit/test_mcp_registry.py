@@ -25,7 +25,6 @@ import pytest
 
 from cerebrofy.mcp.tool_specs import SPEC_BY_NAME, TOOL_SPECS, ToolSpec
 
-
 EXPECTED_ORDER: list[str] = [
     "search_code",
     "get_neuron",
@@ -88,7 +87,6 @@ INJECT_TRUE: set[str] = {
     "cerebrofy_who",
     "cerebrofy_conflicts",
     "cerebrofy_insights",
-    "cerebrofy_synthesize",
     "cerebrofy_synthesize",
     "cerebrofy_narrative",
 }
@@ -207,8 +205,9 @@ def test_all_handlers_resolve_in_server() -> None:
 
 def test_dispatch_tool_unknown_returns_unknown_error() -> None:
     pytest.importorskip("mcp")
-    from cerebrofy.mcp import server as server_mod
     from mcp.types import TextContent
+
+    from cerebrofy.mcp import server as server_mod
 
     result = asyncio.run(server_mod.dispatch_tool("does_not_exist", {}))
 

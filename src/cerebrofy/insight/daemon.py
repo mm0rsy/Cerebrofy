@@ -13,8 +13,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlite3 import Connection
 
-from cerebrofy.memory.store import write_memory, Memory
+import itertools
+
 from cerebrofy.embedder import get_embedder
+from cerebrofy.memory.store import Memory, write_memory
 
 _logger = logging.getLogger(__name__)
 
@@ -100,7 +102,7 @@ def run_daemon(db_path: str | Path) -> list[Insight]:
                 from cerebrofy.narrative.generator import maybe_update_narrative
 
                 maybe_update_narrative(Path(db_path).parent.parent)
-            except Exception:  # narrative upkeep must never fail the daemon
+            except Exception:  # narrative upkeep must never fail the daemon  # noqa: BLE001
                 pass
 
         return new_insights
@@ -155,7 +157,7 @@ class TrendAlertDetector(BaseDetector):
 
         # Check coupling drift
         recent_coupling = [r["coupling"] for r in rows[:3]]
-        if all(r2 > r1 for r1, r2 in zip(recent_coupling, recent_coupling[1:])):
+        if all(r2 > r1 for r1, r2 in itertools.pairwise(recent_coupling)):
             drift_pct = ((recent_coupling[0] - recent_coupling[-1]) / recent_coupling[-1]) * 100
             if drift_pct >= 15:
                 insights.append(

@@ -189,8 +189,8 @@ def _handoff_section(plan: RefactorPlan) -> list[str]:
         "",
         plan.handoff_summary,
         "",
-        "Approve this plan, then hand it to an AI agent with "
-        "`cerebrofy_impact` verification at each step.",
+        ("Approve this plan, then hand it to an AI agent with "
+        "`cerebrofy_impact` verification at each step."),
         "",
     ]
 

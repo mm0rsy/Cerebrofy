@@ -68,7 +68,7 @@ def test_viz_serves_data_endpoint(repo_with_index, monkeypatch):
             with urllib.request.urlopen(f"http://localhost:{PORT}/data", timeout=2) as resp:
                 data = json.loads(resp.read())
             break
-        except Exception:
+        except Exception:  # noqa: BLE001
             continue
     assert data is not None, "viz server did not respond within 10 seconds"
 

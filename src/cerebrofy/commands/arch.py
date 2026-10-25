@@ -33,6 +33,7 @@ from cerebrofy.arch.reporter import (
     render_text,
 )
 from cerebrofy.arch.rules import (
+    SLACK_WEBHOOK_ENV,
     AllowedCallersCheck,
     ArchRule,
     Check,
@@ -41,7 +42,6 @@ from cerebrofy.arch.rules import (
     NoEdgeCheck,
     RulesConfig,
     RulesError,
-    SLACK_WEBHOOK_ENV,
     dump_arch_rules,
     rules_path,
     scaffold_arch_rules,
@@ -87,7 +87,7 @@ def _load_config(root: Path) -> CerebrоfyConfig:
     """Load config.yaml; any failure exits 2."""
     try:
         return load_config(root / ".cerebrofy" / "config.yaml")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Error: .cerebrofy/config.yaml could not be loaded — {exc}", err=True)
         sys.exit(_EXIT_CONFIG)
 
@@ -548,7 +548,7 @@ def _run_rule_wizard(root: Path) -> None:
         click.echo(f"Replacing existing rule '{name}'.")
     dump_arch_rules(
         RulesConfig(
-            rules=tuple([*kept, rule]),
+            rules=(*kept, rule),
             slack_webhook=existing.slack_webhook if existing else None,
             governance=existing.governance if existing else None,
         ),
@@ -668,7 +668,7 @@ def arch_watch(
             state = result.result + "|" + ",".join(f"{r}:{c}" for r, c, _ in drift)
             alert_text = _slack_message(result) if drift else None
             return WatchSample(state=state, text=render_text(result), alert_text=alert_text)
-        except Exception as exc:  # keep the loop alive on transient read errors
+        except Exception as exc:  # keep the loop alive on transient read errors  # noqa: BLE001
             return WatchSample(state=f"error:{exc}", text=f"Error: {exc}", alert_text=None)
 
     def notify(message: str) -> None:

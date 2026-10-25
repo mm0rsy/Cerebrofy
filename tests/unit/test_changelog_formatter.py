@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import pytest
 
+from cerebrofy.changelog.classifier import BREAKING, FEAT, INTERNAL
 from cerebrofy.changelog.formatter import (
     ENTRY_TYPE_META,
+    _visible_types,
     format_changelog,
     format_github,
     format_markdown,
     format_slack,
-    _visible_types,
 )
 from cerebrofy.changelog.generator import ChangelogEntry, ChangelogReport
-from cerebrofy.changelog.classifier import BREAKING, FEAT, INTERNAL
 
 
 def _entry(t: str, title: str = "T", text: str = "**n**: did a thing.") -> ChangelogEntry:

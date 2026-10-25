@@ -284,4 +284,4 @@ def _memory_payload(memory: Memory) -> dict[str, Any]:
     }
 
 
-__all__ = ["ConflictResolver", "ResolutionStrategy", "RESOLUTION_OPTIONS"]
+__all__ = ["RESOLUTION_OPTIONS", "ConflictResolver", "ResolutionStrategy"]

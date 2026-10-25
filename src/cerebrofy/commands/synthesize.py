@@ -13,10 +13,9 @@ from cerebrofy.memory.store import open_memories_db
 from cerebrofy.synthesizer import (
     list_synthesized_patterns,
     sessions_until_next_synthesis,
-    synthesize,
     synthesis_interval,
+    synthesize,
 )
-
 
 console = Console()
 

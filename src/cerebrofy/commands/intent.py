@@ -141,7 +141,7 @@ def intent_validate() -> None:
     try:
         from cerebrofy.intent.loader import load_intent
         intent = load_intent(root / ".cerebrofy")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Error: intent.yaml is malformed — {exc}", err=True)
         sys.exit(2)
 

@@ -187,8 +187,8 @@ def generate_codeowners(
 
         owners = [_owner_token(profile.primary)]
         comments = [
-            f"# {display}/ — Bus Factor: {profile.bus_factor} "
-            f"({_bus_factor_label(profile.bus_factor)}) — Primary: {profile.primary}"
+            (f"# {display}/ — Bus Factor: {profile.bus_factor} "
+            f"({_bus_factor_label(profile.bus_factor)}) — Primary: {profile.primary}")
         ]
         for caller in cross.get(lobe, ())[:_MAX_CO_REVIEWERS]:
             caller_profile = profiles.get(caller.caller_lobe)

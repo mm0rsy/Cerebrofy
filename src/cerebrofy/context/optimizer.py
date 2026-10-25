@@ -190,6 +190,7 @@ def optimize_context(
             plan.epistemic = compute_epistemic_state(conn, config.tracked_extensions, root)
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     return plan

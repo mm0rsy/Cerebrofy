@@ -120,5 +120,5 @@ def test_resolve_scope_is_frozen_dataclass() -> None:
     cs = ChangeSet(changes=(), detected_via="git")
     scope = resolve_scope(cs, conn)
     assert isinstance(scope, UpdateScope)
-    with pytest.raises(Exception):
+    with pytest.raises(RuntimeError):
         scope.changed_files = frozenset()  # type: ignore[misc]

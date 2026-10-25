@@ -92,10 +92,9 @@ def test_write_transaction_rolls_back_on_exception(tmp_path: Path) -> None:
     conn.execute("CREATE TABLE t (x INTEGER)")
     conn.commit()
 
-    with pytest.raises(ValueError, match="boom"):
-        with write_transaction(conn):
-            conn.execute("INSERT INTO t VALUES (1)")
-            raise ValueError("boom")
+    with pytest.raises(ValueError, match="boom"), write_transaction(conn):
+        conn.execute("INSERT INTO t VALUES (1)")
+        raise ValueError("boom")
 
     # Rolled back — no rows persisted.
     assert conn.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 0

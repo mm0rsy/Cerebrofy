@@ -4,12 +4,12 @@ from __future__ import annotations
 import time
 
 from cerebrofy.config.loader import MemoryConfig
-from cerebrofy.memory.decay import compute_decay, recompute_all_decay, _decay_status
-from cerebrofy.memory.store import Memory, open_memories_db, write_memory, get_memory
+from cerebrofy.memory.decay import _decay_status, compute_decay, recompute_all_decay
+from cerebrofy.memory.store import Memory, get_memory, open_memories_db, write_memory
 
 
 def _cfg(**kw) -> MemoryConfig:
-    defaults = dict(decay_half_life_days=70.0, possibly_stale_threshold=0.3, stale_threshold=0.1)
+    defaults = {"decay_half_life_days": 70.0, "possibly_stale_threshold": 0.3, "stale_threshold": 0.1}
     defaults.update(kw)
     return MemoryConfig(**defaults)
 

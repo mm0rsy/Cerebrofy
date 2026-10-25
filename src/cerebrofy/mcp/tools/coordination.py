@@ -75,7 +75,7 @@ def _close_registry(registry: Any) -> None:
         return
     try:
         registry.close()
-    except Exception:  # pragma: no cover - close is best-effort
+    except Exception:  # pragma: no cover - close is best-effort  # noqa: BLE001
         pass
 
 
@@ -86,7 +86,7 @@ def _error_text(code: str, message: str) -> list[Any]:
 def _resolve_root_or_error() -> tuple[Path | None, list[Any] | None]:
     try:
         return _find_root(Path.cwd()), None
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None, _error_text(
             NO_INDEX, "could not find .cerebrofy directory. Run 'cerebrofy init' first."
         )
@@ -183,7 +183,7 @@ def handle_claim(arguments: dict[str, Any]) -> list[Any]:
         return _error_text(NO_INDEX, str(exc))
     except CerebrofyError as exc:
         return _error_text(exc.code, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _error_text(CEREBROFY_ERROR, f"cerebrofy_claim failed: {exc}")
     finally:
         _close_registry(registry)
@@ -255,7 +255,7 @@ def handle_release(arguments: dict[str, Any]) -> list[Any]:
         return _error_text(NO_INDEX, str(exc))
     except CerebrofyError as exc:
         return _error_text(exc.code, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _error_text(CEREBROFY_ERROR, f"cerebrofy_release failed: {exc}")
     finally:
         _close_registry(registry)
@@ -299,11 +299,11 @@ def handle_who(arguments: dict[str, Any]) -> list[Any]:
         agents = registry.get_active_agents(cleanup=False)
         try:
             conflicts = registry.detect_overlapping_claims()
-        except Exception:
+        except Exception:  # noqa: BLE001
             conflicts = []
     except FileNotFoundError as exc:
         return _error_text(NO_INDEX, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _error_text(CEREBROFY_ERROR, f"cerebrofy_who failed: {exc}")
     finally:
         _close_registry(registry)
@@ -353,7 +353,7 @@ def handle_conflicts(arguments: dict[str, Any]) -> list[Any]:
         memory_conflicts = registry.detect_memory_conflicts(neuron_str)
     except FileNotFoundError as exc:
         return _error_text(NO_INDEX, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _error_text(CEREBROFY_ERROR, f"cerebrofy_conflicts failed: {exc}")
     finally:
         _close_registry(registry)
@@ -405,7 +405,7 @@ def handle_resolve(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         from cerebrofy.coordination.resolver import ConflictResolver
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _error_text(CEREBROFY_ERROR, f"coordination core unavailable: {exc}")
 
     try:
@@ -426,7 +426,7 @@ def handle_resolve(arguments: dict[str, Any]) -> list[Any]:
         return _error_text(CONFIG_ERROR, str(exc))
     except CerebrofyError as exc:
         return _error_text(exc.code, str(exc))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _error_text(CEREBROFY_ERROR, f"cerebrofy_resolve failed: {exc}")
 
     if not isinstance(result, dict):
@@ -443,8 +443,8 @@ def handle_resolve(arguments: dict[str, Any]) -> list[Any]:
 
 __all__ = [
     "handle_claim",
-    "handle_release",
-    "handle_who",
     "handle_conflicts",
+    "handle_release",
     "handle_resolve",
+    "handle_who",
 ]
