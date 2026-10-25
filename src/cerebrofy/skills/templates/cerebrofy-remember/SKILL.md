@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-remember
+description: "Write structured decision, warning, and context memories into Cerebrofy, then recall and trace them through the causal memory graph."
+---
+
 # Skill: cerebrofy-remember
 
 > Write structured memories into Cerebrofy and traverse the causal memory graph.
@@ -92,4 +96,3 @@ cerebrofy_trace_history(memory="<memory-id>", depth=5)
 | `resolved` | B fixed the problem described in A |
 | `contradicts` | A and B represent conflicting guidance |
 | `updated_by` | B supersedes or revises A |
-````

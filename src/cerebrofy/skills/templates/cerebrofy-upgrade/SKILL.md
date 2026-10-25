@@ -1,3 +1,8 @@
+---
+name: cerebrofy-upgrade
+description: "Map every call site of a dependency's changing API, estimate migration effort, and sequence the upgrade safely."
+---
+
 # Skill: cerebrofy-upgrade
 
 > Map every place your code uses a dependency's changing API, estimate the migration effort, and sequence the fix — before you bump the version.

@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-session
+description: "Record AI agent sessions as replayable, auditable timelines of tool calls, neurons touched, and graph changes."
+---
+
 # Skill: cerebrofy-session
 
 > Live agent session recorder: every MCP tool call recorded as a replayable, auditable session.
@@ -66,4 +70,3 @@ cerebrofy_session_show(session_id="sess_abc123", format="json")
 | `SESSION_NOT_FOUND` | No session with that ID | `cerebrofy session list` |
 | `NO_ACTIVE_SESSION` | `session_end` called for an already-ended session | Start a new session |
 | `RECORDING_DISABLED` | `record_sessions` is false | Enable it and restart the MCP server |
-````

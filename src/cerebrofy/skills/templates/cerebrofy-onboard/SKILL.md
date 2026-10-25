@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-onboard
+description: "Generate a topology-derived onboarding guide for any developer joining a codebase."
+---
+
 # Skill: cerebrofy-onboard
 
 > Generate a topology-derived onboarding guide for any developer joining a codebase.
@@ -59,4 +63,3 @@ The `depth` field in the output tells you how to calibrate:
 | Where execution starts | `structured.entry_points` from any call |
 | What to avoid first | `structured.hotspots` |
 | Where to start contributing | `structured.safe_zones` |
-````

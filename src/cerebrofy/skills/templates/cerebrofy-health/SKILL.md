@@ -1,3 +1,8 @@
+---
+name: cerebrofy-health
+description: "Longitudinal, graph-derived codebase health — know whether your codebase is getting better or worse on every build."
+---
+
 # Skill: cerebrofy-health
 
 > Longitudinal, graph-derived codebase health — know whether your codebase is getting better or worse on every build.

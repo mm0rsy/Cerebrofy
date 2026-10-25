@@ -1,3 +1,8 @@
+---
+name: cerebrofy-arch-check
+description: "Architecture drift alerts — verify code changes against .cerebrofy/arch-rules.yaml using the live call graph."
+---
+
 # Skill: cerebrofy-arch-check
 
 > Architecture drift alerts — verify code changes against `.cerebrofy/arch-rules.yaml` using the live call graph.

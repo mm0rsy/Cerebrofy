@@ -1,3 +1,8 @@
+---
+name: cerebrofy-blast-radius
+description: "Graph-topology risk report for any code change — every caller affected, test coverage gaps, and a risk score."
+---
+
 # Skill: cerebrofy-blast-radius
 
 > Graph-topology risk report for any code change — every caller affected, test coverage gaps, and a risk score.

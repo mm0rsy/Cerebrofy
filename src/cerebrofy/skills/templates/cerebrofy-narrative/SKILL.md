@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-narrative
+description: "Read the story of the codebase — how it evolved, what changed it, and where it is going."
+---
+
 # Skill: cerebrofy-narrative
 
 > Read the story of the codebase — how it evolved, what changed it, and where it is going.
@@ -67,4 +71,3 @@ Generation needs at least three health snapshots. If the tool returns
 | Current direction | `cerebrofy_narrative(section="trajectory")` |
 | One era | `cerebrofy_narrative(era=2)` |
 | Regenerate now | `cerebrofy_narrative(update=true)` |
-````

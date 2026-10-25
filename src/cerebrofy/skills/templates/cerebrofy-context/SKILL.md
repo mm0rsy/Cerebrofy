@@ -1,3 +1,8 @@
+---
+name: cerebrofy-context
+description: "Graph-aware, budget-constrained optimal context window — the right code, nothing more."
+---
+
 # Skill: cerebrofy-context
 
 > Graph-aware, budget-constrained optimal context window — the right code, nothing more.

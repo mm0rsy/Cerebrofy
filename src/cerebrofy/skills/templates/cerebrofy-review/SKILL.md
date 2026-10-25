@@ -1,3 +1,8 @@
+---
+name: cerebrofy-review
+description: "Graph-aware code review covering blast radius, past decisions, architecture rules, test coverage gaps, and knowledge silos."
+---
+
 # Skill: cerebrofy-review
 
 > Graph-aware code review — blast radius, past decisions, architecture rules, test coverage gaps, and knowledge silos in one report.

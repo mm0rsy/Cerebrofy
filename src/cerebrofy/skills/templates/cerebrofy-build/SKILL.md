@@ -1,3 +1,8 @@
+---
+name: cerebrofy-build
+description: "Full atomic re-index of the codebase into a local graph + vector database."
+---
+
 # Skill: cerebrofy-build
 
 > Full atomic re-index of the codebase into a local graph + vector database.

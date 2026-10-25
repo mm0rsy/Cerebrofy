@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-search
+description: "Semantic plus keyword hybrid search over the Cerebrofy index to find functions, classes, and modules by meaning."
+---
+
 # Skill: cerebrofy-search
 
 > Semantic + keyword hybrid search over the Cerebrofy index.
@@ -37,4 +41,3 @@ Navigate only to the exact file:line returned.
 | List all modules | `list_lobes()` |
 | Module overview | Read `docs/cerebrofy/<name>_lobe.md` |
 | Full map | Read `docs/cerebrofy/cerebrofy_map.md` |
-````

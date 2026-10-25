@@ -1,6 +1,6 @@
 ---
 name: cerebrofy-coordination
-description: Coordinate multiple AI agents working on the same codebase — see who is active, claim neurons before editing, detect claim collisions, and resolve contradicting memories. Use when multiple agents work concurrently, before editing shared code, or when two memories disagree.
+description: "Coordinate multiple AI agents on one codebase: track active agents, claim neurons before editing, and resolve conflicting memories."
 trigger: /cerebrofy:coordination
 ---
 

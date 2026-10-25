@@ -1,3 +1,8 @@
+---
+name: cerebrofy-vuln
+description: "Map which of your functions are exposed to a vulnerable package, ranked by real exposure, before you patch anything."
+---
+
 # Skill: cerebrofy-vuln
 
 > Map which of YOUR functions are exposed to a vulnerable package — before you patch anything.

@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-silo
+description: "Detect knowledge silos by combining git blame with the call graph to surface bus-factor risk per function."
+---
+
 # Skill: cerebrofy-silo
 
 > Knowledge silo detection: git blame × call graph = bus factor risk per function.
@@ -53,4 +57,3 @@ For each CRITICAL or HIGH silo:
 1. Run `cerebrofy impact <neuron_name>` to see full blast radius
 2. Prioritise a pair-programming or documentation session with the primary owner
 3. Add a `cerebrofy memory add` warning attached to the neuron so future agents surface the risk automatically
-````
