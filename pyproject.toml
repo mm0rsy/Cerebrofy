@@ -31,6 +31,7 @@ dependencies = [
     "sqlite-vec>=0.1.6,<0.2.0",
     "rich-click>=1.9.7",
     "fastembed>=0.3",
+    "mcp>=1.30.0",
 ]
 
 [project.optional-dependencies]
