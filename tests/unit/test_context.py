@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-
-from cerebrofy.context.token_counter import count_tokens, tokens_for_source
-from cerebrofy.context.scorer import compute_relevance
+from cerebrofy.context.exporter import to_claude_xml, to_json, to_markdown
 from cerebrofy.context.optimizer import (
     ContextNeuron,
     ContextPlan,
@@ -12,9 +10,9 @@ from cerebrofy.context.optimizer import (
     _read_lobe_summary,
     _signature_text,
 )
+from cerebrofy.context.scorer import compute_relevance
+from cerebrofy.context.token_counter import count_tokens, tokens_for_source
 from cerebrofy.epistemic.state import EpistemicState
-from cerebrofy.context.exporter import to_json, to_markdown, to_claude_xml
-
 
 # ---------------------------------------------------------------------------
 # token_counter

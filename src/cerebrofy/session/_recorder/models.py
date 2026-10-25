@@ -11,7 +11,11 @@ from typing import Any
 
 from cerebrofy.errors import (
     NO_ACTIVE_SESSION as NO_ACTIVE_SESSION,
+)
+from cerebrofy.errors import (
     RECORDING_DISABLED as RECORDING_DISABLED,
+)
+from cerebrofy.errors import (
     SESSION_NOT_FOUND as SESSION_NOT_FOUND,
 )
 

@@ -13,7 +13,6 @@ from rich.console import Console
 from cerebrofy.insight.daemon import run_daemon
 from cerebrofy.insight.notifier import format_insights_cli
 
-
 console = Console()
 
 

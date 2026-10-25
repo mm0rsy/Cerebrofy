@@ -51,7 +51,7 @@ def handle_changelog(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(
             "[NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init' and 'cerebrofy build' first."
@@ -82,7 +82,7 @@ def handle_changelog(arguments: dict[str, Any]) -> list[Any]:
         return _err(f"[{exc.code}] {exc.message}")
     except ValueError as exc:
         return _err(f"[error] {exc}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"cerebrofy_changelog failed: {exc}")
 
     return [TextContent(type="text", text=json.dumps(report.to_dict(), indent=2))]

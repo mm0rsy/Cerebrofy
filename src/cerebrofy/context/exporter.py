@@ -37,10 +37,10 @@ def to_markdown(plan: ContextPlan) -> str:
     lines = [
         f"# Context Plan: {plan.task}",
         "",
-        f"**Budget:** {plan.token_budget} tokens | "
+        (f"**Budget:** {plan.token_budget} tokens | "
         f"**Used:** {plan.tokens_used} tokens | "
         f"**Neurons:** {len(plan.neurons)} | "
-        f"**Truncated:** {plan.truncated_count}",
+        f"**Truncated:** {plan.truncated_count}"),
         "",
     ]
 

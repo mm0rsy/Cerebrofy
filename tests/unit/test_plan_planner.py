@@ -20,17 +20,12 @@ from cerebrofy.planning.extractor import (
     ClusterNeuron,
     NeuronCluster,
 )
-from cerebrofy.planning.planner import (
+from cerebrofy.planning.planner import (  # pipeline steps under test
     CLUSTER_TOO_LARGE,
     CLUSTER_TOO_SMALL,
     NO_INDEX,
     PlanContext,
     PlanError,
-    build_refactor_plan,
-    derive_module_name,
-    map_cluster_files,
-)
-from cerebrofy.planning.planner import (  # pipeline steps under test
     _annotate_impact_step,
     _blast_label_step,
     _collect_context_step,
@@ -40,6 +35,9 @@ from cerebrofy.planning.planner import (  # pipeline steps under test
     _map_files_step,
     _name_module_step,
     _sequence_step,
+    build_refactor_plan,
+    derive_module_name,
+    map_cluster_files,
 )
 
 _QUERY = [1.0, 0.0, 0.0, 0.0]
@@ -118,12 +116,12 @@ def _generate(tmp_path: Path, db_path: Path, **kwargs: Any) -> Any:
         raise PlanError(NO_INDEX, "Index not found. Run 'cerebrofy build' first.") from exc
     
     try:
-        defaults: dict[str, Any] = dict(
-            description="extract the payment logic into a payments service",
-            conn=conn,
-            embedding=_QUERY,
-            repo_root=tmp_path,
-        )
+        defaults: dict[str, Any] = {
+            "description": "extract the payment logic into a payments service",
+            "conn": conn,
+            "embedding": _QUERY,
+            "repo_root": tmp_path,
+        }
         defaults.update(kwargs)
         return build_refactor_plan(**defaults)
     finally:

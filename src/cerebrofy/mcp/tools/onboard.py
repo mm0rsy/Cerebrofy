@@ -32,7 +32,7 @@ def handle_onboard(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -71,5 +71,5 @@ def handle_onboard(arguments: dict[str, Any]) -> list[Any]:
         if "schema" in msg.lower():
             return _err("Schema version mismatch. Run 'cerebrofy migrate'.")
         return _err(f"cerebrofy_onboard failed: {exc}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"cerebrofy_onboard failed: {exc}")

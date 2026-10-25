@@ -25,7 +25,6 @@ from cerebrofy.arch.rules import (
 )
 from cerebrofy.epistemic.state import EpistemicState
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

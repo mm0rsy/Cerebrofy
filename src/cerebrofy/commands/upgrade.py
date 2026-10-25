@@ -11,7 +11,7 @@ import rich_click as click
 
 from cerebrofy.db.connection import check_schema_version
 from cerebrofy.errors import NO_INDEX
-from cerebrofy.upgrade.fixer import FixResult, FixerError, apply_fixes
+from cerebrofy.upgrade.fixer import FixerError, FixResult, apply_fixes
 from cerebrofy.upgrade.manifest import ManifestError, find_manifest
 from cerebrofy.upgrade.planner import UpgradePlan, build_plan, render_markdown
 from cerebrofy.upgrade.scanner import scan_package

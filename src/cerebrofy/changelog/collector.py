@@ -41,7 +41,7 @@ def _load_memories(cerebrofy_dir: Path) -> dict[str, list[Memory]]:
             memories = _list_memories(conn, include_stale=False)
         finally:
             conn.close()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return {}
 
     grouped: dict[str, list[Memory]] = {}

@@ -58,7 +58,7 @@ def _embed_task(task: str, config_path: Path) -> list[float] | None:
 
         config = load_config(config_path)
         return embed_query(task, config.embedding_model)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return None
 
 
@@ -91,7 +91,7 @@ def handle_session_start(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     config_path = root / ".cerebrofy" / "config.yaml"
@@ -142,7 +142,7 @@ def handle_session_end(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -174,7 +174,7 @@ def handle_session_end(arguments: dict[str, Any]) -> list[Any]:
             )
         except ValueError as exc:
             return _err(f"[error] {exc}")
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001
         return _err(f"cerebrofy_session_end failed: {exc}")
     finally:
         conn.close()
@@ -209,7 +209,7 @@ def handle_session_show(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -243,7 +243,7 @@ def handle_session_show(arguments: dict[str, Any]) -> list[Any]:
         return [TextContent(type="text", text=render_markdown(session, events, diff))]
     except LookupError:
         return _err(f"[{SESSION_NOT_FOUND}] no session with id '{session_id_str or '<latest>'}'.")
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001
         return _err(f"cerebrofy_session_show failed: {exc}")
     finally:
         conn.close()
@@ -267,7 +267,7 @@ def handle_session_search(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -285,8 +285,9 @@ def handle_session_search(arguments: dict[str, Any]) -> list[Any]:
         from cerebrofy.search.hybrid import embed_query
         config = load_config(config_path)
         embedding = embed_query(query, config.embedding_model)
-    except Exception:
-        pass  # fall back to text match
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
     conn = _open_sessions(cerebrofy_dir)
     try:
@@ -327,7 +328,7 @@ def handle_session_export(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -363,7 +364,7 @@ def handle_session_export(arguments: dict[str, Any]) -> list[Any]:
         return [TextContent(type="text", text=content)]
     except LookupError:
         return _err(f"[{SESSION_NOT_FOUND}] no session with id '{session_id_str or '<latest>'}'.")
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover - defensive  # noqa: BLE001
         return _err(f"cerebrofy_session_export failed: {exc}")
     finally:
         conn.close()

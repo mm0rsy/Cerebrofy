@@ -38,21 +38,21 @@ from cerebrofy.db.connection import check_schema_version
 from cerebrofy.epistemic.state import compute_epistemic_state
 from cerebrofy.errors import (
     CEREBROFY_ERROR,
-    CerebrofyError,
     GH_NOT_AUTHENTICATED,
     NO_DIFF_PROVIDED,
     NO_INDEX,
     REF_NOT_FOUND,
+    CerebrofyError,
 )
 from cerebrofy.intent.loader import sprint_priority_lobes
 from cerebrofy.memory.store import Memory, list_memories
 from cerebrofy.review.finding import (
-    Finding,
-    HealthDelta,
-    ReviewReport,
     SEVERITY_ERROR,
     SEVERITY_INFO,
     SEVERITY_WARNING,
+    Finding,
+    HealthDelta,
+    ReviewReport,
     SuggestedReviewer,
     compute_severity_score,
     filter_findings,
@@ -385,7 +385,7 @@ def _arch_findings(
         rules = load_arch_rules(root)
     except RulesError as exc:
         return [], [f"architecture rules (invalid arch-rules.yaml: {exc})"]
-    except Exception as exc:  # YAML parser errors, unreadable file, ...
+    except Exception as exc:  # YAML parser errors, unreadable file, ...  # noqa: BLE001
         return [], [f"architecture rules (invalid arch-rules.yaml: {exc})"]
     if rules is None:
         return [], ["architecture rules (no .cerebrofy/arch-rules.yaml)"]
@@ -395,15 +395,15 @@ def _arch_findings(
     lobes: dict[str, str] = {}
     try:
         lobes = load_config(root / ".cerebrofy" / "config.yaml").lobes
-    except Exception:
-        pass
-
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     priority_lobes: frozenset[str] = frozenset()
     try:
         from cerebrofy.intent.loader import sprint_priority_lobes
 
         priority_lobes = sprint_priority_lobes(root / ".cerebrofy")
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         priority_lobes = frozenset()
 
     try:
@@ -415,7 +415,7 @@ def _arch_findings(
             changed_files=frozenset(changed_files),
             priority_lobes=priority_lobes,
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return [], [f"architecture rules (checker failed: {exc})"]
 
     for rule_name, error in result.config_errors:
@@ -459,7 +459,7 @@ def _coverage_findings(
 ) -> tuple[list[Finding], list[str]]:
     try:
         covered, source = _detect_covered_neurons(root, conn)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return [], [f"coverage gaps (could not detect coverage: {exc})"]
 
     findings: list[Finding] = []
@@ -572,9 +572,9 @@ def _load_graph_snapshot(
                 node_id: _lobe_for_file(node_files[node_id], config.lobes)
                 for node_id in health_lobes
             }
-        except Exception:
-            pass
-
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     edges = [
         (str(src), str(dst))
         for src, dst in conn.execute(
@@ -800,8 +800,9 @@ def run_review(
             for finding in behaviors:
                 if finding.neuron_lobe in priority_lobes:
                     finding.severity_score = min(1.0, finding.severity_score * 1.2)
-    except Exception:
-        pass  # Intent integration degrades gracefully
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
     snapshot = _load_graph_snapshot(conn, contexts, root)
     health_delta = _compute_health_delta(snapshot, contexts)
@@ -895,5 +896,5 @@ def _record_review_session(
             )
         finally:
             middleware.close()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return

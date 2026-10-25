@@ -38,7 +38,6 @@ from cerebrofy.session.recorder import (
     write_session_summary_memory,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -789,9 +788,8 @@ def test_write_memory_if_possible_swallows_and_logs(
     mem = build_session_memory(_closed_session())
     with patch(
         "cerebrofy.memory.store.open_memories_db", side_effect=RuntimeError("db down")
-    ):
-        with caplog.at_level(logging.WARNING, logger="cerebrofy.session.recorder"):
-            result = write_memory_if_possible(_cerebrofy_dir(tmp_path), mem, embed_memory)
+    ), caplog.at_level(logging.WARNING, logger="cerebrofy.session.recorder"):
+        result = write_memory_if_possible(_cerebrofy_dir(tmp_path), mem, embed_memory)
     assert result is False
     assert "failed to write session summary memory" in caplog.text
 
@@ -923,7 +921,7 @@ def test_concurrent_session_start_assigns_unique_ids(tmp_path: Path) -> None:
                 conn.close()
             with lock:
                 ids.append(session.id)
-        except BaseException as exc:  # pragma: no cover - failure path
+        except BaseException as exc:  # pragma: no cover - failure path  # noqa: BLE001
             with lock:
                 errors.append(exc)
 
@@ -967,7 +965,7 @@ def test_concurrent_recording_across_connections_persists_all_events(tmp_path: P
                     record_event(conn, session_id, tool=f"tool_{i}_{j}")
             finally:
                 conn.close()
-        except BaseException as exc:  # pragma: no cover - failure path
+        except BaseException as exc:  # pragma: no cover - failure path  # noqa: BLE001
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]

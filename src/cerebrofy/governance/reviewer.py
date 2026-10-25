@@ -313,7 +313,7 @@ def _active_agent_emails() -> frozenset[str]:
             return frozenset()
         values = getter()
         return frozenset(str(value) for value in values)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return frozenset()
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-
 from cerebrofy.analysis.blast_radius import (
     BlastNeuron,
     BlastRadiusReport,
@@ -17,10 +16,9 @@ from cerebrofy.analysis.blast_radius import (
     neuron_for_target,
     neurons_for_changed_files,
 )
-from cerebrofy.analysis.risk_scorer import compute_risk_score, risk_label, risk_icon
+from cerebrofy.analysis.risk_scorer import compute_risk_score, risk_icon, risk_label
 from cerebrofy.ci.github_commenter import parse_changed_files_from_diff
-from cerebrofy.graph.edges import RUNTIME_BOUNDARY, LOCAL_CALL
-
+from cerebrofy.graph.edges import LOCAL_CALL, RUNTIME_BOUNDARY
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -191,7 +189,7 @@ def test_bfs_callers_depth1():
     _node(conn, "a.py::target", "target", "a.py")
     _node(conn, "b.py::caller", "caller", "b.py")
     _edge(conn, "b.py::caller", "a.py::target")
-    d1, d2, rb = bfs_callers("a.py::target", conn, max_depth=2)
+    d1, d2, _rb = bfs_callers("a.py::target", conn, max_depth=2)
     assert any(n.name == "caller" for n in d1)
     assert d2 == []
 
@@ -203,7 +201,7 @@ def test_bfs_callers_depth2():
     _node(conn, "c.py::caller2", "caller2", "c.py")
     _edge(conn, "b.py::caller1", "a.py::target")
     _edge(conn, "c.py::caller2", "b.py::caller1")
-    d1, d2, rb = bfs_callers("a.py::target", conn, max_depth=2)
+    d1, d2, _rb = bfs_callers("a.py::target", conn, max_depth=2)
     assert len(d1) == 1
     assert len(d2) == 1
     assert d2[0].name == "caller2"
@@ -214,7 +212,7 @@ def test_bfs_callers_runtime_boundary_excluded():
     _node(conn, "a.py::target", "target", "a.py")
     _node(conn, "b.py::caller", "caller", "b.py")
     _edge(conn, "b.py::caller", "a.py::target", rel=RUNTIME_BOUNDARY)
-    d1, d2, rb = bfs_callers("a.py::target", conn, max_depth=2)
+    d1, _d2, rb = bfs_callers("a.py::target", conn, max_depth=2)
     assert d1 == []
     assert "b.py::caller" in rb
 
@@ -235,7 +233,7 @@ def test_find_covering_tests_found():
     _node(conn, "auth/tokens.py::target", "target", "auth/tokens.py")
     _node(conn, "tests/test_tokens.py::test_fn", "test_fn", "tests/test_tokens.py")
     _edge(conn, "tests/test_tokens.py::test_fn", "auth/tokens.py::target")
-    tests, uncovered = find_covering_tests("auth/tokens.py::target", set(), conn)
+    tests, _uncovered = find_covering_tests("auth/tokens.py::target", set(), conn)
     assert any(t.name == "test_fn" for t in tests)
 
 
@@ -243,7 +241,7 @@ def test_find_covering_tests_uncovered():
     conn = _make_db()
     _node(conn, "a.py::target", "target", "a.py")
     _node(conn, "b.py::caller", "caller", "b.py")
-    tests, uncovered = find_covering_tests("a.py::target", {"b.py::caller"}, conn)
+    _tests, uncovered = find_covering_tests("a.py::target", {"b.py::caller"}, conn)
     assert "b.py::caller" in uncovered
 
 

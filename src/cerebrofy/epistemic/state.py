@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Dataclass
 # ---------------------------------------------------------------------------
@@ -69,7 +68,7 @@ def _memory_stale_count(repo_root: Path) -> int:
         row = conn.execute("SELECT COUNT(*) FROM memories WHERE status = 'stale'").fetchone()
         conn.close()
         return int(row[0]) if row else 0
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return 0
 
 
@@ -124,10 +123,10 @@ def _graph_age_hours(conn: sqlite3.Connection) -> float:
     try:
         ts_str: str = row[0]
         # Stored as "2026-06-21T01:23:45Z"
-        dt = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+        dt = datetime.datetime.fromisoformat(ts_str)
         now = datetime.datetime.now(datetime.timezone.utc)
         return (now - dt).total_seconds() / 3600.0
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return 0.0
 
 
@@ -169,7 +168,7 @@ def _neurons_changed_since_build(conn: sqlite3.Connection, repo_root: Path) -> i
             list(changed_files),
         ).fetchone()
         return int(row[0]) if row else 0
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return 0
 
 
@@ -195,8 +194,9 @@ def _unindexed_languages(
                 found.add(ext)
                 if len(found) >= 10:  # cap scan to avoid slow traversal
                     break
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     return sorted(found)
 
 

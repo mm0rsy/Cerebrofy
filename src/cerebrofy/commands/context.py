@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 import rich_click as click
+from rich import box
 from rich.console import Console
 from rich.table import Table
-from rich import box
 
 from cerebrofy.context.optimizer import ContextPlan
 

@@ -16,12 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from cerebrofy.analysis.blast_radius import bfs_callers
-from cerebrofy.constants import DEFAULT_GIT_TIMEOUT_SECONDS
 from cerebrofy.config.loader import ChangelogConfig
+from cerebrofy.constants import DEFAULT_GIT_TIMEOUT_SECONDS
 from cerebrofy.errors import REF_NOT_FOUND
 from cerebrofy.memory.store import Memory
 from cerebrofy.update.change_detector import detect_changes_between_refs
 from cerebrofy.validate.drift_classifier import classify_drift
+
 # ``classify_drift`` is imported at module scope because ``cerebrofy.validate.
 # drift_classifier`` has no dependency on this module — moving it here (m9)
 # removed a function-scope import that obscured the true dependency graph.

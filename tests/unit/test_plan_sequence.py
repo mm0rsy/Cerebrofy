@@ -8,7 +8,6 @@ from cerebrofy.graph.edges import LOCAL_CALL
 from cerebrofy.planning.extractor import ClusterNeuron
 from cerebrofy.planning.sequence import MigrationStep, build_migration_steps
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

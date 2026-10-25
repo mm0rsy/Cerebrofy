@@ -49,7 +49,7 @@ def _resolve_root() -> Path | None:
 
     try:
         return find_repo_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return None
 
 
@@ -66,7 +66,7 @@ def _open_registry(root: Path) -> ActiveAgentRegistry | None:
         return None
     try:
         return ActiveAgentRegistry(str(db_path), readonly=True)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return None
 
 
@@ -164,7 +164,7 @@ def check_conflicts(
         # ``BEGIN IMMEDIATE`` (reads still succeed; writes would block).
         try:
             agents = registry.get_active_agents(cleanup=False)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
             agents = {}
 
         if isinstance(agents, dict) and agents:
@@ -174,18 +174,18 @@ def check_conflicts(
                 )
                 result["claim_conflicts"] = claim_conflicts
                 result["has_claim_conflict"] = bool(claim_conflicts)
-            except Exception:
-                pass
-
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
             try:
                 lobe_awareness = _lobe_awareness_from_agents(
                     agents, neuron_id, requesting_agent
                 )
                 result["lobe_awareness"] = lobe_awareness
                 result["has_lobe_activity"] = bool(lobe_awareness)
-            except Exception:
-                pass
-
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
         if memories:
             try:
                 detector = ConflictDetector(
@@ -196,12 +196,13 @@ def check_conflicts(
                 )
                 result["memory_conflicts"] = _as_dict_list(memory_conflicts)
                 result["has_memory_conflict"] = bool(result["memory_conflicts"])
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     finally:
         try:
             registry.close()
-        except Exception:  # pragma: no cover - close is best-effort
+        except Exception as exc:  # pragma: no cover - close is best-effort  # noqa: BLE001
             pass
 
     return result

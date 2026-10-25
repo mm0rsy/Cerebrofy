@@ -261,5 +261,5 @@ def _fetch_memory_warnings(neuron_id: str, cerebrofy_dir: Path | None) -> list[s
         finally:
             conn.close()
         return [m.title for m in warnings]
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return []

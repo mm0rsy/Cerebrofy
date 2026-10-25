@@ -251,9 +251,9 @@ def format_summary(report: ReviewReport, *, target: str | None = None) -> str:
     lines = [
         heading,
         "",
-        f"Files Changed: **{report.files_changed}**  |  "
+        (f"Files Changed: **{report.files_changed}**  |  "
         f"Neurons Changed: **{report.neurons_changed}**  |  "
-        f"Max Blast Radius: **{report.max_blast_radius}**",
+        f"Max Blast Radius: **{report.max_blast_radius}**"),
         "",
     ]
 
@@ -289,8 +289,8 @@ def format_summary(report: ReviewReport, *, target: str | None = None) -> str:
             "",
             "### Health impact",
             "",
-            f"coupling {report.health_delta.coupling:+.4f}, "
-            f"avg blast {report.health_delta.avg_blast:+.2f}",
+            (f"coupling {report.health_delta.coupling:+.4f}, "
+            f"avg blast {report.health_delta.avg_blast:+.2f}"),
         ]
     )
 

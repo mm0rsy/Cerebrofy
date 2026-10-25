@@ -25,7 +25,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-
 # ---------------------------------------------------------------------------
 # Filesystem helpers
 # ---------------------------------------------------------------------------
@@ -154,7 +153,7 @@ def memories_for_neuron(neuron_id: str, root: Path) -> list[dict[str, Any]]:
             return [dataclasses.asdict(m) for m in list_memories(conn, neuron_id=neuron_id)]
         finally:
             conn.close()
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return []
 
 

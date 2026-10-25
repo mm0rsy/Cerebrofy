@@ -214,14 +214,14 @@ def render_html(
     parts += [
         "<h2>Risk Assessment</h2>",
         "<div class='cards'>",
-        f"<div class='card'><div class='value'>{_esc(_metric(session.blast_radius_before))}</div>"
-        f"<div class='label'>Blast radius before</div></div>",
-        f"<div class='card'><div class='value'>{_esc(_metric(session.blast_radius_after))}</div>"
-        f"<div class='label'>Blast radius after</div></div>",
-        f"<div class='card'><div class='value'>{_esc(_VERDICT_TEXT.get(verdict_key, 'unknown'))}</div>"
-        f"<div class='label'>Verdict</div></div>",
-        f"<div class='card'><div class='value'>{_esc(session.event_count)}</div>"
-        f"<div class='label'>Events recorded</div></div>",
+        (f"<div class='card'><div class='value'>{_esc(_metric(session.blast_radius_before))}</div>"
+        f"<div class='label'>Blast radius before</div></div>"),
+        (f"<div class='card'><div class='value'>{_esc(_metric(session.blast_radius_after))}</div>"
+        f"<div class='label'>Blast radius after</div></div>"),
+        (f"<div class='card'><div class='value'>{_esc(_VERDICT_TEXT.get(verdict_key, 'unknown'))}</div>"
+        f"<div class='label'>Verdict</div></div>"),
+        (f"<div class='card'><div class='value'>{_esc(session.event_count)}</div>"
+        f"<div class='label'>Events recorded</div></div>"),
         "</div>",
     ]
 
@@ -261,9 +261,9 @@ def render_html(
         parts.append("<p><em>No events recorded.</em></p>")
     else:
         parts += [
-            "<table><thead><tr>"
+            ("<table><thead><tr>"
             "<th>#</th><th>Time</th><th>Tool</th><th>Details</th><th>Result</th>"
-            "</tr></thead><tbody>"
+            "</tr></thead><tbody>")
         ]
         for i, event in enumerate(events, 1):
             parts.append(
@@ -275,9 +275,9 @@ def render_html(
         parts.append("</tbody></table>")
 
     parts += [
-        "<footer>Recorded locally by Cerebrofy — no code or session data leaves "
+        ("<footer>Recorded locally by Cerebrofy — no code or session data leaves "
         "this machine. Opt-in via <code>record_sessions: true</code> in "
-        "<code>.cerebrofy/config.yaml</code>.</footer>",
+        "<code>.cerebrofy/config.yaml</code>.</footer>"),
         "</body>",
         "</html>",
     ]

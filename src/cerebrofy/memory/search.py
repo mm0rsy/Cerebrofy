@@ -5,7 +5,7 @@ import json
 import sqlite3
 from typing import Any
 
-from cerebrofy.memory.store import Memory, _SELECT_COLS, row_to_memory
+from cerebrofy.memory.store import _SELECT_COLS, Memory, row_to_memory
 
 
 def recall_memories(

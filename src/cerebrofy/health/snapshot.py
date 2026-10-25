@@ -22,8 +22,9 @@ def _get_current_commit(repo_root: str) -> str | None:
         )
         if result.returncode == 0:
             return result.stdout.strip() or None
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     return None
 
 

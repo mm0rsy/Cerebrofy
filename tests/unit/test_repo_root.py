@@ -9,8 +9,9 @@ MCP tool handlers against unbounded ``top_k`` / ``limit`` / ``top`` values.
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from cerebrofy.utils.paths import (
     CONFIG_MARKER,
@@ -23,7 +24,6 @@ from cerebrofy.utils.paths import (
     set_bound_root,
     set_root_boundary,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -383,16 +383,15 @@ def test_db_marker_value() -> None:
 
 pytest.importorskip("mcp")
 
-from cerebrofy.mcp.server import (  # noqa: E402  (import after skip guard)
-    _bootstrap_root,
-    _bind_launch_boundary,
-    _parse_int_arg,
-    _run_cerebrofy,
+from cerebrofy.mcp.server import (
     _MAX_LIMIT,
     _MAX_RESULT_TOP,
     _MAX_TOP_K,
+    _bind_launch_boundary,
+    _bootstrap_root,
+    _parse_int_arg,
+    _run_cerebrofy,
 )
-
 
 # ---------------------------------------------------------------------------
 # _parse_int_arg — clamping

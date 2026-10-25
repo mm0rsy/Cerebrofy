@@ -559,7 +559,7 @@ def test_concurrent_record_calls_are_thread_safe(tmp_path: Path) -> None:
                 barrier.wait(timeout=10)
                 for _ in range(per_thread):
                     mw.record("cerebrofy_impact", {"target": "hub"})
-            except BaseException as exc:  # pragma: no cover - failure path
+            except BaseException as exc:  # pragma: no cover - failure path  # noqa: BLE001
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
@@ -602,7 +602,7 @@ def test_current_session_read_is_safe_during_concurrent_recording(tmp_path: Path
                 barrier.wait(timeout=10)
                 for _ in range(rounds):
                     mw.record("cerebrofy_impact", {"target": "hub"})
-            except BaseException as exc:  # pragma: no cover - failure path
+            except BaseException as exc:  # pragma: no cover - failure path  # noqa: BLE001
                 errors.append(exc)
 
         def reader() -> None:
@@ -612,7 +612,7 @@ def test_current_session_read_is_safe_during_concurrent_recording(tmp_path: Path
                     session = mw.current_session()
                     assert session is not None
                     assert session.id == session_id
-            except BaseException as exc:  # pragma: no cover - failure path
+            except BaseException as exc:  # pragma: no cover - failure path  # noqa: BLE001
                 errors.append(exc)
 
         threads = [threading.Thread(target=writer), threading.Thread(target=reader)]

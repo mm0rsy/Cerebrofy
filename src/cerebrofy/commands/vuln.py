@@ -15,7 +15,6 @@ from rich.table import Table
 from cerebrofy.db.connection import check_schema_version
 from cerebrofy.security.vuln_scanner import VulnResult
 
-
 console = Console()
 
 

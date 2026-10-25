@@ -11,18 +11,18 @@ import rich_click as click
 from cerebrofy.config.loader import build_default_config, write_config
 from cerebrofy.hooks.installer import add_gitignore_entry, install_hooks
 from cerebrofy.ignore.ruleset import DEFAULT_IGNORE_CONTENT
+from cerebrofy.mcp.registrar import (
+    MCP_FALLBACK_SNIPPET,
+    has_cerebrofy_mcp_entry,
+    warn_if_multiple_installations,
+    write_mcp_entry,
+)
 from cerebrofy.skills.installer import (
     AI_SKILL_ROOTS,
     SUPPORTED_AI_CLIENTS,
     install_instructions,
     install_skills,
     installed_skills,
-)
-from cerebrofy.mcp.registrar import (
-    MCP_FALLBACK_SNIPPET,
-    has_cerebrofy_mcp_entry,
-    warn_if_multiple_installations,
-    write_mcp_entry,
 )
 
 # Monorepo manifest filenames used for Lobe auto-detection.

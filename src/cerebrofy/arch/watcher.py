@@ -61,5 +61,5 @@ def send_slack(webhook: str, message: str) -> str | None:
         )
         with urllib.request.urlopen(request, timeout=10):
             return None
-    except Exception as exc:  # noqa: BLE001 — network errors must not crash checks
+    except Exception as exc:  # noqa: BLE001
         return str(exc) or exc.__class__.__name__

@@ -7,7 +7,6 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
@@ -188,8 +187,9 @@ def _write_silo_memories(
             mconn.commit()
         finally:
             mconn.close()
-    except Exception:
-        pass  # Non-fatal — memory writes never block the report
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
 
 def compute_silo_report(

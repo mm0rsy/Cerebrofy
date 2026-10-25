@@ -181,7 +181,7 @@ def run_arch_check(
     if tracked_extensions is not None and repo_root is not None:
         try:
             result.epistemic = compute_epistemic_state(conn, tracked_extensions, repo_root)
-        except Exception:  # enrichment only — never fail the check on it
+        except Exception as exc:  # enrichment only — never fail the check on it  # noqa: BLE001
             result.epistemic = None
     return result
 
@@ -215,7 +215,7 @@ def _evaluate_rule(
     violations: list[Violation] = []
     try:
         violations = _check_rule(effective_rule, graph, node_lobe, repo_root, attr_cache)
-    except Exception as exc:  # a broken rule must not crash a full check run
+    except Exception as exc:  # a broken rule must not crash a full check run  # noqa: BLE001
         error = f"rule evaluation failed: {exc}"
     if changed_files is not None and not error:
         violations = [v for v in violations if v.file in changed_files]

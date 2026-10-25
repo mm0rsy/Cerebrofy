@@ -125,9 +125,8 @@ def test_resolve_pr_when_gh_fails(tmp_path: Path) -> None:
     failed = subprocess.CompletedProcess(
         args=["gh"], returncode=1, stdout="", stderr="not logged in"
     )
-    with patch("subprocess.run", return_value=failed):
-        with pytest.raises(ReviewError) as excinfo:
-            resolve_changed_files(pr=7, repo_root=tmp_path)
+    with patch("subprocess.run", return_value=failed), pytest.raises(ReviewError) as excinfo:
+        resolve_changed_files(pr=7, repo_root=tmp_path)
     assert excinfo.value.code == GH_NOT_AUTHENTICATED
     assert "not logged in" in str(excinfo.value)
 
@@ -326,11 +325,10 @@ def test_run_review_propagates_unexpected_memory_errors(tmp_path: Path) -> None:
         with patch(
             "cerebrofy.review.pipeline.list_memories",
             side_effect=RuntimeError("boom"),
-        ):
-            with pytest.raises(RuntimeError, match="boom"):
-                run_review(
-                    changed_files=["auth/tokens.py"], conn=conn, root=tmp_path
-                )
+        ), pytest.raises(RuntimeError, match="boom"):
+            run_review(
+                changed_files=["auth/tokens.py"], conn=conn, root=tmp_path
+            )
     finally:
         conn.close()
 

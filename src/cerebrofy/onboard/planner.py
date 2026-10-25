@@ -164,7 +164,7 @@ def _load_team_context(cerebrofy_dir: Path) -> dict[str, Any] | None:
         if intent.team_context and intent.team_context.concerns:
             ctx["concerns"] = list(intent.team_context.concerns)
         return ctx or None
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return None
 
 

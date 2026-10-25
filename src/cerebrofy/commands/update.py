@@ -14,7 +14,6 @@ from cerebrofy.config.loader import CerebrоfyConfig, load_config
 from cerebrofy.db.connection import check_schema_version, open_db, write_transaction
 from cerebrofy.db.integrity import write_sidecar
 from cerebrofy.db.lock import BuildLock, acquire, is_stale, release
-from cerebrofy.hooks.installer import upgrade_hook
 from cerebrofy.db.writer import (
     build_neuron_text,
     compute_state_hash,
@@ -22,11 +21,11 @@ from cerebrofy.db.writer import (
     delete_file_hashes,
     delete_nodes_for_files,
     delete_vec_neurons,
+    upsert_vectors,
     write_build_meta,
     write_edges,
     write_file_hashes,
     write_nodes,
-    upsert_vectors,
 )
 from cerebrofy.embedder import get_embedder
 from cerebrofy.graph.edges import Edge
@@ -35,6 +34,7 @@ from cerebrofy.graph.resolver import (
     resolve_import_edges,
     resolve_local_edges,
 )
+from cerebrofy.hooks.installer import upgrade_hook
 from cerebrofy.markdown.lobe import write_lobe_md
 from cerebrofy.markdown.map import write_map_md
 from cerebrofy.parser.engine import parse_file
@@ -60,7 +60,7 @@ def _record_health_snapshot_update(
         record_snapshot(c, metrics, repo_root=repo_root, lobe_count=len(lobes))
         c.commit()
         click.echo("Cerebrofy: Health snapshot recorded.")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Warning: Health snapshot failed (non-fatal): {exc}", err=True)
 
 
@@ -78,7 +78,7 @@ def _upgrade_git_hooks(root: Path) -> None:
             continue
         try:
             message = upgrade_hook(hook_path, root=root)
-        except Exception as exc:  # defensive: hook upkeep must never fail an update
+        except Exception as exc:  # defensive: hook upkeep must never fail an update  # noqa: BLE001
             message = f"Warning: hook upgrade failed for {hook_path.name}: {exc}"
         if message:
             click.echo(message)
@@ -104,7 +104,7 @@ def _recompute_memory_decay_update(
         conn.execute("PRAGMA journal_mode=WAL")
         recompute_all_decay(conn, set(affected_node_ids), config.memory)
         conn.commit()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Warning: memory decay recompute failed: {exc}", err=True)
     finally:
         if conn is not None:
@@ -331,7 +331,7 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
                     )
                     for n, emb in zip(new_neurons, embeddings):
                         new_vectors[n.id] = emb
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 click.echo(
                     f"Error: Embedding model unavailable: {exc}. Update aborted.", err=True
                 )
@@ -347,7 +347,7 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         new_state_hash = compute_state_hash(all_hashes)
 
         # Step 7: Atomic transaction
-        nodes_reindexed, nodes_deleted = _run_update_transaction(
+        nodes_reindexed, _nodes_deleted = _run_update_transaction(
             conn, scope, new_neurons, new_edges,
             new_file_hash_map, new_vectors, new_state_hash,
         )
@@ -363,8 +363,9 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         try:
             from cerebrofy.narrative.generator import maybe_update_narrative
             maybe_update_narrative(root)
-        except Exception:
-            pass  # non-fatal
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
         conn.close()
 
@@ -376,7 +377,7 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
         try:
             from cerebrofy.insight.daemon import run_daemon
             run_daemon(db_path)
-        except Exception as exc:  # daemon must never fail an update
+        except Exception as exc:  # daemon must never fail an update  # noqa: BLE001
             click.echo(f"Warning: Insight daemon skipped — {exc}", err=True)
 
         # Step 10: Keep installed hook blocks current (e.g. upgrade to v3 with
@@ -392,7 +393,7 @@ def cerebrofy_update(files: tuple[str, ...], update_all: bool) -> None:
 
     except SystemExit:
         raise
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(f"Error: Update failed: {exc}", err=True)
         sys.exit(1)
     finally:

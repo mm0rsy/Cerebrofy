@@ -15,7 +15,6 @@ from click.testing import CliRunner
 
 from cerebrofy.cli import main
 
-
 # ---------------------------------------------------------------------------
 # T078a: import guard — exits 1 with clear error when mcp package absent
 # ---------------------------------------------------------------------------

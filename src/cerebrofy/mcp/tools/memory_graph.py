@@ -46,7 +46,7 @@ def handle_link_memories(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -55,7 +55,13 @@ def handle_link_memories(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         from mcp.types import TextContent
-        from cerebrofy.memory.store import MemoryEdge, get_memory, open_memories_db, write_memory_edge
+
+        from cerebrofy.memory.store import (
+            MemoryEdge,
+            get_memory,
+            open_memories_db,
+            write_memory_edge,
+        )
 
         conn = open_memories_db(cerebrofy_dir)
         try:
@@ -76,7 +82,7 @@ def handle_link_memories(arguments: dict[str, Any]) -> list[Any]:
         return [TextContent(type="text", text=json.dumps(
             {"from_memory": from_id, "to_memory": to_id, "rel_type": rel_type}, indent=2
         ))]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"cerebrofy_link_memories failed: {exc}")
 
 
@@ -91,7 +97,7 @@ def handle_trace_history(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return [TextContent(type="text", text=json.dumps({"chain": [], "count": 0}))]
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -120,5 +126,5 @@ def handle_trace_history(arguments: dict[str, Any]) -> list[Any]:
             "count": len(chain),
         }
         return [TextContent(type="text", text=json.dumps(out, indent=2))]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return [TextContent(type="text", text=json.dumps({"chain": [], "error": str(exc)}))]

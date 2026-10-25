@@ -60,7 +60,7 @@ def handle_review(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return _err(
             "[NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init' and 'cerebrofy build' first."
@@ -79,7 +79,7 @@ def handle_review(arguments: dict[str, Any]) -> list[Any]:
         )
     except ReviewError as exc:
         return _err(f"[{exc.code}] {exc}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return _err(f"cerebrofy_review failed: {exc}")
 
     if post_comments and pr is not None:

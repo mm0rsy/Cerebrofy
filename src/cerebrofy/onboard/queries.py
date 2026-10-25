@@ -359,5 +359,5 @@ def fetch_things_to_know(cerebrofy_dir: Path) -> tuple[list[str], bool]:
                 seen.add(m.id)
                 titles.append(m.title)
         return titles, True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return [], True

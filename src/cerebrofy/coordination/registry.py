@@ -32,7 +32,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 from cerebrofy.coordination.constants import HEARTBEAT_INTERVAL_SECONDS
 from cerebrofy.coordination.metrics import get_metrics, get_persistent_metrics
@@ -86,8 +86,9 @@ class ActiveAgentRegistry:
         if metrics and not readonly:
             try:
                 self._persistent_metrics = get_persistent_metrics(self.db_path.parent.parent)
-            except Exception:
-                pass  # Fail silently if metrics can't be initialized
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
 
         if readonly:
             # Read-only handles must never create or mutate the index.
@@ -178,7 +179,7 @@ class ActiveAgentRegistry:
                 self._conn.close()
                 self._conn = None
 
-    def __enter__(self) -> ActiveAgentRegistry:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc: object) -> None:

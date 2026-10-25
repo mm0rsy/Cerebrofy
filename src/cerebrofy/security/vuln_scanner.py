@@ -12,7 +12,6 @@ from typing import Any
 
 from cerebrofy.graph.edges import IMPORT_REL, RUNTIME_BOUNDARY
 
-
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -273,8 +272,9 @@ def _read_from_pyproject(package: str, path: Path) -> str | None:
             # Match package name followed by a version operator, bracket, or end-of-string
             if re.match(rf"^{pkg_norm}[\s><=!;@\[]", dep_norm) or dep_norm == pkg_norm:
                 return dep.strip()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     return None
 
 
@@ -290,8 +290,9 @@ def _read_from_requirements(package: str, path: Path) -> str | None:
             line_norm = line.lower().replace("-", "_")
             if re.match(rf"^{pkg_norm}[\s><=!;@\[]", line_norm) or line_norm == package.lower():
                 return line
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     return None
 
 
@@ -339,7 +340,7 @@ def write_vuln_memories(
         finally:
             conn.close()
         return written
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         return 0
 
 

@@ -306,7 +306,7 @@ def session_search(query: str, limit: int, fmt: str) -> None:
         from cerebrofy.search.hybrid import embed_query
 
         embedding = embed_query(query, config.embedding_model)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         click.echo(
             f"Cerebrofy: semantic search unavailable ({exc}) — "
             f"falling back to task-text match.",

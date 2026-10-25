@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 
-
 from cerebrofy.analysis.impact import (
     ImpactNeuron,
     _complexity_rating,
@@ -18,7 +17,6 @@ from cerebrofy.analysis.impact import (
 )
 from cerebrofy.analysis.sequence import build_sequence
 from cerebrofy.graph.edges import LOCAL_CALL, RUNTIME_BOUNDARY
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -242,7 +240,7 @@ def test_find_covering_tests_detects_test_caller():
     _insert_node(conn, "auth/tokens.py::target", "target", "auth/tokens.py")
     _insert_node(conn, "tests/test_tokens.py::test_validate", "test_validate", "tests/test_tokens.py")
     _insert_edge(conn, "tests/test_tokens.py::test_validate", "auth/tokens.py::target")
-    tests, uncovered = find_covering_tests(set(), "auth/tokens.py::target", conn)
+    tests, _uncovered = find_covering_tests(set(), "auth/tokens.py::target", conn)
     assert any(t.name == "test_validate" for t in tests)
 
 
@@ -251,7 +249,7 @@ def test_find_covering_tests_uncovered_caller():
     _insert_node(conn, "a.py::target", "target", "a.py")
     _insert_node(conn, "b.py::caller", "caller", "b.py")
     # No test node calls the caller
-    tests, uncovered = find_covering_tests({"b.py::caller"}, "a.py::target", conn)
+    _tests, uncovered = find_covering_tests({"b.py::caller"}, "a.py::target", conn)
     assert "b.py::caller" in uncovered
 
 

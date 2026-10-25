@@ -141,7 +141,7 @@ class SessionMiddleware:
             from cerebrofy.config.loader import load_config
 
             return load_config(config_path)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
             return None
 
     def _get_config(self) -> Any | None:
@@ -252,5 +252,5 @@ class SessionMiddleware:
                     max_tracked_neurons=max_tracked_neurons,
                     max_refs_per_event=max_refs_per_event,
                 )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
             return

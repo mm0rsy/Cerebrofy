@@ -31,10 +31,10 @@ def handle_plan(arguments: dict[str, Any]) -> list[Any]:
     from mcp.types import TextContent
 
     from cerebrofy.config.loader import load_config
+    from cerebrofy.db.connection import open_db_readonly
     from cerebrofy.planning.formatter import plan_to_json, plan_to_markdown
     from cerebrofy.planning.planner import NO_INDEX, PlanError, build_refactor_plan
     from cerebrofy.search.hybrid import embed_query
-    from cerebrofy.db.connection import open_db_readonly
 
     description = str(arguments.get("description", "") or "").strip()
     if not description:

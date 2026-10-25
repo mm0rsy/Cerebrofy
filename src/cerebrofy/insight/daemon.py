@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlite3 import Connection
 
-from cerebrofy.memory.store import write_memory, Memory
 from cerebrofy.embedder import get_embedder
+from cerebrofy.memory.store import Memory, write_memory
 
 _logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ def _trigger_synthesis(db_path: str | Path) -> None:
         maybe_run_synthesis(
             cerebrofy_dir, every_n=synthesis_interval(cerebrofy_dir)
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
         _logger.warning("cross-session synthesis skipped", exc_info=True)
 
 
@@ -100,7 +100,7 @@ def run_daemon(db_path: str | Path) -> list[Insight]:
                 from cerebrofy.narrative.generator import maybe_update_narrative
 
                 maybe_update_narrative(Path(db_path).parent.parent)
-            except Exception:  # narrative upkeep must never fail the daemon
+            except Exception as exc:  # narrative upkeep must never fail the daemon  # noqa: BLE001
                 pass
 
         return new_insights

@@ -13,7 +13,7 @@ def _has_tiktoken() -> bool:
     global _TIKTOKEN_AVAILABLE
     if _TIKTOKEN_AVAILABLE is None:
         try:
-            import tiktoken  # noqa: F401
+            import tiktoken
             _TIKTOKEN_AVAILABLE = True
         except ImportError:
             _TIKTOKEN_AVAILABLE = False
@@ -29,7 +29,7 @@ _MODEL_TO_ENCODING: list[tuple[str, str]] = [
 ]
 
 
-def _tiktoken_encoding(model: str) -> "str | None":
+def _tiktoken_encoding(model: str) -> str | None:
     for substring, encoding in _MODEL_TO_ENCODING:
         if substring in model:
             return encoding
@@ -60,7 +60,7 @@ def tokens_for_source(
     file_path: str,
     line_start: int,
     line_end: int,
-    repo_root: "str | None" = None,
+    repo_root: str | None = None,
     model: str = "auto",
 ) -> tuple[str, int]:
     """Read source lines [line_start, line_end] from file_path and count tokens.

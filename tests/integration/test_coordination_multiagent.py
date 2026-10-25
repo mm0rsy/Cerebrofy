@@ -655,9 +655,10 @@ def test_middleware_enriches_for_multiple_waiting_agents(repo: Path) -> None:
 
 def test_middleware_memory_conflict_notice(repo: Path) -> None:
     """Middleware detects memory contradictions when memories are provided."""
+    import asyncio
+
     from cerebrofy.mcp import middleware
     from cerebrofy.mcp.server import dispatch_tool
-    import asyncio
 
     _write_contradicting_memories(repo)
 
@@ -747,7 +748,7 @@ def test_resolve_nonexistent_memory_fails(repo: Path) -> None:
 
 
 def test_resolve_same_memory_id_fails(repo: Path) -> None:
-    mem_a, mem_b = _write_memory_pair(repo)
+    mem_a, _mem_b = _write_memory_pair(repo)
     result = _dispatch(
         "cerebrofy_resolve",
         {"memory_a": mem_a, "memory_b": mem_a, "strategy": "keep_newest"},
@@ -802,10 +803,9 @@ def test_concurrent_mcp_calls_serialized_by_db(repo: Path) -> None:
             payload = _json_payload(result)
             if payload.get("claimed"):
                 success_count += 1
-        except Exception:
-            pass
-
-    # Due to race, exactly one should get the claim
+        except Exception as exc:  # noqa: BLE001
+            import logging
+            logging.getLogger(__name__).warning(f"Silent error ignored: {exc}")
     assert success_count == 1
 
     # Cleanup
