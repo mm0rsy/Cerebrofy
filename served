@@ -1,0 +1,6 @@
+warning: warning: `VIRTUAL_ENV=/home/mohamed-morsy/workspace/projects/GITHUB/cerebrofy/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+`VIRTUAL_ENV=/home/mohamed-morsy/workspace/projects/GITHUB/cerebrofy/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+ERROR: file or directory not found: waiting
+ERROR: file or directory not found: waiting
+
+

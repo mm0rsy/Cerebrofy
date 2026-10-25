@@ -6,20 +6,21 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
-import tree_sitter_languages  # type: ignore[import-untyped]
+import tree_sitter as ts
+import tree_sitter_language_pack as tslp
 
 from cerebrofy.config.loader import CerebrоfyConfig
 from cerebrofy.ignore.ruleset import IgnoreRuleSet
 from cerebrofy.parser.neuron import Neuron, ParseResult, RawCapture, deduplicate_neurons
 
 # Suppress tree-sitter 0.21 FutureWarning about Language(path, name) constructor.
-# Must be set before any get_language() call (fires lazily, not at import time).
+# Kept for any downstream consumer still on 0.21; harmless on 0.23+.
 warnings.filterwarnings("ignore", category=FutureWarning, module="tree_sitter")
 
 if TYPE_CHECKING:
     from tree_sitter import Language, Node, Query, Tree
 
-# Maps file extension → tree-sitter-languages grammar name (controls AST parsing).
+# Maps file extension → tree-sitter-language-pack grammar name (controls AST parsing).
 EXTENSION_TO_LANGUAGE: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
@@ -43,18 +44,18 @@ EXTENSION_TO_QUERY_NAME: dict[str, str] = {
 }
 
 
-def load_language_parser(extension: str) -> "Language | None":
+def load_language_parser(extension: str) -> Language | None:
     """Return the Language object for the given file extension, or None."""
     lang_name = EXTENSION_TO_LANGUAGE.get(extension)
     if not lang_name:
         return None
     try:
-        return cast("Language", tree_sitter_languages.get_language(lang_name))
-    except Exception:
+        return cast("Language", tslp.get_language(lang_name))
+    except Exception:  # noqa: BLE001 – graceful fallback for missing grammar
         return None
 
 
-def load_query(extension: str, queries_dir: Path) -> "Query | None":
+def load_query(extension: str, queries_dir: Path) -> Query | None:
     """Load and compile the .scm query for the extension from queries_dir, or None."""
     lang_name = EXTENSION_TO_LANGUAGE.get(extension)
     if not lang_name:
@@ -64,21 +65,43 @@ def load_query(extension: str, queries_dir: Path) -> "Query | None":
     if not scm_path.exists():
         return None
     try:
-        lang = cast("Language", tree_sitter_languages.get_language(lang_name))
+        lang = cast("Language", tslp.get_language(lang_name))
         scm_text = scm_path.read_text(encoding="utf-8")
-        return lang.query(scm_text)
-    except Exception:
+        return ts.Query(lang, scm_text)
+    except Exception:  # noqa: BLE001 – graceful fallback for missing query
         return None
 
 
-def extract_signature(node: "Node", source: bytes) -> str | None:
+def run_query(query: Query, tree: Tree) -> list[tuple[Node, str]]:
+    """Run a tree-sitter query and return a list of (Node, capture_name) tuples.
+
+    Single adapter isolating API drift between tree-sitter 0.21 and 0.23+:
+    - 0.21: query.captures(root) -> list[(Node, name)]
+    - 0.23+: QueryCursor(query).captures(root) -> dict{name: [Node]}
+    The rest of the engine consumes only this function, so future API changes
+    need only touch this one place.
+    """
+    cursor = ts.QueryCursor(query)
+    captures = cursor.captures(tree.root_node)
+    # Normalise dict -> list of (Node, name) tuples.
+    if isinstance(captures, dict):
+        out: list[tuple[Node, str]] = []
+        for name, nodes in captures.items():
+            for node in nodes:
+                out.append((node, name))
+        return out
+    # Fallback: already a list of tuples (0.21 behaviour).
+    return list(captures)
+
+
+def extract_signature(node: Node, source: bytes) -> str | None:
     """Return the first line (declaration) of a function node, stripped."""
     node_text = source[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
     first_line = node_text.split("\n")[0].strip()
     return first_line or None
 
 
-def extract_docstring(node: "Node", source: bytes) -> str | None:
+def extract_docstring(node: Node, source: bytes) -> str | None:
     """Return the first docstring or comment immediately inside the node body, or None."""
     for child in node.children:
         # Python: body block contains expression_statement wrapping a string
@@ -105,7 +128,7 @@ def extract_docstring(node: "Node", source: bytes) -> str | None:
 
 def map_capture_to_neuron(
     capture_name: str,
-    node: "Node",
+    node: Node,
     source: bytes,
     file: str,
     name_override: str | None = None,
@@ -189,10 +212,10 @@ def _is_function_capture(capture_name: str) -> bool:
 
 
 def extract_neurons(
-    tree: "Tree",
+    tree: Tree,
     source: bytes,
     file: str,
-    query: "Query",
+    query: Query,
 ) -> tuple[list[Neuron], tuple[RawCapture, ...]]:
     """Run query captures and map them to Neurons (plus module Neuron).
 
@@ -202,7 +225,10 @@ def extract_neurons(
     Returns (neurons, raw_captures) where raw_captures holds call/import captures
     that did not produce a Neuron.
     """
-    captures = query.captures(tree.root_node)  # list[(Node, capture_name)]
+    # Adapter: 0.21 -> 0.25 API drift isolated to run_query().
+    # In 0.21: query.captures(root) -> list[(Node, name)].
+    # In 0.23+: QueryCursor(query).captures(root) -> dict{name: [Node]}.
+    captures = run_query(query, tree)  # list[(Node, capture_name)]
 
     # Build a name lookup from @name captures: structural_node_byte_range → name text.
     # .scm files emit @name on the identifier node; we map each name to its enclosing
@@ -218,7 +244,7 @@ def extract_neurons(
         if cap == "name"
     ]
 
-    def _associated_name(structural_node: "Node") -> str | None:
+    def _associated_name(structural_node: Node) -> str | None:
         """Return the @name text whose range falls inside structural_node, or None."""
         for n_start, n_end, n_text in name_captures:
             if structural_node.start_byte <= n_start and n_end <= structural_node.end_byte:
@@ -255,7 +281,7 @@ def extract_neurons(
         elif "call" in capture_name or "import" in capture_name:
             raw_captures.append(RawCapture(
                 capture_name=capture_name,
-                text=node.text.decode("utf-8", errors="replace"),
+                text=node.text.decode("utf-8", errors="replace") if node.text is not None else "",
                 file=file,
                 line=node.start_point[0] + 1,
             ))
@@ -282,8 +308,14 @@ def parse_file(file_path: Path, queries_dir: Path, repo_root: Path) -> ParseResu
         )
 
     source = file_path.read_bytes()
-    lang_name = EXTENSION_TO_LANGUAGE[extension]
-    parser = tree_sitter_languages.get_parser(lang_name)
+    lang = load_language_parser(extension)
+    if lang is None:
+        return ParseResult(
+            file=rel_path,
+            neurons=[],
+            warnings=[f"No parser for {extension}"],
+        )
+    parser = ts.Parser(lang)
     tree = parser.parse(source)
 
     warnings: list[str] = []

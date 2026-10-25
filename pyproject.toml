@@ -23,8 +23,8 @@ classifiers = [
     "Environment :: Console",
 ]
 dependencies = [
-    "tree-sitter>=0.21,<0.22",
-    "tree-sitter-languages>=1.10,<2",
+    "tree-sitter>=0.23,<0.26",
+    "tree-sitter-language-pack>=1.22.1,<2",
     "pathspec>=0.12",
     "PyYAML>=6.0",
     "click>=8.1",
@@ -86,7 +86,10 @@ strict = true
 # it. Suppress import-not-found for these namespaces when mypy runs without the
 # mcp extra installed (e.g. the CI lint job).
 [[tool.mypy.overrides]]
-module = ["mcp", "mcp.*", "pydantic", "pydantic.*", "tiktoken"]
+module = [
+    "mcp", "mcp.*", "pydantic", "pydantic.*", "tiktoken",
+    "tree_sitter", "tree_sitter.*", "tree_sitter_language_pack",
+]
 ignore_missing_imports = true
 
 # mcp decorators (list_tools, call_tool) raise either no-untyped-call or
