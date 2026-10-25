@@ -50,7 +50,7 @@ def load_language_parser(extension: str) -> Language | None:
     if not lang_name:
         return None
     try:
-        return cast("Language", tslp.get_language(lang_name))
+        return tslp.get_language(lang_name)
     except Exception:  # noqa: BLE001 – graceful fallback for missing grammar
         return None
 
@@ -65,7 +65,7 @@ def load_query(extension: str, queries_dir: Path) -> Query | None:
     if not scm_path.exists():
         return None
     try:
-        lang = cast("Language", tslp.get_language(lang_name))
+        lang = tslp.get_language(lang_name)
         scm_text = scm_path.read_text(encoding="utf-8")
         return ts.Query(lang, scm_text)
     except Exception:  # noqa: BLE001 – graceful fallback for missing query
