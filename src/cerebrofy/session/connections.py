@@ -70,7 +70,7 @@ class SessionsHandle:
 
                     conn = open_sessions_db(self._root / ".cerebrofy")
                     conn.execute("PRAGMA synchronous=NORMAL")
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 return None
             self._conn = conn
             return conn

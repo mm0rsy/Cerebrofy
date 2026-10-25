@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import pathspec as _pathspec
 
@@ -37,7 +36,7 @@ class IgnoreRuleSet:
     cerebrofy_lines: list[str] = field(default_factory=list)
     git_lines: list[str] = field(default_factory=list)
     # Compiled once in __post_init__; excluded from constructor, repr, and equality.
-    _spec: Optional[_pathspec.PathSpec] = field(init=False, repr=False, compare=False,
+    _spec: _pathspec.PathSpec | None = field(init=False, repr=False, compare=False,
                                                 default=None)
 
     def __post_init__(self) -> None:

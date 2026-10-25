@@ -68,7 +68,7 @@ def _memory_stale_count(repo_root: Path) -> int:
         row = conn.execute("SELECT COUNT(*) FROM memories WHERE status = 'stale'").fetchone()
         conn.close()
         return int(row[0]) if row else 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return 0
 
 
@@ -124,9 +124,9 @@ def _graph_age_hours(conn: sqlite3.Connection) -> float:
         ts_str: str = row[0]
         # Stored as "2026-06-21T01:23:45Z"
         dt = datetime.datetime.fromisoformat(ts_str)
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.UTC)
         return (now - dt).total_seconds() / 3600.0
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return 0.0
 
 
@@ -168,7 +168,7 @@ def _neurons_changed_since_build(conn: sqlite3.Connection, repo_root: Path) -> i
             list(changed_files),
         ).fetchone()
         return int(row[0]) if row else 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return 0
 
 

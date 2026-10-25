@@ -87,7 +87,7 @@ def generate_changelog(
     if config_path.exists():
         try:
             full_config = load_config(config_path)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             full_config = None
 
     # Determine the changelog-specific config (m11):

@@ -548,7 +548,7 @@ def _run_rule_wizard(root: Path) -> None:
         click.echo(f"Replacing existing rule '{name}'.")
     dump_arch_rules(
         RulesConfig(
-            rules=tuple([*kept, rule]),
+            rules=(*kept, rule),
             slack_webhook=existing.slack_webhook if existing else None,
             governance=existing.governance if existing else None,
         ),

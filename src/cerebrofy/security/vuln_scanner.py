@@ -340,7 +340,7 @@ def write_vuln_memories(
         finally:
             conn.close()
         return written
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return 0
 
 

@@ -103,5 +103,5 @@ def write_violation_memories(
             return written
         finally:
             mconn.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return 0  # Non-fatal — memory writes never block the check

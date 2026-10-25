@@ -161,9 +161,7 @@ def _derive_auto_fix(change_type: str, old: str, new: str, category: str) -> boo
         return False
     if old.strip().startswith(".") and "(" in old:
         return True
-    if old.strip().startswith("@"):
-        return True
-    return False
+    return bool(old.strip().startswith("@"))
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +383,7 @@ def version_satisfies(constraint: str, version: str | None) -> bool:
             return False
         if op == "<" and not left < right:
             return False
-        if op == "==" and not left[: len(right)] == right:
+        if op == "==" and left[:len(right)] != right:
             return False
         if op == "!=" and left[: len(right)] == right:
             return False

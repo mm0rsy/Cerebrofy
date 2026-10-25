@@ -33,7 +33,7 @@ def format_utc(ts: int | None) -> str:
     """Format an epoch timestamp as ``YYYY-MM-DD HH:MM:SS UTC`` (— when None)."""
     if ts is None:
         return "—"
-    return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).strftime(
+    return datetime.datetime.fromtimestamp(ts, datetime.UTC).strftime(
         "%Y-%m-%d %H:%M:%S UTC"
     )
 

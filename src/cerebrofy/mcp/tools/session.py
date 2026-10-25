@@ -58,7 +58,7 @@ def _embed_task(task: str, config_path: Path) -> list[float] | None:
 
         config = load_config(config_path)
         return embed_query(task, config.embedding_model)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -91,7 +91,7 @@ def handle_session_start(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     config_path = root / ".cerebrofy" / "config.yaml"
@@ -142,7 +142,7 @@ def handle_session_end(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -209,7 +209,7 @@ def handle_session_show(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -267,7 +267,7 @@ def handle_session_search(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -328,7 +328,7 @@ def handle_session_export(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _err(f"[{NO_INDEX}] could not find .cerebrofy directory. Run 'cerebrofy init' first.")
 
     cerebrofy_dir = root / ".cerebrofy"

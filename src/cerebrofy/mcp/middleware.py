@@ -49,7 +49,7 @@ def _resolve_root() -> Path | None:
 
     try:
         return find_repo_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -66,7 +66,7 @@ def _open_registry(root: Path) -> ActiveAgentRegistry | None:
         return None
     try:
         return ActiveAgentRegistry(str(db_path), readonly=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -164,7 +164,7 @@ def check_conflicts(
         # ``BEGIN IMMEDIATE`` (reads still succeed; writes would block).
         try:
             agents = registry.get_active_agents(cleanup=False)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             agents = {}
 
         if isinstance(agents, dict) and agents:
@@ -202,7 +202,7 @@ def check_conflicts(
     finally:
         try:
             registry.close()
-        except Exception as exc:  # pragma: no cover - close is best-effort  # noqa: BLE001
+        except Exception:  # pragma: no cover - close is best-effort  # noqa: BLE001
             pass
 
     return result

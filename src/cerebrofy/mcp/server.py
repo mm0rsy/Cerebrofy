@@ -19,9 +19,9 @@ import os
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from collections.abc import Callable
 
 from mcp import types as mcp_types
 from mcp.server import Server
@@ -149,7 +149,7 @@ def _synthesized_patterns_for_lobes(
             return payloads
         finally:
             mem_conn.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return []
 
 
@@ -216,7 +216,7 @@ async def _watch_index_changes(session: Any, subscriptions: set[str], root: Path
             await _notify_resource_changes(
                 session, subscriptions, db_changed=db_changed, docs_changed=docs_changed
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             return  # write failed — client connection is gone; stop quietly
 
 
@@ -297,7 +297,7 @@ def _open_db_ro(root: Path) -> sqlite3.Connection:
         integrity_check = load_config(
             root / ".cerebrofy" / "config.yaml"
         ).database.integrity_check
-    except Exception as exc:  # config problems surface with their own errors elsewhere  # noqa: BLE001
+    except Exception:  # config problems surface with their own errors elsewhere  # noqa: BLE001
         pass
     from cerebrofy.db.integrity import verify_integrity
 
@@ -330,7 +330,7 @@ def _enrich_with_coordination(
         return enrich_response(
             result, neuron_id, agent.strip(), memories=memories
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return result
 
 
@@ -357,7 +357,7 @@ def _record_session_event(
             middleware.record(name, arguments, result)
         finally:
             middleware.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return
 
 
@@ -504,7 +504,7 @@ def _handle_get_neuron(arguments: dict[str, Any]) -> list[Any]:
             for result in neurons:
                 result["memories"] = []
                 result["synthesized_patterns"] = []
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         for result in neurons:
             result.setdefault("memories", [])
             result.setdefault("synthesized_patterns", [])
@@ -666,7 +666,7 @@ def _compute_epistemic(root: Path) -> Any | None:
             return compute_epistemic_state(conn, config.tracked_extensions, root)
         finally:
             conn.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -743,7 +743,7 @@ def _arch_history_summary(root: Path) -> Any | None:
 
         entries = read_history(root)
         return summarize_history(entries) if entries else None
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -811,7 +811,7 @@ def _load_intent(root: Path) -> Any | None:
     try:
         from cerebrofy.intent.loader import load_intent
         return load_intent(root / ".cerebrofy")
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -913,7 +913,7 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = require_repo_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _make_error_content(f"[{NO_INDEX}] could not find .cerebrofy directory")
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -952,7 +952,7 @@ def _handle_remember(arguments: dict[str, Any]) -> list[Any]:
                 else:
                     neuron_id = rows[0][0]
                     enrich_neuron_id = neuron_id
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 warning_msg = "could not resolve neuron — memory stored without anchor"
 
         tags_raw = arguments.get("tags", [])
@@ -1000,7 +1000,7 @@ def _handle_recall(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = require_repo_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -1057,7 +1057,7 @@ def _handle_memories(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = require_repo_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return [TextContent(type="text", text=_json.dumps({"memories": [], "count": 0}))]
 
     cerebrofy_dir = root / ".cerebrofy"
@@ -1634,7 +1634,7 @@ def _heartbeat_if_agent(arguments: dict[str, Any]) -> None:
         return
     except (ClaimExpiredError, NoActiveAgentError, OSError):
         return
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         # sqlite errors / partially-implemented registries must not break tools
         return
 
@@ -1676,7 +1676,7 @@ async def dispatch_tool(name: str, arguments: dict[str, Any]) -> list[Any]:
             result = _with_epistemic(result, root)
             result = _with_intent(result, root)
             return result
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             return result
 
     except FileNotFoundError as exc:

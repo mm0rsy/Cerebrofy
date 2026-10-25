@@ -35,7 +35,7 @@ def _extract_era(content: str, era: int) -> str | None:
     in_era = False
     era_lines: list[str] = []
     for line in lines:
-        if line.startswith(f"## Era {era}:") or line.startswith(f"## Era {era} "):
+        if line.startswith((f"## Era {era}:", f"## Era {era} ")):
             in_era = True
         elif line.startswith("## ") and in_era:
             break

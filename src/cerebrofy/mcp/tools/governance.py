@@ -80,7 +80,7 @@ def handle_governance(arguments: dict[str, Any]) -> list[Any]:
 
     try:
         root = _find_root(Path.cwd())
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return _err(
             "[NO_INDEX] No .cerebrofy directory found. "
             "Run 'cerebrofy init' and 'cerebrofy build' first."

@@ -473,9 +473,7 @@ def is_breaking_change(
     threshold = (config or ChangelogConfig()).breaking_cross_lobe_threshold
     if cross_lobe_callers > threshold:
         return True
-    if kind == KIND_SIGNATURE_CHANGED and cross_lobe_callers >= 1:
-        return True
-    return False
+    return bool(kind == KIND_SIGNATURE_CHANGED and cross_lobe_callers >= 1)
 
 
 def classify_change(

@@ -56,7 +56,7 @@ def _trigger_synthesis(cerebrofy_dir: Path) -> None:
         maybe_run_synthesis(
             cerebrofy_dir, every_n=synthesis_interval(cerebrofy_dir)
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:
         # Never let the reflection loop fail a session close.
         _logger.warning("cross-session synthesis skipped", exc_info=True)
 
@@ -226,6 +226,6 @@ def end_session(
             from cerebrofy.narrative.generator import maybe_update_narrative
 
             maybe_update_narrative(cerebrofy_dir)
-        except Exception as exc:  # narrative upkeep must never fail a session close  # noqa: BLE001
+        except Exception:  # narrative upkeep must never fail a session close  # noqa: BLE001
             pass
     return updated

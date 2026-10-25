@@ -28,8 +28,10 @@ from cerebrofy.analysis.blast_radius import BlastNeuron, compute_neuron_blast_ra
 from cerebrofy.analysis.impact import ImpactNeuron, compute_impact
 from cerebrofy.config.loader import _GENERIC_MODULE_WORDS, PlanningConfig
 from cerebrofy.context.optimizer import optimize_context
-from cerebrofy.errors import CLUSTER_TOO_LARGE, CLUSTER_TOO_SMALL
-from cerebrofy.errors import NO_INDEX as NO_INDEX  # re-exported for CLI/MCP callers
+from cerebrofy.errors import (
+    CLUSTER_TOO_LARGE,
+    CLUSTER_TOO_SMALL,  # re-exported for CLI/MCP callers
+)
 from cerebrofy.intent.loader import load_intent
 from cerebrofy.memory.search import recall_memories
 from cerebrofy.memory.store import open_memories_db
@@ -314,7 +316,7 @@ def _memory_context(
             results = recall_memories(conn, embedding, limit=5)
         finally:
             conn.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return []
     return [f"{memory.type}: {memory.title}" for memory, _score in results]
 
@@ -327,7 +329,7 @@ def _avoid_pattern_warnings(
     """#23 intent.yaml: warn when the extraction touches an avoided pattern."""
     try:
         intent = load_intent(repo_root / ".cerebrofy")
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return []
     if intent is None or intent.architecture is None:
         return []
@@ -360,7 +362,7 @@ def _execution_handoff(
             config_path=config_path,
             repo_root=repo_root,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
     return (
         f"{len(context_plan.neurons)} neuron(s) packed into "

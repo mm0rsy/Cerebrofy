@@ -86,5 +86,5 @@ def maybe_send_webhook(insights: list[Insight]) -> None:
             headers={"Content-Type": "application/json"},
         )
         urllib.request.urlopen(req, timeout=5)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         pass  # Webhook failures are non-fatal

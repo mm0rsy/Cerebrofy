@@ -255,12 +255,7 @@ def detect_imports(source: str, package: str) -> tuple[bool, list[int]]:
         # Dynamic import patterns: __import__("pydantic"), importlib.import_module("pydantic")
         elif isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Name) and func.id in ("__import__", "importlib.import_module"):
-                for arg in node.args:
-                    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                        if _module_imports(arg.value, package):
-                            lines.append(node.lineno)
-            elif isinstance(func, ast.Attribute) and func.attr == "import_module":
+            if isinstance(func, ast.Name) and func.id in ("__import__", "importlib.import_module") or isinstance(func, ast.Attribute) and func.attr == "import_module":
                 for arg in node.args:
                     if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                         if _module_imports(arg.value, package):

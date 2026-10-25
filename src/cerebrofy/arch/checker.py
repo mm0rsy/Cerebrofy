@@ -181,7 +181,7 @@ def run_arch_check(
     if tracked_extensions is not None and repo_root is not None:
         try:
             result.epistemic = compute_epistemic_state(conn, tracked_extensions, repo_root)
-        except Exception as exc:  # enrichment only — never fail the check on it  # noqa: BLE001
+        except Exception:  # enrichment only — never fail the check on it  # noqa: BLE001
             result.epistemic = None
     return result
 

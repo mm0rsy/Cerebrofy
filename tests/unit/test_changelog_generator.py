@@ -525,9 +525,6 @@ def test_changelog_module_imports() -> None:
     # collector.py
     from cerebrofy.changelog.collector import (
         _docstrings,
-        _git_output,
-        _health_delta,
-        _load_memories,
         _open_index_db,
     )
     assert callable(_docstrings) and callable(_open_index_db)

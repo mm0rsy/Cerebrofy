@@ -6,7 +6,7 @@ import json
 import os
 import sqlite3
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -67,7 +67,7 @@ def _init_repo(repo: Path) -> None:
 
 
 def _commit(repo: Path, message: str, author: str, email: str) -> None:
-    when = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(
+    when = (datetime.now(UTC) - timedelta(days=30)).strftime(
         "%Y-%m-%dT%H:%M:%S+00:00"
     )
     env = os.environ.copy()

@@ -88,7 +88,6 @@ INJECT_TRUE: set[str] = {
     "cerebrofy_conflicts",
     "cerebrofy_insights",
     "cerebrofy_synthesize",
-    "cerebrofy_synthesize",
     "cerebrofy_narrative",
 }
 

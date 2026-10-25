@@ -626,7 +626,7 @@ def _write_narrative_file(cerebrofy_dir: Path, narrative: NarrativeData) -> None
     try:
         tmp_path.write_text(document, encoding="utf-8")
         os.replace(tmp_path, narrative_path)
-    except Exception:  # noqa: BLE001
+    except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
 

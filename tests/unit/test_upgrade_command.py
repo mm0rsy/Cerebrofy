@@ -71,7 +71,7 @@ class TestUpgradeCli:
         payload = json.loads(result.output)
         assert payload["package"] == "pydantic"
         assert payload["risk"] in {"LOW", "MEDIUM", "HIGH"}
-        assert "steps" in payload and payload["steps"]
+        assert payload.get("steps")
         assert "breaking_changes" in payload
 
     def test_no_index_error(self, tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]

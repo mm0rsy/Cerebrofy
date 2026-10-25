@@ -161,7 +161,7 @@ def sprint_priority_lobes(
     """
     try:
         intent = load_intent(config_dir)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return frozenset()
     sprint = active_sprint(intent, today)
     return frozenset(sprint.priority_lobes) if sprint else frozenset()

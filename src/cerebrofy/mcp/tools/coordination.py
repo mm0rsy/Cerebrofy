@@ -75,7 +75,7 @@ def _close_registry(registry: Any) -> None:
         return
     try:
         registry.close()
-    except Exception as exc:  # pragma: no cover - close is best-effort  # noqa: BLE001
+    except Exception:  # pragma: no cover - close is best-effort  # noqa: BLE001
         pass
 
 
@@ -86,7 +86,7 @@ def _error_text(code: str, message: str) -> list[Any]:
 def _resolve_root_or_error() -> tuple[Path | None, list[Any] | None]:
     try:
         return _find_root(Path.cwd()), None
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None, _error_text(
             NO_INDEX, "could not find .cerebrofy directory. Run 'cerebrofy init' first."
         )
@@ -299,7 +299,7 @@ def handle_who(arguments: dict[str, Any]) -> list[Any]:
         agents = registry.get_active_agents(cleanup=False)
         try:
             conflicts = registry.detect_overlapping_claims()
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             conflicts = []
     except FileNotFoundError as exc:
         return _error_text(NO_INDEX, str(exc))

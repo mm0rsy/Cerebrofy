@@ -136,7 +136,7 @@ def synthesize(
     if patterns:
         try:
             written, updated = _persist_patterns(cerebrofy_dir, patterns)
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
             # B2: pattern computation must survive a broken memory store.
             _logger.exception("cross-session synthesis could not write patterns")
 
@@ -679,7 +679,7 @@ def synthesis_interval(cerebrofy_dir: Path) -> int:
         config_path = cerebrofy_dir / "config.yaml"
         if config_path.exists():
             return load_config(config_path).synthesis.every_n_sessions
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         _logger.warning("could not read synthesis config; using default 10")
     return 10
 

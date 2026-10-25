@@ -115,7 +115,7 @@ def _parse_patch(patch: str) -> tuple[dict[str, tuple[tuple[int, int], ...]], se
             if target == "/dev/null":
                 current = None
             else:
-                current = target[2:] if target.startswith("b/") else target
+                current = target.removeprefix("b/")
                 if is_new_file:
                     added_files.add(current)
                     is_new_file = False
@@ -234,7 +234,7 @@ def changes_from_pr(pr: int) -> ChangeSet:
         if line.startswith("+++ "):
             target = line[4:].strip()
             if target and target != "/dev/null":
-                files.append(target[2:] if target.startswith("b/") else target)
+                files.append(target.removeprefix("b/"))
         elif line.startswith("diff --git "):
             parts = line.split(" b/", 1)
             if len(parts) == 2:
@@ -313,7 +313,7 @@ def _active_agent_emails() -> frozenset[str]:
             return frozenset()
         values = getter()
         return frozenset(str(value) for value in values)
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return frozenset()
 
 

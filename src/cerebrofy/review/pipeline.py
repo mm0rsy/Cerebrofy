@@ -344,7 +344,7 @@ def _memory_findings(
 def _memory_finding(context: _Context, memory: Memory, *, warning: bool) -> Finding:
     try:
         created = datetime.datetime.fromtimestamp(
-            memory.created_ts, tz=datetime.timezone.utc
+            memory.created_ts, tz=datetime.UTC
         ).date().isoformat()
     except (OverflowError, OSError, TypeError, ValueError):
         created = "unknown date"
@@ -403,7 +403,7 @@ def _arch_findings(
         from cerebrofy.intent.loader import sprint_priority_lobes
 
         priority_lobes = sprint_priority_lobes(root / ".cerebrofy")
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         priority_lobes = frozenset()
 
     try:
@@ -896,5 +896,5 @@ def _record_review_session(
             )
         finally:
             middleware.close()
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return
