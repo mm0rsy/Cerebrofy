@@ -1,3 +1,8 @@
+---
+name: cerebrofy-resources
+description: "Discover and read Cerebrofy's URI-addressable MCP resources for ambient codebase context, with live update subscriptions."
+---
+
 # Skill: cerebrofy-resources
 
 > Discover and consume Cerebrofy's URI-addressable MCP resources — ambient codebase context without explicit tool calls.

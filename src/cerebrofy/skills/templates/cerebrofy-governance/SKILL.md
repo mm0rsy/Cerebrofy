@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-governance
+description: "Lobe ownership and review governance — dynamic CODEOWNERS, reviewer suggestions, and reporting-only blast-radius / bus-factor rules."
+---
+
 # Skill: cerebrofy-governance
 
 > Lobe ownership and review governance — dynamic CODEOWNERS, reviewer
@@ -105,4 +109,3 @@ governance:
         if_new_neurons: true
         then_require_test_file: true
 ```
-````

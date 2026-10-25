@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-plan
+description: "Plan a graph-aware refactor in plain English, with an ordered migration checklist reviewed before any code is touched."
+---
+
 # Skill: cerebrofy-plan
 
 > Natural-language refactor planning: describe the change in plain English, review a graph-aware migration plan before a single line is touched.
@@ -63,4 +67,3 @@ the agent that will implement the plan.
    verify the blast radius stays contained.
 3. After execution, run `cerebrofy validate` and the test suite, then
    `cerebrofy remember` a decision memory describing what moved and why.
-````

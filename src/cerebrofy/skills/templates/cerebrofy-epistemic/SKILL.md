@@ -1,3 +1,8 @@
+---
+name: cerebrofy-epistemic
+description: "Know how much to trust Cerebrofy's answers before acting on them."
+---
+
 # Skill: cerebrofy-epistemic
 
 > Know how much to trust Cerebrofy's answers before acting on them.

@@ -1,3 +1,8 @@
+---
+name: cerebrofy-update
+description: "Re-index only the changed files and their affected neighbors for a fast incremental Cerebrofy index update."
+---
+
 # Skill: cerebrofy-update
 
 > Partially re-index only changed files — fast incremental update.

@@ -1,3 +1,8 @@
+---
+name: cerebrofy-validate
+description: "Classify drift between the Cerebrofy index and the current source code, with exit codes for CI freshness checks."
+---
+
 # cerebrofy validate
 
 Classify drift between the Cerebrofy index and the current source code.

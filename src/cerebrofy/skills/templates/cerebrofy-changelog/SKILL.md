@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-changelog
+description: "Semantic changelog classified from the call graph, drift records, and memories — not from commit messages."
+---
+
 # Skill: cerebrofy-changelog
 
 > Semantic changelog: what actually changed in the codebase — classified from the
@@ -58,4 +62,3 @@ Breaking changes are listed separately in `breaking_changes[]` so release notes 
 1. For every `breaking` entry, run `cerebrofy impact <neuron>` to enumerate callers that must be updated.
 2. Quote the memories attached to `fix`/`security` entries as the "why" in release notes.
 3. Use `--narrative` on release ranges so the narrative engine (#26) can synthesise eras later.
-````

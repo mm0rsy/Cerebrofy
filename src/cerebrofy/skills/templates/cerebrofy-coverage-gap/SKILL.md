@@ -1,4 +1,8 @@
-````markdown
+---
+name: cerebrofy-coverage-gap
+description: "Test coverage gap predictor: rank uncovered neurons by blast radius × velocity to find the functions most likely to cause production bugs."
+---
+
 # Skill: cerebrofy-coverage-gap
 
 > Test coverage gap predictor: rank uncovered neurons by blast radius × velocity to find the functions most likely to cause production bugs.
@@ -69,4 +73,3 @@ For each CRITICAL or HIGH gap:
 2. Run `cerebrofy impact <neuron_name>` to get a recommended test-writing sequence
 3. Write a test targeting the function directly, then re-run `cerebrofy coverage-gap` to confirm it clears
 4. Use `--write-memories` to attach a warning memory so future AI sessions surface the risk automatically
-````

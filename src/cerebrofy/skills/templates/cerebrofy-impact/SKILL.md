@@ -1,3 +1,8 @@
+---
+name: cerebrofy-impact
+description: "Run a pre-change impact prediction before touching any function or class."
+---
+
 # Skill: cerebrofy-impact
 
 > Run a pre-change impact prediction before touching any function or class.
