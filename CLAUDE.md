@@ -1,6 +1,6 @@
 # Cerebrofy Development Guidelines
 
-Last updated: 2026-06-14
+Last updated: 2026-10-25
 
 ## Active Technologies
 
@@ -46,17 +46,21 @@ src/
     ├── commands/validate.py     ← cerebrofy validate: drift classification command
     ├── commands/migrate.py      ← cerebrofy migrate: sequential schema migration runner
     ├── commands/mcp.py          ← cerebrofy mcp: MCP stdio server entry point
-    └── mcp/server.py            ← MCPServer: 31 registered tools; all operational (cerebrofy_build,
-                                    cerebrofy_update, cerebrofy_validate, get_neuron, list_lobes, search_code)
+    └── mcp/server.py            ← MCPServer: 78 registered tools; all operational (see Recent Changes for full list)
                                     — hybrid KNN + BFS search via search/hybrid.py
     └── queries/                 ← Bundled default .scm files per language
 src/cerebrofy/skills/
 ├── installer.py             ← install_skills() + install_instructions(): skill templates + AI client navigation rules
-└── templates/
-    ├── cerebrofy-search/    ← search_code skill + slash command; ⚠️ never glob-read source files
-    ├── cerebrofy-build/     ← full re-index skill
-    ├── cerebrofy-update/    ← incremental re-index skill
-    └── cerebrofy-validate/  ← drift check skill
+└── templates/               ← 27 bundled SKILL.md skill templates, each with YAML frontmatter (name + description):
+    ├── cerebrofy-arch-check/, cerebrofy-blast-radius/, cerebrofy-build/,
+    ├── cerebrofy-changelog/, cerebrofy-context/, cerebrofy-coordination/,
+    ├── cerebrofy-coverage-gap/, cerebrofy-epistemic/, cerebrofy-governance/,
+    ├── cerebrofy-health/, cerebrofy-impact/, cerebrofy-insights/, cerebrofy-intent/,
+    ├── cerebrofy-narrative/, cerebrofy-onboard/, cerebrofy-plan/, cerebrofy-remember/,
+    ├── cerebrofy-resources/, cerebrofy-review/, cerebrofy-search/, cerebrofy-session/,
+    ├── cerebrofy-silo/, cerebrofy-synthesize/, cerebrofy-update/, cerebrofy-upgrade/,
+    ├── cerebrofy-validate/, cerebrofy-vuln/
+    └── install_skills() / install_instructions() in installer.py sync these into .opencode/.claude/.copilot
 tests/
 ├── unit/                        ← Per-module unit tests
 └── integration/
@@ -120,26 +124,36 @@ cerebrofy viz
 
 ## Key Invariants (from Constitution)
 
+### Database & Build invariants
 - **Law I**: `cerebrofy init` MUST NOT create `cerebrofy.db`. Never write to `.cerebrofy/db/` during init.
-- **Law II**: All call edges stored in `edges` table. `RUNTIME_BOUNDARY` edges stored but NEVER traversed in BFS.
 - **Law III**: Every Neuron in `nodes` MUST have a corresponding row in `vec_neurons` after a completed build.
-- **Law IV**: Pre-push hook (v1) auto-runs `cerebrofy update` on drift, then proceeds. Only blocks if `cerebrofy update` itself fails. Hard-block mode (v2, no auto-update) is Phase 3.
 - **Law V**: Zero language-specific logic in `parser/engine.py` or `graph/resolver.py`. All language rules in `.scm` files.
 - **Atomic swap**: `cerebrofy build` writes to `cerebrofy.db.tmp`; swaps via `os.replace()` on success only.
 - **Schema version check**: Every `open_db()` call MUST read `meta.schema_version` before any read or write.
 - **Neuron dedup**: Keep only the first occurrence per `{file}::{name}` within a file (by `line_start`). DB table: `nodes`.
-- **Anonymous functions**: Always skip lambdas and anonymous arrow functions. Never produce a Neuron for them.
-- **Markdown post-swap**: Lobe `.md` files and `cerebrofy_map.md` are written AFTER the atomic swap (Step 5, post Step 6).
+
+### Build & DB transaction invariants
+- **Law II**: All call edges stored in `edges` table. `RUNTIME_BOUNDARY` edges stored but NEVER traversed in BFS.
 - **Partial re-index transaction**: `cerebrofy update` uses `BEGIN IMMEDIATE` wrapping all DML. `sqlite-vec` `vec0` does NOT support UPDATE — always DELETE+INSERT within same transaction.
-- **Hook upgrade**: `hooks/installer.py` upgrades pre-push hook from WARN-only (version 1) to hard-block (version 2) using `# cerebrofy-hook-version: N` marker within `# BEGIN cerebrofy` / `# END cerebrofy` sentinels.
-- **Hard-block gate**: Hard-block pre-push hook MUST NOT be activated until `cerebrofy update` < 2s is verified (FR-003/FR-014).
-- **Drift classification**: `validate/drift_classifier.py` compares Neuron `name` + whitespace-normalized `signature`. Minor = no structural change. Structural = any Neuron added/removed/renamed/sig-changed, or import added/removed.
-- **Git detection**: `update/change_detector.py` uses `subprocess.run()` with explicit arg lists (never `shell=True`). Handle fresh-repo edge case: check `git rev-parse --verify HEAD` before running `git diff` commands.
+- **Markdown post-swap**: Lobe `.md` files and `cerebrofy_map.md` are written AFTER the atomic swap (Step 5, post Step 6).
 - **cerebrofy_map.md on update**: `cerebrofy update` rewrites `cerebrofy_map.md` with new `state_hash` on every successful run (same as `cerebrofy build`).
+- **Anonymous functions**: Always skip lambdas and anonymous arrow functions. Never produce a Neuron for them.
+
+### Search & MCP invariants
 - **Hybrid search connection**: `search/hybrid.py` opens `cerebrofy.db` via `?mode=ro` URI. KNN query and BFS traversal share the same `sqlite3.Connection` object — zero IPC, zero serialization.
 - **RUNTIME_BOUNDARY in BFS**: BFS exclude `RUNTIME_BOUNDARY` edges from traversal. They are collected as `RuntimeBoundaryWarning` and displayed separately — never counted in blast radius.
 - **MCP dispatcher**: `cerebrofy mcp` uses CWD routing — reads `os.getcwd()` at each tool call to find the active repo's `.cerebrofy/config.yaml`. Exactly one MCP entry (`mcpServers.cerebrofy`) per machine, shared across all repos. **Launch boundary (C1)**: at start-up the server clips all routing to the launch directory — the launch project root when launched inside a project, otherwise the launch CWD (a workspace root serves the repos beneath it; siblings/parents are blocked). `--root` / `CEREBROFY_ROOT` stay a hard pin that skips the walk-up and wins over the boundary.
-- **.gitignore on init**: `cerebrofy init` MUST append `.cerebrofy/db/` to the repository's `.gitignore` (creating the file if needed, no duplicate if already present). This prevents `cerebrofy.db` from being staged (FR-019).
+
+### Governance & Hook invariants
+- **Hook upgrade**: `hooks/installer.py` upgrades pre-push hook from WARN-only (version 1) to hard-block (version 2) using `# cerebrofy-hook-version: N` marker within `# BEGIN cerebrofy` / `# END cerebrofy` sentinels.
+- **Hard-block gate**: Hard-block pre-push hook MUST NOT be activated until `cerebrofy update` < 2s is verified (FR-003/FR-014).
+- **Drift classification**: `validate/drift_classifier.py` compares Neuron `name` + whitespace-normalized `signature`. Minor = no structural change. Structural = any Neuron added/removed/renamed/sig-changed, or import added/removed.
+
+### Tools & Git setup invariants
+- **Dataclasses**: use `@dataclass(frozen=True)` for Neuron and ParseResult (immutable value objects)
+- **No f-strings**: extract complex logic to a variable first
+- **Test isolation**: always use `tmp_path` fixture; never touch the real filesystem in unit tests
+- **Git detection**: `update/change_detector.py` uses `subprocess.run()` with explicit arg lists (never `shell=True`). Handle fresh-repo edge case: check `git rev-parse --verify HEAD` before running `git diff` commands.
 - **Hook sentinel format** (FR-020): The pre-push hook block MUST use `# BEGIN cerebrofy` / `# cerebrofy-hook-version: N` / `# END cerebrofy` sentinels. The incorrect `# cerebrofy-hook-start` / `# cerebrofy-hook-end` format in earlier cli-init.md is superseded by this invariant.
 
 ## Recent Changes
